@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Rendered markdown from profile sections */
+.prose-crm {
+  @apply text-[0.9rem] leading-relaxed text-stone-700;
+}
+.prose-crm p {
+  @apply my-2;
+}
+.prose-crm ul {
+  @apply my-2 space-y-1.5 pl-5 list-disc marker:text-stone-300;
+}
+.prose-crm ol {
+  @apply my-2 space-y-1.5 pl-5 list-decimal;
+}
+.prose-crm strong {
+  @apply font-semibold text-stone-900;
+}
+.prose-crm a {
+  @apply text-indigo-700 underline decoration-indigo-200 underline-offset-2 hover:decoration-indigo-500;
+}
+.prose-crm blockquote {
+  @apply my-3 border-l-2 border-indigo-200 bg-indigo-50/50 py-1.5 pl-4 pr-3 italic text-stone-600 rounded-r;
+}
+.prose-crm h3,
+.prose-crm h4 {
+  @apply mt-4 mb-1.5 font-semibold text-stone-900 text-[0.9rem];
+}
+.prose-crm h2 {
+  @apply mt-5 mb-2 font-semibold text-stone-900 text-base;
+}
+.prose-crm hr {
+  @apply my-4 border-stone-200;
+}
+.prose-crm code {
+  @apply rounded bg-stone-100 px-1 py-0.5 text-[0.8rem];
+}

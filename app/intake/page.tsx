@@ -1,0 +1,83 @@
+import Link from "next/link";
+import { getDb } from "@/lib/db";
+import { analyzeIntake } from "@/lib/intake";
+import { claudeAvailable } from "@/lib/ai";
+import AnalyzeButton from "@/components/AnalyzeButton";
+
+export const dynamic = "force-dynamic";
+
+export default function IntakePage() {
+  const hasClaude = claudeAvailable();
+  const drafts = getDb()
+    .prepare(
+      `SELECT id, status, created_at, substr(raw_text, 1, 90) AS preview
+       FROM intake_drafts WHERE status IN ('analyzing','ready','error') ORDER BY id DESC LIMIT 5`
+    )
+    .all() as { id: number; status: string; created_at: string; preview: string }[];
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight">✨ Intake</h1>
+        <p className="mt-1 text-sm text-stone-500">
+          Paste anything — a LinkedIn profile, an email thread, meeting notes. Your local
+          model extracts the person and company, writes the profile sections in your house
+          style, finds connections to your existing network, and suggests next steps.
+          If the paste describes a meeting or thread that already happened, it also
+          drafts the interaction-log entry (setting last touch). You review everything
+          before it's saved.
+        </p>
+      </header>
+
+      <form action={analyzeIntake} className="space-y-3">
+        <textarea
+          name="raw_text"
+          required
+          minLength={40}
+          rows={16}
+          placeholder={"Paste here…\n\ne.g. select-all + copy on a LinkedIn profile page, or an email thread, or your raw notes from a call."}
+          className="w-full rounded-xl border border-stone-300 p-4 text-sm leading-relaxed focus:border-indigo-400 focus:outline-none"
+        />
+        {hasClaude ? (
+          <label className="flex items-center gap-2 text-sm text-stone-600">
+            <input type="checkbox" name="research" value="1" defaultChecked />
+            Research on the web first (the search step runs through Claude and sends the pasted text to Anthropic; the analysis itself still runs locally)
+          </label>
+        ) : (
+          <p className="text-xs text-stone-400">Web research is unavailable — the Claude Code CLI isn&apos;t installed. The analysis will work from the pasted text only.</p>
+        )}
+        <AnalyzeButton />
+      </form>
+
+      {drafts.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Recent analyses
+          </h2>
+          <ul className="space-y-1.5">
+            {drafts.map((d) => (
+              <li key={d.id} className="text-sm">
+                <Link href={`/intake/${d.id}`} className="font-medium text-indigo-700 hover:underline">
+                  #{d.id}
+                </Link>{" "}
+                <span className={d.status === "error" ? "text-red-600" : d.status === "analyzing" ? "animate-pulse text-indigo-600" : "text-green-700"}>
+                  [{d.status}]
+                </span>{" "}
+                <span className="text-stone-500">{d.preview}…</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <p className="text-xs text-stone-400">
+        The analysis runs on the local model via Ollama. What leaves your machine: the pasted
+        text, if web research is on (to Anthropic via your Claude login) — and, if Ollama is
+        unavailable and the Claude fallback is enabled in Settings, the whole prompt including
+        your contact roster. Manual entry
+        is still available on the <Link href="/people" className="underline">People</Link> and{" "}
+        <Link href="/companies" className="underline">Companies</Link> pages.
+      </p>
+    </div>
+  );
+}

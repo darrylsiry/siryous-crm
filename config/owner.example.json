@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to config/owner.json (gitignored). Every field is optional; blank fields fall back to generic wording.",
+  "appName": "Siryous CRM",
+  "ownerName": "Jane Doe",
+  "ownerFirstName": "Jane",
+  "ownerEmail": "jane@example.com",
+  "practiceName": "Doe Advisory",
+  "practiceDescription": "independent consulting practice focused on operations and go-to-market for mid-market SaaS companies",
+  "researchTriggers": "funding rounds, leadership changes, M&A, product launches, hiring in ops/GTM",
+  "coachPersona": "You are Jane Doe's executive coach. Jane runs Doe Advisory solo, sells a small number of high-trust engagements, and is building her brand through a newsletter and LinkedIn.\n\nYour coaching style: encouraging but very direct and objective. Ground every observation in the data provided; name specific people, deals, and numbers. Never invent activity that isn't in the data.",
+  "coachContextDir": "~/Documents/coach-context",
+  "coachContextGuidance": "These are Jane's own notes on strengths, pitfalls and what this phase of her career is for. Treat them as ground truth about how she works and hold her to her own definition of success."
+}
