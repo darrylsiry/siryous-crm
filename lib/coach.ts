@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { getDb, BUCKETS } from "./db";
 import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
+import { loadProposals, type CoachProposal } from "./coachData";
 import {
   buildCoachAdvicePrompt,
   buildCoachReplyPrompt,
@@ -17,53 +18,146 @@ import {
   type CoachClose,
 } from "./coachai";
 
+/**
+ * The conversation as the model should see it: the chat plus, in order, the
+ * CRM proposals and their fate — so it neither re-proposes something that is
+ * awaiting review nor "forgets" something you rejected.
+ */
 function loadMessages(sessionId: number): CoachMessage[] {
-  return getDb()
-    .prepare(`SELECT role, content_md, created_at FROM coach_messages WHERE session_id=? ORDER BY id`)
-    .all(sessionId) as CoachMessage[];
+  const db = getDb();
+  const msgs = db
+    .prepare(`SELECT id, role, content_md, created_at FROM coach_messages WHERE session_id=? ORDER BY id`)
+    .all(sessionId) as (CoachMessage & { id: number })[];
+  const proposals = loadProposals(sessionId);
+  const out: CoachMessage[] = [];
+  const describe = (p: CoachProposal) =>
+    `${p.kind === "complete" ? "complete" : "add"}: ${p.title}${p.due_label ? ` (due ${p.due_label})` : ""}`;
+  const attach = (list: CoachProposal[]) => {
+    if (!list.length) return;
+    const lines = list.map((p) =>
+      p.status === "applied"
+        ? `📌 recorded — ${describe(p)}`
+        : p.status === "rejected"
+          ? `❌ rejected by the owner — ${describe(p)}`
+          : `⏳ proposed, awaiting the owner's review — ${describe(p)}`
+    );
+    out.push({ role: "crm", content_md: lines.join("\n"), created_at: list[0].created_at });
+  };
+  for (const m of msgs) {
+    out.push({ role: m.role, content_md: m.content_md, created_at: m.created_at });
+    attach(proposals.filter((p) => p.message_id === m.id));
+  }
+  attach(proposals.filter((p) => p.message_id === null));
+  return out;
 }
 
 /**
- * Apply the CRM changes a coach turn extracted (completions + new
- * commitments). Returns a human-readable receipt, or null if nothing changed.
- * Conservative by design: only ids that are genuinely open complete; new
- * actions are tagged source='coach'.
+ * Turn the CRM changes a coach turn extracted (completions + new commitments)
+ * into pending proposals for the owner to accept or reject. Nothing is written
+ * to action_items here. Returns how many proposals were created.
  */
-function applyCrmUpdates(sessionId: number, updates: CoachCrmUpdates): string | null {
+function proposeCrmUpdates(sessionId: number, messageId: number | null, updates: CoachCrmUpdates): number {
   const db = getDb();
-  const lines: string[] = [];
-  const apply = db.transaction(() => {
+  let n = 0;
+  const insert = db.prepare(
+    `INSERT INTO coach_proposals (session_id, message_id, kind, action_id, title, bucket, due_label, person_slug)
+     VALUES (?,?,?,?,?,?,?,?)`
+  );
+  const run = db.transaction(() => {
     for (const id of updates.completed_action_ids ?? []) {
       const row = db.prepare(`SELECT title FROM action_items WHERE id=? AND status='open'`).get(Number(id)) as
         | { title: string }
         | undefined;
       if (!row) continue;
-      db.prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(Number(id));
-      lines.push(`✅ Completed: ${row.title}`);
+      const dup = db
+        .prepare(`SELECT 1 FROM coach_proposals WHERE session_id=? AND kind='complete' AND action_id=? AND status<>'rejected'`)
+        .get(sessionId, Number(id));
+      if (dup) continue;
+      insert.run(sessionId, messageId, "complete", Number(id), row.title, null, null, null);
+      n++;
     }
     for (const a of updates.new_actions ?? []) {
       const title = String(a.title ?? "").trim();
       if (!title) continue;
-      const person = a.person_slug
-        ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(a.person_slug) as
-            | { id: number; company_id: number | null }
-            | undefined)
-        : undefined;
-      db.prepare(
-        `INSERT INTO action_items (bucket, due_label, title, person_id, company_id, source) VALUES (?,?,?,?,?,'coach')`
-      ).run(Object.hasOwn(BUCKETS, String(a.bucket)) ? a.bucket : "this_week", a.due_label ?? null, title, person?.id ?? null, person?.company_id ?? null);
-      lines.push(`➕ Committed: ${title}${a.due_label ? ` (due ${a.due_label})` : ""}`);
+      const dup = db
+        .prepare(`SELECT 1 FROM coach_proposals WHERE session_id=? AND kind='create' AND lower(title)=lower(?) AND status<>'rejected'`)
+        .get(sessionId, title);
+      if (dup) continue;
+      const slug = a.person_slug && db.prepare(`SELECT 1 FROM people WHERE slug=?`).get(a.person_slug) ? a.person_slug : null;
+      insert.run(
+        sessionId,
+        messageId,
+        "create",
+        null,
+        title,
+        Object.hasOwn(BUCKETS, String(a.bucket)) ? String(a.bucket) : "this_week",
+        a.due_label ?? null,
+        slug
+      );
+      n++;
+    }
+  });
+  run();
+  return n;
+}
+
+/**
+ * Review step: the owner ticks the proposals to record; everything else in the
+ * same group is rejected. Applies the ticked ones to action_items and posts a
+ * 📌 receipt into the transcript.
+ */
+export async function reviewCoachProposals(formData: FormData) {
+  const sessionId = Number(formData.get("session_id"));
+  const group = String(formData.get("group") ?? ""); // message id or "close"
+  const rejectAll = formData.get("decision") === "reject";
+  if (!sessionId || !group) return;
+  const db = getDb();
+  const pending = loadProposals(sessionId).filter(
+    (p) => p.status === "pending" && (group === "close" ? p.message_id === null : p.message_id === Number(group))
+  );
+  if (!pending.length) return;
+  const chosen = new Set(
+    rejectAll ? [] : pending.filter((p) => formData.get(`apply_${p.id}`)).map((p) => p.id)
+  );
+  const lines: string[] = [];
+  let rejected = 0;
+  const apply = db.transaction(() => {
+    for (const p of pending) {
+      if (!chosen.has(p.id)) {
+        db.prepare(`UPDATE coach_proposals SET status='rejected', resolved_at=datetime('now') WHERE id=?`).run(p.id);
+        rejected++;
+        continue;
+      }
+      if (p.kind === "complete" && p.action_id) {
+        const row = db.prepare(`SELECT title FROM action_items WHERE id=? AND status='open'`).get(p.action_id) as
+          | { title: string }
+          | undefined;
+        if (row) {
+          db.prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(p.action_id);
+          lines.push(`✅ Completed: ${row.title}`);
+        } else {
+          lines.push(`✅ Already done: ${p.title}`);
+        }
+      } else if (p.kind === "create") {
+        const person = p.person_slug
+          ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(p.person_slug) as
+              | { id: number; company_id: number | null }
+              | undefined)
+          : undefined;
+        db.prepare(
+          `INSERT INTO action_items (bucket, due_label, title, person_id, company_id, source) VALUES (?,?,?,?,?,'coach')`
+        ).run(p.bucket ?? "this_week", p.due_label, p.title, person?.id ?? null, person?.company_id ?? null);
+        lines.push(`➕ Committed: ${p.title}${p.due_label ? ` (due ${p.due_label})` : ""}`);
+      }
+      db.prepare(`UPDATE coach_proposals SET status='applied', resolved_at=datetime('now') WHERE id=?`).run(p.id);
+    }
+    if (lines.length || rejected) {
+      const receipt = [...lines, rejected ? `↩︎ ${rejected} proposal${rejected === 1 ? "" : "s"} rejected` : ""].filter(Boolean).join("\n");
+      db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`).run(sessionId, "crm", receipt);
     }
   });
   apply();
-  if (!lines.length) return null;
-  const receipt = lines.join("\n");
-  db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`).run(
-    sessionId,
-    "crm",
-    receipt
-  );
-  return receipt;
+  revalidatePath("/", "layout");
 }
 
 function generateAdvice(sessionId: number, weekStart: string, kind: "weekly" | "checkin") {
@@ -147,12 +241,12 @@ export async function sendCoachMessage(formData: FormData) {
     );
     const turn = (await extractJsonWithRepair(raw)) as CoachTurn;
     if (!turn.reply_md?.trim()) throw new Error("Empty reply.");
-    db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`).run(
-      sessionId,
-      "coach",
-      turn.reply_md.trim()
+    const replyId = Number(
+      db
+        .prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`)
+        .run(sessionId, "coach", turn.reply_md.trim()).lastInsertRowid
     );
-    applyCrmUpdates(sessionId, turn);
+    proposeCrmUpdates(sessionId, replyId, turn);
     db.prepare(`UPDATE coach_sessions SET error=NULL WHERE id=?`).run(sessionId);
   } catch (err) {
     db.prepare(`UPDATE coach_sessions SET error=? WHERE id=?`).run(
@@ -182,7 +276,7 @@ export async function endCoachSession(formData: FormData) {
     );
     const close = (await extractJsonWithRepair(raw)) as CoachClose;
     if (!close.summary_md?.trim()) throw new Error("Empty summary.");
-    applyCrmUpdates(sessionId, close);
+    proposeCrmUpdates(sessionId, null, close);
     db.prepare(
       `UPDATE coach_sessions SET summary_md=?, status='closed', closed_at=datetime('now'), error=NULL WHERE id=?`
     ).run(close.summary_md.trim(), sessionId);

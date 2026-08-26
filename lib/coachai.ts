@@ -305,15 +305,15 @@ export interface CoachTurn extends CoachCrmUpdates {
   reply_md: string;
 }
 
-const crmUpdateRules = (O: ReturnType<typeof loadOwner>) => `CRM UPDATE RULES (be conservative — the changes apply automatically):
+const crmUpdateRules = (O: ReturnType<typeof loadOwner>) => `CRM UPDATE RULES (be conservative — each proposal is shown to the owner to accept or reject):
 - completed_action_ids: ids (from the "[#id]" open-action list) of items ${O.first} CLEARLY STATES are already done ("I sent it", "done", "booked it"). Intent or agreement is NOT completion. Empty array if none.
 - new_actions: commitments ${O.first} explicitly makes in this conversation ("I'll send the proposal Monday"). Do NOT add near-duplicates of existing open items — if an open item already covers it, leave it alone (or complete it if they did it). title: short imperative. bucket: one of overdue, this_week, awaiting, high_potential, keep_warm, venture, data_gap (usually this_week). due_label: e.g. "Fri 7/25" or null. person_slug: the roster slug it concerns, or null.
-- Items the transcript shows were already recorded (📌 notes) must not be recorded again.`;
+- Items the transcript shows as 📌 recorded, ⏳ proposed/awaiting review, or ❌ rejected must not be proposed again.`;
 
 const transcriptOf = (history: CoachMessage[]) => {
   const O = loadOwner();
   return history
-    .map((m) => `${m.role === "coach" ? "COACH" : m.role === "crm" ? "📌 (recorded in CRM)" : O.First.toUpperCase()}: ${m.content_md}`)
+    .map((m) => `${m.role === "coach" ? "COACH" : m.role === "crm" ? "(CRM)" : O.First.toUpperCase()}: ${m.content_md}`)
     .join("\n\n");
 };
 

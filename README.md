@@ -55,11 +55,11 @@ binds to **127.0.0.1 only** — there is no login, so don't expose the port.
   attribution), objectives, talking points, questions, watch-outs. Briefs can be
   downloaded as a Word doc, and a "Log this meeting" section closes the loop
   afterwards.
-- **◎ Coach (AI)** — a weekly coaching session over the whole CRM: Claude reads
-  the pipeline, overdue items, and recent activity, gives advice, and you chat
-  it through. Commitments made in the chat become action items, and items you
-  report as done are closed — the session's outcomes are recorded back into
-  the CRM automatically. Ad-hoc check-ins between weekly sessions too.
+- **◎ Coach (AI)** — a weekly coaching session over the whole CRM: the model
+  reads the pipeline, overdue items, and recent activity, gives advice, and you
+  chat it through. Commitments you make and items you report as done show up
+  as proposed CRM changes under each reply — tick the ones to record, the rest
+  are rejected and never re-proposed. Ad-hoc check-ins between weekly sessions too.
 - **Pipeline** — kanban board of opportunities (engagements, partnerships,
   ventures, referrals) across consultant-shaped stages: Identified → In
   conversation → Scoping/proposal → Negotiating → Engaged. Move stages inline;
@@ -139,8 +139,9 @@ Claude steps run with an explicit, **read-only** tool grant (see `TOOLS` in
 `lib/ai.ts`) and are blocked from spawning subagents and from any local
 shell/file tools. Zoom/Gmail/Calendar/Drive access comes from the claude.ai
 connectors already authorized for the CLI (`claude mcp list`). Nothing the AI
-produces touches the database until it has passed a human review screen, and
-no granted tool can send, write, or delete anything external.
+produces touches the database until it has passed a human review step (the
+Intake and Log review screens, the Coach's tick-to-record proposals), and no
+granted tool can send, write, or delete anything external.
 
 Intake refuses to create a second profile for a name that already exists
 unless you explicitly opt in on the review screen; if a duplicate slips

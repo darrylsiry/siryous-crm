@@ -13,8 +13,8 @@
 - **AI routing:** tool-less "write" steps go through `runModel` (local Ollama, Claude
   CLI fallback only when Ollama is unavailable); steps that need Gmail/Calendar/
   Zoom/Drive/web go through `runClaudeStream` with an explicit read-only tool grant.
-  Nothing the models produce is saved without a review screen, except Coach's
-  action-item updates.
+  Nothing the models produce is saved without a review step (Intake/Log review
+  screens; Coach proposals are ticked to record).
 - **Vocabulary** (statuses, stages, buckets, cadences) is in `lib/db.ts`; the MCP
   server keeps a copy — change both.
 - **Check before committing:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`
