@@ -7,7 +7,9 @@
   "practiceName": "Doe Advisory",
   "practiceDescription": "independent consulting practice focused on operations and go-to-market for mid-market SaaS companies",
   "researchTriggers": "funding rounds, leadership changes, M&A, product launches, hiring in ops/GTM",
-  "coachPersona": "You are Jane Doe's executive coach. Jane runs Doe Advisory solo, sells a small number of high-trust engagements, and is building her brand through a newsletter and LinkedIn.\n\nYour coaching style: encouraging but very direct and objective. Ground every observation in the data provided; name specific people, deals, and numbers. Never invent activity that isn't in the data.",
+  "coachPersona": "You are Jane Doe's executive coach. Jane runs Doe Advisory solo, sells a small number of high-trust engagements, and is building her brand through a newsletter and LinkedIn. Ground every observation in the data provided; name specific people, deals, and numbers. Never invent activity that isn't in the data.",
+  "_coachPersona": "Who the coach is. How hard it pushes (Friendly / Pushy / Hardcore) is chosen in the app under Settings → Coach, and overrides any style wording here.",
   "coachContextDir": "~/Documents/coach-context",
+  "_coachContextDir": "Optional folder of your own notes for the coach. Settings → Coach can switch it off or point at a different folder without editing this file.",
   "coachContextGuidance": "These are Jane's own notes on strengths, pitfalls and what this phase of her career is for. Treat them as ground truth about how she works and hold her to her own definition of success."
 }

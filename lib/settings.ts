@@ -1,4 +1,9 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { getDb } from "./db";
+import { loadOwner } from "./owner.mjs";
+import { DEFAULT_COACH_TONE, isCoachTone, type CoachTone } from "./coachTone";
 
 /**
  * App settings stored in the database (key/value), editable on /settings.
@@ -96,4 +101,53 @@ export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok
     };
   }
   return { ok: true, url: `${u.protocol}//${u.host}${u.pathname.replace(/\/$/, "")}` };
+}
+
+// ---------------------------------------------------------------------------
+// Coach
+// ---------------------------------------------------------------------------
+
+export interface CoachSettings {
+  /** How hard the coach pushes (lib/coachTone.ts). */
+  tone: CoachTone;
+  /** Whether the coach reads the owner's own notes folder at all. */
+  useProfile: boolean;
+  /** The notes folder actually in use (settings override, else config/owner.json), or "" for none. */
+  contextDir: string;
+  /** The raw settings override, for the form. */
+  contextDirSetting: string;
+  /** Where config/owner.json points, for the form's placeholder. */
+  ownerContextDir: string;
+}
+
+export function expandHome(p: string): string {
+  return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+export function getCoachSettings(): CoachSettings {
+  const toneRaw = getSetting("coach.tone");
+  const useProfile = getSetting("coach.use_profile") !== "off";
+  const contextDirSetting = getSetting("coach.context_dir") ?? "";
+  const ownerContextDir = loadOwner().coachContextDir || "";
+  const contextDir = useProfile ? expandHome(contextDirSetting) || ownerContextDir : "";
+  return {
+    tone: isCoachTone(toneRaw) ? toneRaw : DEFAULT_COACH_TONE,
+    useProfile,
+    contextDir,
+    contextDirSetting,
+    ownerContextDir,
+  };
+}
+
+/** The notes folder must exist and be a folder; "~/" is understood. */
+export function validateContextDir(raw: string): { ok: true; dir: string } | { ok: false; reason: string } {
+  const dir = expandHome(raw.trim());
+  if (!dir) return { ok: true, dir: "" };
+  if (!path.isAbsolute(dir)) return { ok: false, reason: "give the full path to the folder (starting with / or ~/)" };
+  try {
+    if (!fs.statSync(dir).isDirectory()) return { ok: false, reason: `${dir} is a file, not a folder` };
+  } catch {
+    return { ok: false, reason: `there is no folder at ${dir}` };
+  }
+  return { ok: true, dir: raw.trim() };
 }

@@ -5,6 +5,8 @@ import { getDb, VOCAB } from "./db";
 import { rosterBlock } from "./ai";
 import { loadOwner } from "./owner.mjs";
 import { bucketList } from "./vocab.mjs";
+import { getCoachSettings } from "./settings";
+import { coachToneSpec, type CoachTone } from "./coachTone";
 
 // ---------------------------------------------------------------------------
 // Weekly coaching: context assembly + prompts. Server actions live in coach.ts.
@@ -179,8 +181,9 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
 
 /**
  * The owner's own coaching context — a folder of notes on strengths, pitfalls,
- * goals (config/owner.json → coachContextDir). Read live so edits flow into
- * the next session. Markdown is read directly; .docx via `pandoc` or macOS
+ * goals. The folder comes from Settings (coach.context_dir) or, failing that,
+ * config/owner.json → coachContextDir; Settings can also switch it off
+ * (coach.use_profile). Read live so edits flow into the next session. Markdown is read directly; .docx via `pandoc` or macOS
  * `textutil` when available. Best effort: a missing folder or unreadable file
  * drops out of the context. Cached by directory mtime so it isn't re-read (or
  * re-converted) on every chat turn.
@@ -202,7 +205,7 @@ function convertDocx(full: string): string | null {
 }
 
 export function careerProfile(): string {
-  const dir = loadOwner().coachContextDir;
+  const dir = getCoachSettings().contextDir;
   if (!dir) return "";
   let mtimeMs = 0;
   try {
@@ -249,45 +252,37 @@ ${profile}
 `;
 }
 
-function persona(): string {
+/**
+ * Who the coach is (identity, from config/owner.json or generic defaults) +
+ * how hard it pushes (the tone chosen on /settings). The tone block always
+ * comes last and says it overrides any style language above it, so a custom
+ * coachPersona keeps its identity text while the setting still applies.
+ */
+function persona(tone: CoachTone = getCoachSettings().tone): string {
   const O = loadOwner();
-  if (O.coachPersona) return O.coachPersona;
-  return `You are ${O.ownerName === "the owner" ? "the executive coach for the owner of" : `${O.ownerName}'s executive coach. ${O.First} is the owner and principal of`} ${O.practiceIntro}. ${O.First} sells a small number of high-trust engagements and needs to keep a healthy pipeline while delivering.
+  const identity =
+    O.coachPersona ||
+    `You are ${O.ownerName === "the owner" ? "the executive coach for the owner of" : `${O.ownerName}'s executive coach. ${O.First} is the owner and principal of`} ${O.practiceIntro}. ${O.First} sells a small number of high-trust engagements and needs to keep a healthy pipeline while delivering.
 
-Your coaching style: encouraging but very direct and objective. You are not a cheerleader — you tell ${O.first} plainly where they are dropping the ball, where their attention is misallocated, and what the owner of a premium practice should be doing that they are not. Ground every observation in the actual data provided; name specific people, deals, and numbers. Never invent activity that isn't in the data. When the data is thin, say so — a thin week of logged activity is itself a coaching observation.`;
+Ground every observation in the actual data provided; name specific people, deals, and numbers. Never invent activity that isn't in the data. When the data is thin, say so — a thin week of logged activity is itself a coaching observation.`;
+  return `${identity}
+
+${coachToneSpec(tone).rules(O)}`;
 }
 
 export function buildCoachAdvicePrompt(weekStart: string, kind: CoachKind = "weekly"): string {
   const today = iso(new Date());
   const O = loadOwner();
+  const tone = getCoachSettings().tone;
+  const spec = coachToneSpec(tone);
   const structure =
     kind === "checkin"
       ? `This is an AD-HOC CHECK-IN ${O.first} initiated — not the weekly review. Keep it tighter and more immediate than a weekly session: weigh what has moved since the last session's summary most heavily, acknowledge progress made since then, and focus on the next few days, not the whole week.
 
-Write the check-in as Markdown with exactly these sections:
+${spec.checkin(O).replace("{DATE}", longDate(today))}`
+      : spec.weekly(O).replace("{WEEK}", weekLabel(weekStart));
 
-# Coach's check-in — ${longDate(today)}
-## What's moved since last session (the objective read)
-Progress against the last session's commitments first — kept, in motion, or untouched. Then anything new in the data.
-## What you're doing well
-Specific, earned praise only — tied to real activity above.
-## Where you're dropping the ball
-The direct section. Name names.
-## What to focus on right now
-2-4 concrete priorities for the next few days, each with a first action they can take today.`
-      : `Write this week's coaching advice as Markdown with exactly these sections:
-
-# Coach's advice — ${weekLabel(weekStart)}
-## Where you are (the objective read)
-3-6 bullets: pipeline reality, activity level vs. what a premium practice needs, revenue-generating motion vs. busywork. Numbers where possible.
-## What you're doing well
-Specific, earned praise only — tied to real activity above.
-## Where you're dropping the ball
-The direct section. Stalled deals, overdue keep-warm touches, commitments from last session not kept, neglected high-priority items, weak pipeline top-of-funnel — whatever the data shows. Name names.
-## What to work on this week
-3-5 concrete priorities for the owner of a premium consulting firm, each with a first action they can take Monday morning. Prioritize revenue and relationship leverage over administration.`;
-
-  return `${persona()}
+  return `${persona(tone)}
 ${profileBlock()}
 Today is ${today}. Below is the complete, factual snapshot of ${O.possessive} CRM: this week's activity and the current state of their entire book of business.
 
@@ -308,10 +303,13 @@ export interface CoachTurn extends CoachCrmUpdates {
   reply_md: string;
 }
 
-const crmUpdateRules = (O: ReturnType<typeof loadOwner>) => `CRM UPDATE RULES (be conservative — each proposal is shown to the owner to accept or reject):
+const crmUpdateRules = (O: ReturnType<typeof loadOwner>, tone: CoachTone) => {
+  const extra = coachToneSpec(tone).crmRule(O);
+  return `CRM UPDATE RULES (be conservative — each proposal is shown to the owner to accept or reject):
 - completed_action_ids: ids (from the "[#id]" open-action list) of items ${O.first} CLEARLY STATES are already done ("I sent it", "done", "booked it"). Intent or agreement is NOT completion. Empty array if none.
 - new_actions: commitments ${O.first} explicitly makes in this conversation ("I'll send the proposal Monday"). Do NOT add near-duplicates of existing open items — if an open item already covers it, leave it alone (or complete it if they did it). title: short imperative. bucket: one of ${bucketList(VOCAB)} (usually this_week). due_label: e.g. "Fri 7/25" or null. person_slug: the roster slug it concerns, or null.
-- Items the transcript shows as 📌 recorded, ⏳ proposed/awaiting review, or ❌ rejected must not be proposed again.`;
+- Items the transcript shows as 📌 recorded, ⏳ proposed/awaiting review, or ❌ rejected must not be proposed again.${extra ? `\n${extra}` : ""}`;
+};
 
 const transcriptOf = (history: CoachMessage[]) => {
   const O = loadOwner();
@@ -328,7 +326,8 @@ export function buildCoachReplyPrompt(
   kind: CoachKind = "weekly"
 ): string {
   const O = loadOwner();
-  return `${persona()}
+  const tone = getCoachSettings().tone;
+  return `${persona(tone)}
 ${profileBlock()}
 You are mid-session. The written advice you gave them at the start of this ${kind === "checkin" ? "check-in" : "session"}:
 ---
@@ -346,9 +345,9 @@ ${transcriptOf(history) || "(no messages yet)"}
 
 ${O.First.toUpperCase()}: ${newMessage}
 
-Reply as the coach: conversational Markdown, direct and specific, usually under 250 words. Push back where they are rationalizing; concede where they make a fair point; drive toward concrete commitments. Ask at most one question per reply.
+${coachToneSpec(tone).reply(O)}
 
-${crmUpdateRules(O)}
+${crmUpdateRules(O, tone)}
 
 Respond with ONLY a JSON object matching exactly:
 {
@@ -369,7 +368,8 @@ export function buildCoachSummaryPrompt(
   kind: CoachKind = "weekly"
 ): string {
   const O = loadOwner();
-  return `${persona()}
+  const tone = getCoachSettings().tone;
+  return `${persona(tone)}
 
 The ${kind === "checkin" ? "ad-hoc coaching check-in" : `coaching session for ${weekLabel(weekStart)}`} is ending. Your written advice was:
 ---
@@ -396,7 +396,7 @@ A checklist ("- [ ] …") of the specific commitments ${O.first} made in the con
       : " — there was no conversation this session, so list the " + (kind === "checkin" ? "2-3" : "3-4") + " most important actions from the advice as SUGGESTED next steps (not commitments)"
   }. These will be read back to them at the next session, so make each one concrete and checkable.
 
-${crmUpdateRules(O)}
+${crmUpdateRules(O, tone)}
 Additionally for the close: any commitment ${O.first} actually made in the conversation that is not yet represented by an open action item (including 📌-recorded ones from this session) goes into new_actions so the CRM tracks it. Suggested steps they never agreed to do NOT become action items — new_actions must be empty if there was no conversation.
 
 Respond with ONLY a JSON object matching exactly:

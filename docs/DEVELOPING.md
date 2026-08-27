@@ -187,10 +187,14 @@ pulled, and sets the context window (default 32768 — raise it if a long
 transcript or the coach snapshot hits the "ran out of room" error), temperature,
 the Ollama URL (point it at another machine to run models there), the provider
 (local vs. Claude for everything), whether to fall back to Claude, and the
-backup folder. Values are stored in the `settings` table (`lib/settings.ts`,
-keys `ai.model`, `ai.ollama_url`, `ai.num_ctx`, `ai.temperature`,
-`ai.provider`, `ai.fallback`, `backup.dir`) and apply to the next run; the
-defaults come from the environment. The model must be pulled
+backup folder, plus the coach's tone and notes folder. Values are stored in
+the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
+`ai.num_ctx`, `ai.temperature`, `ai.provider`, `ai.fallback`, `backup.dir`,
+`coach.tone`, `coach.use_profile`, `coach.context_dir`) and apply to the next
+run; the defaults come from the environment. The three coach tones are defined
+in `lib/coachTone.ts` as behavioural rules plus a section plan for the advice
+and a reply style; every coach prompt in `lib/coachai.ts` is assembled from
+them, so adding a level is a matter of adding a spec there. The model must be pulled
 (`ollama pull gemma4:26b`) and Ollama running (`ollama serve`, or the menu-bar
 app).
 
@@ -203,8 +207,10 @@ into the profile you want to keep.
 
 Copy `config/owner.example.json` to `config/owner.json` (gitignored) and fill
 in your name, practice, a one-line description, the research triggers that
-matter in your field, and optionally a coach persona and a folder of your own
-notes for the coach to read (`coachContextDir`, `coachContextGuidance`). Every
+matter in your field, and optionally a coach persona (identity only — tone is
+a Setting) and a folder of your own notes for the coach to read
+(`coachContextDir`, `coachContextGuidance`; Settings → Coach can override or
+switch the folder off without editing the file). Every
 AI prompt, the app name and the MCP server name come from this file via
 `loadOwner()` in `lib/owner.mjs`; with no file the wording is generic. Restart
 the app after changing it.

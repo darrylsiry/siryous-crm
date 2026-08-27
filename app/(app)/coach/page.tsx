@@ -5,6 +5,8 @@ import { mondayOf, sessionLabel } from "@/lib/coachai";
 import PendingButton from "@/components/PendingButton";
 import AiStatusBanner from "@/components/AiStatusBanner";
 import { getAiStatus } from "@/lib/aiStatus";
+import { getCoachSettings } from "@/lib/settings";
+import { coachToneSpec } from "@/lib/coachTone";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,8 @@ export default async function CoachPage() {
     msg_count: number;
   }[];
 
+  const coach = getCoachSettings();
+  const toneLabel = coachToneSpec(coach.tone).label;
   const thisWeek = mondayOf(new Date());
   const current = sessions.find((s) => s.week_start === thisWeek && s.kind === "weekly");
 
@@ -49,6 +53,11 @@ export default async function CoachPage() {
           the owner of a premium consulting firm. Talk it through, then close the session to record
           your commitments. Between weekly sessions, start a check-in anytime — the coach picks up
           from the last session's commitments.
+        </p>
+        <p className="mt-2 text-xs text-stone-400">
+          Tone: <span className="font-medium text-stone-600">{toneLabel}</span>
+          {coach.contextDir ? " · reads your notes folder" : " · CRM data only"} —{" "}
+          <Link href="/settings" className="underline hover:text-indigo-600">change in Settings</Link>
         </p>
       </header>
 

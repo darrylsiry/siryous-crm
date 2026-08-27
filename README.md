@@ -163,7 +163,9 @@ The left-hand menu has everything. In rough order of how often you'll use it:
   pipeline, the overdue items and the recent activity, tells you what it sees,
   and you talk it through. Anything you commit to in the conversation shows up
   as a proposed change to the CRM underneath the reply — tick the ones you want
-  recorded. Quick check-ins between weekly sessions work too.
+  recorded. Quick check-ins between weekly sessions work too. Settings → Coach
+  sets how hard it pushes (Friendly, Pushy or Hardcore) and whether it reads a
+  folder of your own notes about your strengths, pitfalls and goals.
 - **Import** — bring in a spreadsheet of contacts, including your LinkedIn
   connections (see the next section).
 - **Map** — a live picture of your network: people coloured by status,

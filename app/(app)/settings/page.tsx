@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { getAiSettings, getSetting } from "@/lib/settings";
+import { getAiSettings, getCoachSettings, getSetting } from "@/lib/settings";
+import { coachToneChoices } from "@/lib/coachTone";
 import { getAiStatus } from "@/lib/aiStatus";
 import { getDb } from "@/lib/db";
 import { lastBackup } from "@/lib/backup.mjs";
@@ -27,6 +28,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const backup = lastBackup(getDb());
   const owner = loadOwner();
   const backupSetting = getSetting("backup.dir") ?? "";
+  const coach = getCoachSettings();
+  const tones = coachToneChoices();
   const port = process.env.PORT || "3000";
   const link = signInUrl(`http://127.0.0.1:${port}`);
   const isMac = process.platform === "darwin";
@@ -77,9 +80,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <h2 className={h2}>Tell the AI who you are</h2>
         {owner.configured ? (
           <p className="mt-2 text-sm text-stone-700">
-            The AI writes for <span className="font-semibold">{owner.ownerName}</span> · {owner.practiceName}
-            {owner.coachContextDir ? <> · coach notes folder: <code>{owner.coachContextDir}</code></> : null}. To change
-            this, edit <code>config/owner.json</code> in the CRM folder and restart the CRM.
+            The AI writes for <span className="font-semibold">{owner.ownerName}</span> · {owner.practiceName}. To change
+            this, edit <code>config/owner.json</code> in the CRM folder and restart the CRM. (How hard the coach pushes, and
+            whether it reads your own notes, is set under Coach below.)
           </p>
         ) : (
           <div className="mt-2 space-y-2 text-sm text-amber-800">
@@ -226,6 +229,53 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               If the AI on this Mac isn&apos;t available, use Claude instead (sends the request to Anthropic)
               {ai.claude.ok ? null : (
                 <span className="block text-xs text-amber-800">Claude isn&apos;t set up on this Mac, so this has no effect right now.</span>
+              )}
+            </span>
+          </label>
+        </section>
+
+        <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className={h2}>Coach</h2>
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-medium text-stone-600">How hard the coach pushes</legend>
+            {tones.map((t) => (
+              <label key={t.key} className="flex items-start gap-2.5 rounded-lg border border-stone-200 p-3 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/50">
+                <input type="radio" name="coach_tone" value={t.key} defaultChecked={coach.tone === t.key} className="mt-1" />
+                <span>
+                  <span className="font-medium">{t.label}</span>
+                  <span className="block text-xs text-stone-500">{t.blurb}</span>
+                  <span className="mt-1 block text-xs italic text-stone-400">{t.sample}</span>
+                </span>
+              </label>
+            ))}
+            <p className="text-xs text-stone-400">Applies to the next reply — you can change it mid-session.</p>
+          </fieldset>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" name="coach_use_profile" value="1" defaultChecked={coach.useProfile} className="mt-1" />
+            <span>
+              Let the coach read my own notes
+              <span className="block text-xs text-stone-500">
+                A folder of your notes on your strengths, pitfalls and goals (Markdown, text or Word files). The coach holds you to
+                what is in them. Only ever read on this Mac; nothing in it is copied anywhere.
+              </span>
+            </span>
+          </label>
+          <label className={label}>
+            Notes folder
+            <input
+              name="coach_context_dir"
+              defaultValue={coach.contextDirSetting}
+              placeholder={coach.ownerContextDir ? `Leave blank to use ${coach.ownerContextDir} (from config/owner.json)` : "e.g. ~/Documents/coach-notes"}
+              className={input}
+            />
+            <span className="mt-1 block text-xs text-stone-400">
+              {coach.useProfile && coach.contextDir ? (
+                <>In use: <code>{coach.contextDir}</code></>
+              ) : coach.useProfile ? (
+                "No folder set — the coach works from your CRM data alone."
+              ) : (
+                "Off — the coach works from your CRM data alone."
               )}
             </span>
           </label>
