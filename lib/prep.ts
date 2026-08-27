@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { getDb } from "./db";
 import { buildPrepPrompt, buildPrepResearchPrompt, extractJsonWithRepair, TOOLS, type PrepResearch } from "./ai";
 import { noteProgress, runWithProgress } from "./progress";
+import { PrepResearchSchema, validateModelJson } from "./schemas";
 
 export async function generatePrep(formData: FormData) {
   const db = getDb();
@@ -32,7 +33,7 @@ export async function generatePrep(formData: FormData) {
           allowedTools: [TOOLS.calendarRead, TOOLS.gmailRead, TOOLS.web].join(","),
           timeoutMs: 420_000,
         });
-        research = (await extractJsonWithRepair(raw)) as PrepResearch;
+        research = validateModelJson(PrepResearchSchema, await extractJsonWithRepair(raw), raw) as PrepResearch;
       } catch (err) {
         researchNote = err instanceof Error ? err.message : String(err);
         noteProgress("prep", briefId, "External research skipped — writing from the CRM dossier only", researchNote);

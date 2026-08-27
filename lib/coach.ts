@@ -8,6 +8,7 @@ import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
 import { loadProposals, type CoachProposal } from "./coachData";
 import { parseDueDate } from "./dates.mjs";
+import { CoachCloseSchema, CoachTurnSchema, validateModelJson } from "./schemas";
 import {
   buildCoachAdvicePrompt,
   buildCoachReplyPrompt,
@@ -240,8 +241,7 @@ export async function sendCoachMessage(formData: FormData) {
       buildCoachReplyPrompt(session.week_start, session.advice_md, history, message, session.kind),
       { json: true, timeoutMs: 300_000 }
     );
-    const turn = (await extractJsonWithRepair(raw)) as CoachTurn;
-    if (!turn.reply_md?.trim()) throw new Error("Empty reply.");
+    const turn: CoachTurn = validateModelJson(CoachTurnSchema, await extractJsonWithRepair(raw), raw);
     const replyId = Number(
       db
         .prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`)
@@ -275,8 +275,7 @@ export async function endCoachSession(formData: FormData) {
       buildCoachSummaryPrompt(session.week_start, session.advice_md, loadMessages(sessionId), session.kind),
       { json: true, timeoutMs: 300_000 }
     );
-    const close = (await extractJsonWithRepair(raw)) as CoachClose;
-    if (!close.summary_md?.trim()) throw new Error("Empty summary.");
+    const close: CoachClose = validateModelJson(CoachCloseSchema, await extractJsonWithRepair(raw), raw);
     proposeCrmUpdates(sessionId, null, close);
     db.prepare(
       `UPDATE coach_sessions SET summary_md=?, status='closed', closed_at=datetime('now'), error=NULL WHERE id=?`

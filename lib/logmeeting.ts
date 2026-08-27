@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { buildFetchPrompt, buildLogPrompt, extractJsonWithRepair, FETCH_NOT_FOUND, TOOLS, type LogAnalysis } from "./ai";
 import { runWithProgress } from "./progress";
 import { parseDueDate } from "./dates.mjs";
+import { LogAnalysisSchema, validateModelJson } from "./schemas";
 
 export async function analyzeLog(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
@@ -51,7 +52,7 @@ export async function analyzeLog(formData: FormData) {
         json: true,
         timeoutMs: 420_000,
       });
-      const analysis = (await extractJsonWithRepair(text)) as LogAnalysis;
+      const analysis: LogAnalysis = validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text);
       if (!analysis?.entries?.length) {
         throw new Error(
           "No roster contacts were found to log against. " +

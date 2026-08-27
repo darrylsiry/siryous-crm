@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { getDb } from "./db";
 import { buildIntakePrompt, buildIntakeResearchPrompt, extractJsonWithRepair, TOOLS, type IntakeAnalysis } from "./ai";
 import { noteProgress, runWithProgress } from "./progress";
+import { IntakeAnalysisSchema, validateModelJson } from "./schemas";
 import { slugify } from "./slug";
 import { DEFAULT_CADENCE } from "./db";
 import { parseDueDate } from "./dates.mjs";
@@ -42,8 +43,7 @@ export async function analyzeIntake(formData: FormData) {
       }
       // Step 2 (local model): the analysis itself.
       const text = await runWithProgress("intake", draftId, buildIntakePrompt(raw, digest), { json: true });
-      const analysis = (await extractJsonWithRepair(text)) as IntakeAnalysis;
-      if (!analysis?.person?.name) throw new Error("The analysis had no person name.");
+      const analysis: IntakeAnalysis = validateModelJson(IntakeAnalysisSchema, await extractJsonWithRepair(text), text);
       if (research && !digest) {
         analysis.confidence_flags = [
           "Web research was unavailable for this run — nothing here was verified online.",
