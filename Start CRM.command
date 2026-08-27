@@ -2,9 +2,19 @@
 # Double-click to start Siryous CRM and open it in your browser.
 cd "$(dirname "$0")"
 
+# The app is locked to this machine with a token in data/auth-token (see
+# README, "Access"). Opening it with ?token= signs this browser in once.
+open_app() {
+  if [ -f data/auth-token ]; then
+    open "http://localhost:3000/?token=$(cat data/auth-token)"
+  else
+    open http://localhost:3000
+  fi
+}
+
 # Already running? Just open it.
 if curl -s -o /dev/null --max-time 2 http://localhost:3000/; then
-  open http://localhost:3000
+  open_app
   exit 0
 fi
 
@@ -29,5 +39,5 @@ for i in {1..30}; do
   fi
 done
 
-open http://localhost:3000
+open_app
 echo "Running at http://localhost:3000 — this window can be closed."

@@ -7,6 +7,7 @@ data/*.db-shm
 data/server.log
 data/backup.log
 data/backups/
+data/auth-token
 !data/.gitkeep
 exports/
 *.tsbuildinfo

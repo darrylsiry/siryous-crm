@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { lastBackup } from "@/lib/backup.mjs";
 import { getSetting } from "@/lib/settings";
 import { loadOwner } from "@/lib/owner.mjs";
+import { authEnabled, signInUrl, tokenPath } from "@/lib/auth.mjs";
 import { saveAiSettings } from "@/lib/settingsActions";
 import PendingButton from "@/components/PendingButton";
 
@@ -44,6 +45,19 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</p>
       ) : null}
+
+      <section className="rounded-xl border border-stone-200 bg-white p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Access</h2>
+        {authEnabled() ? (
+          <p className="mt-2 text-sm text-stone-700">
+            This browser is signed in. To sign in another browser (or after clearing cookies), open this link there:
+            <code className="mt-1 block break-all rounded bg-stone-100 px-2 py-1 text-xs">{signInUrl("http://localhost:3000")}</code>
+            <span className="mt-1 block text-xs text-stone-400">The token is in <code>{tokenPath()}</code>; anyone who can read that file can open the CRM. Delete the file and restart to rotate it.</span>
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-amber-800">Access token is off (<code>CRM_AUTH=off</code>) — anything on this machine can reach the CRM.</p>
+        )}
+      </section>
 
       <section className="rounded-xl border border-stone-200 bg-white p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Owner profile</h2>

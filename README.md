@@ -30,8 +30,20 @@ npm run dev        # http://127.0.0.1:3000
 ```
 
 Or, on a Mac, double-click `Start CRM.command` (builds the production bundle
-and starts it in the background; `Stop CRM.command` stops it). The server
-binds to **127.0.0.1 only** — there is no login, so don't expose the port.
+and starts it in the background, and opens it signed in; `Stop CRM.command`
+stops it). The server binds to **127.0.0.1 only**.
+
+### Access
+
+There are no user accounts. On first start the app generates a random token
+in `data/auth-token` (never leaves the machine) and every browser must present
+it once — after that a cookie keeps you signed in for a year. `Start
+CRM.command` opens the app with the token already applied; `npm run dev`
+prints a sign-in link in the terminal; the Settings page shows the link for
+signing in another browser. This is what stops other software on the same
+machine (or a web page using DNS rebinding) from reading or changing the CRM.
+Set `CRM_AUTH=off` in `.env.local` to run without it. Delete the token file
+and restart to rotate it.
 
 ## What's inside
 
