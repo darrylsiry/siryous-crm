@@ -49,29 +49,80 @@ export async function listLocalModels(url = getAiSettings().ollamaUrl): Promise<
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Why the local model can't run: Ollama itself is down, or the model isn't downloaded. */
+export type LocalUnavailableKind = "down" | "model";
+
 /** Thrown when Ollama itself is unreachable/misconfigured — the cases worth falling back on. */
-export class LocalUnavailable extends Error {}
+export class LocalUnavailable extends Error {
+  kind: LocalUnavailableKind;
+  constructor(message: string, kind: LocalUnavailableKind = "down") {
+    super(message);
+    this.kind = kind;
+  }
+}
+
+/**
+ * The low-level code behind a failed fetch to Ollama (ECONNREFUSED when
+ * nothing is listening, ENOTFOUND for a bad host, TimeoutError, …), or null.
+ */
+export function fetchErrorCode(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  const cause = (err as Error & { cause?: { code?: string; name?: string } }).cause;
+  if (cause?.code) return String(cause.code);
+  if (err.name === "TimeoutError" || err.name === "AbortError") return "TIMEOUT";
+  return cause?.name ?? null;
+}
+
+/** A short technical description of why Ollama couldn't be reached — used in "(Detail: …)" clauses. */
+export function describeFetchError(err: unknown, url: string): string {
+  const code = fetchErrorCode(err);
+  if (code === "ECONNREFUSED") return `nothing is listening at ${url} (connection refused)`;
+  if (code === "TIMEOUT") return `no answer from ${url} within 3 seconds`;
+  const msg = err instanceof Error ? err.message : String(err);
+  return `could not reach ${url}${code ? ` (${code})` : ""}: ${msg}`;
+}
+
+/** Does Ollama's list contain this model tag (with or without an explicit ":latest")? */
+export function modelListed(names: string[], model: string): boolean {
+  const wanted = model.includes(":") ? model : `${model}:latest`;
+  return names.includes(wanted) || names.includes(model);
+}
+
+/** The plain-words message for a model that Ollama hasn't downloaded. */
+export function modelNotPulledMessage(model: string): string {
+  return `The AI model ${model} hasn't been downloaded yet — run \`ollama pull ${model}\` in Terminal, or choose a downloaded model in Settings.`;
+}
 
 /**
  * Cheap health check: is Ollama up, and is the configured model pulled?
  * Resolves with a human-readable reason on failure instead of throwing.
  */
-export async function localAvailable(): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function localAvailable(): Promise<{ ok: true } | { ok: false; reason: string; kind: LocalUnavailableKind }> {
   const { ollamaUrl, model } = getAiSettings();
   let names: string[];
   try {
     names = (await listLocalModels(ollamaUrl)).map((m) => m.name);
   } catch (err) {
-    return { ok: false, reason: `Ollama not reachable at ${ollamaUrl} (${err instanceof Error ? err.message : String(err)})` };
+    return { ok: false, kind: "down", reason: describeFetchError(err, ollamaUrl) };
   }
-  const wanted = model.includes(":") ? model : `${model}:latest`;
-  if (!names.includes(wanted) && !names.includes(model)) {
-    return {
-      ok: false,
-      reason: `model '${model}' is not pulled (run: ollama pull ${model}); available: ${names.join(", ") || "none"}`,
-    };
+  if (!modelListed(names, model)) {
+    return { ok: false, kind: "model", reason: modelNotPulledMessage(model) };
   }
   return { ok: true };
+}
+
+/** "about 41 thousand words" — tokens expressed in a unit a person can picture (~0.75 words per token). */
+const thousandWords = (tokens: number) => `${Math.max(1, Math.round((tokens * 0.75) / 1000))} thousand words`;
+
+function tooMuchTextMessage(estTokens: number, numCtx: number): string {
+  return (
+    `That's too much text for the AI to read at once (about ${thousandWords(estTokens)}; the limit is about ${thousandWords(numCtx)}). ` +
+    "Paste less, or raise “How much text the AI can read at once” in Settings."
+  );
+}
+
+function timeoutMessage(timeoutMs: number, model: string): string {
+  return `The AI didn't finish in ${fmtTimeout(timeoutMs)} — the model (${model}) may be too big for this Mac. Try a smaller model in Settings.`;
 }
 
 interface OllamaChunk {
@@ -126,15 +177,13 @@ async function runLocalStreamNow(
 ): Promise<string> {
   const LOCAL = getAiSettings();
   const health = await localAvailable();
-  if (!health.ok) throw new LocalUnavailable(health.reason);
+  if (!health.ok) throw new LocalUnavailable(health.reason, health.kind);
 
   // Ollama silently drops the middle of a prompt that exceeds num_ctx, so
   // refuse up front (rough estimate: ~4 chars per token, 1k reserved for output).
   const estTokens = Math.round(prompt.length / 4);
   if (estTokens > LOCAL.numCtx - 1024) {
-    throw new Error(
-      `The input is about ${estTokens.toLocaleString()} tokens but the local model's context window is ${LOCAL.numCtx.toLocaleString()}. Raise the context window on the Settings page or shorten the input.`
-    );
+    throw new Error(tooMuchTextMessage(estTokens, LOCAL.numCtx));
   }
 
   const started = Date.now();
@@ -164,13 +213,15 @@ async function runLocalStreamNow(
     });
   } catch (err) {
     clearTimeout(timer);
-    if (controller.signal.aborted) throw new Error(`Local model timed out after ${fmtTimeout(timeoutMs)}.`);
-    throw new LocalUnavailable(`could not reach Ollama at ${LOCAL.ollamaUrl} (${err instanceof Error ? err.message : String(err)})`);
+    if (controller.signal.aborted) throw new Error(timeoutMessage(timeoutMs, LOCAL.model));
+    throw new LocalUnavailable(describeFetchError(err, LOCAL.ollamaUrl), "down");
   }
   if (!res.ok || !res.body) {
     clearTimeout(timer);
     const detail = await res.text().catch(() => "");
-    throw new LocalUnavailable(`Ollama returned ${res.status}: ${detail.slice(0, 300)}`);
+    // 404 here is Ollama's "model not found" (e.g. removed since the health check).
+    if (res.status === 404 && /model/i.test(detail)) throw new LocalUnavailable(modelNotPulledMessage(LOCAL.model), "model");
+    throw new LocalUnavailable(`Ollama answered ${res.status}: ${detail.slice(0, 300)}`, "down");
   }
 
   let content = "";
@@ -191,7 +242,7 @@ async function runLocalStreamNow(
     } catch {
       return;
     }
-    if (chunk.error) throw new LocalUnavailable(`Ollama error: ${chunk.error}`);
+    if (chunk.error) throw new LocalUnavailable(`Ollama reported an error: ${chunk.error}`, "down");
     if (chunk.message?.thinking) {
       thinking += chunk.message.thinking;
       if (!sawThink || Date.now() - lastWriteEvent > 4000) {
@@ -233,7 +284,7 @@ async function runLocalStreamNow(
     }
     if (buffer.trim()) handleLine(buffer);
   } catch (err) {
-    if (controller.signal.aborted) throw new Error(`Local model timed out after ${fmtTimeout(timeoutMs)}.`);
+    if (controller.signal.aborted) throw new Error(timeoutMessage(timeoutMs, LOCAL.model));
     throw err;
   } finally {
     clearTimeout(timer);
@@ -247,9 +298,8 @@ async function runLocalStreamNow(
     ts: Date.now(),
   });
   if (doneReason === "length") {
-    throw new Error(
-      `The local model ran out of room (context window ${LOCAL.numCtx} tokens) before finishing. Raise the context window on the Settings page or shorten the input.`
-    );
+    // The prompt plus the answer overran num_ctx: the same fix as an oversized paste.
+    throw new Error(tooMuchTextMessage(estTokens + evalCount, LOCAL.numCtx));
   }
   if (!content.trim()) throw new Error("The local model returned an empty response.");
   return content;

@@ -256,12 +256,15 @@ export function mapRecord(rec: CsvRecord, mapping: HeaderMapping): MappedPerson 
     [cell(f, mapping.first_name), cell(f, mapping.last_name)].filter(Boolean).join(" ").trim();
   if (!name) return { row: rec.line, message: "missing name" };
   const slug = slugify(name);
-  if (!slug) return { row: rec.line, message: `name "${name}" has no usable characters for a slug` };
+  if (!slug) return { row: rec.line, message: `the name "${name}" is only punctuation` };
 
   const statusRaw = cell(f, mapping.status);
   const status_key = statusRaw ? STATUS_BY_LABEL[normHeader(statusRaw)] : "new";
   if (!status_key) {
-    return { row: rec.line, message: `unknown status "${statusRaw}" (use one of ${Object.keys(STATUS).join(", ")})` };
+    return {
+      row: rec.line,
+      message: `unknown status "${statusRaw}" (use one of ${Object.values(STATUS).map((s) => s.label).join(", ")})`,
+    };
   }
 
   const cadenceRaw = cell(f, mapping.cadence_days);

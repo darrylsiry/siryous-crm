@@ -6,6 +6,9 @@ export default function ErrorPage({ error, reset }: { error: Error & { digest?: 
   return (
     <div className="max-w-2xl space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Something went wrong</h1>
+      <p className="text-sm text-stone-600">
+        Something went wrong. Try again; if it keeps happening, copy this text when asking for help:
+      </p>
       <p className="rounded-lg border border-red-200 bg-red-50 p-4 font-mono text-xs text-red-800 whitespace-pre-wrap">{error.message}</p>
       <div className="flex gap-3">
         <button onClick={reset} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">

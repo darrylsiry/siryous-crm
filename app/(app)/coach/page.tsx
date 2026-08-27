@@ -3,6 +3,8 @@ import { getDb } from "@/lib/db";
 import { startCoachSession, startCheckinSession } from "@/lib/coach";
 import { mondayOf, sessionLabel } from "@/lib/coachai";
 import PendingButton from "@/components/PendingButton";
+import AiStatusBanner from "@/components/AiStatusBanner";
+import { getAiStatus } from "@/lib/aiStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +15,8 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   error: { label: "Error", cls: "bg-red-50 text-red-700" },
 };
 
-export default function CoachPage() {
+export default async function CoachPage() {
+  const ai = await getAiStatus();
   const db = getDb();
   const sessions = db
     .prepare(
@@ -37,6 +40,7 @@ export default function CoachPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <AiStatusBanner />
       <header>
         <h1 className="text-2xl font-bold tracking-tight">◎ Coach</h1>
         <p className="mt-1 text-sm text-stone-500">
@@ -50,7 +54,7 @@ export default function CoachPage() {
 
       <div className="flex flex-wrap items-center gap-3">
         <form action={startCoachSession}>
-          {current ? (
+          {current && current.status !== "error" ? (
             <Link
               href={`/coach/${current.id}`}
               className="inline-block rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -58,10 +62,12 @@ export default function CoachPage() {
               {current.status === "closed" ? "◎ Review this week's session" : "◎ Resume this week's session"}
             </Link>
           ) : (
+            // A weekly session that failed to generate is replaced by a fresh one (see startCoachSession).
             <PendingButton
-              label="◎ Start this week's session"
+              label={current ? "◎ Start this week's session again" : "◎ Start this week's session"}
               pendingLabel="Starting…"
               pendingNote="The coach is reviewing your week…"
+              disabled={!ai.aiUsable}
             />
           )}
         </form>
@@ -70,6 +76,7 @@ export default function CoachPage() {
             label="◉ Check in with your coach now"
             pendingLabel="Starting check-in…"
             pendingNote="The coach is catching up on what's moved…"
+            disabled={!ai.aiUsable}
           />
         </form>
       </div>
@@ -133,9 +140,9 @@ export default function CoachPage() {
       </section>
 
       <p className="text-xs text-stone-400">
-        The coach reads your CRM database plus, if you set one in <code>config/owner.json</code>, a
-        folder of your own notes (goals, strengths, pitfalls) — nothing else. Closed-session commitments are fed back into the
-        next session so you're held accountable week over week.
+        The coach reads what&apos;s in your CRM, plus any notes folder you&apos;ve named in Settings (goals, strengths,
+        pitfalls) — nothing else. The commitments you make when closing a session are carried into the next one, so you&apos;re
+        held accountable week over week.
       </p>
     </div>
   );

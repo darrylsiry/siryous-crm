@@ -3,12 +3,17 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { getDb } = await import("./lib/db");
     const { startBackupLoop } = await import("./lib/backup.mjs");
-    const { authEnabled, signInUrl, tokenPath } = await import("./lib/auth.mjs");
+    const { authEnabled, signInUrl, tokenPath, wasJustCreated } = await import("./lib/auth.mjs");
     const db = getDb();
 
     if (authEnabled()) {
       const port = process.env.PORT || "3000";
-      console.log(`[auth] sign in at ${signInUrl(`http://127.0.0.1:${port}`)}  (token file: ${tokenPath()}; CRM_AUTH=off disables)`);
+      const url = signInUrl(`http://127.0.0.1:${port}`);
+      const firstRun = wasJustCreated();
+      const rule = "─".repeat(72);
+      console.log(`\n${rule}\nOPEN THIS LINK to use the CRM (it signs you in):\n${url}\n${rule}`);
+      console.log(`[auth] sign-in code file: ${tokenPath()} (CRM_AUTH=off disables sign-in)`);
+      if (firstRun) openInBrowser(url);
     } else {
       console.log("[auth] CRM_AUTH=off — no access token required");
     }
@@ -41,5 +46,30 @@ export async function register() {
     }
 
     startBackupLoop(db);
+  }
+}
+
+/**
+ * First run only: nobody has ever signed a browser in, so open the sign-in
+ * link for them. Best effort — a headless machine, a missing opener, or a
+ * launcher that opens the browser itself (set CRM_NO_OPEN=1) must not break
+ * startup.
+ */
+async function openInBrowser(url: string) {
+  if (process.env.CRM_NO_OPEN === "1" || process.env.NODE_ENV === "test") return;
+  try {
+    const { spawn } = await import("child_process");
+    const [cmd, args] =
+      process.platform === "darwin"
+        ? ["open", [url]]
+        : process.platform === "win32"
+          ? ["cmd", ["/c", "start", "", url]]
+          : ["xdg-open", [url]];
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => {});
+    child.unref();
+    console.log("[auth] first run — opening the sign-in link in your browser");
+  } catch {
+    /* no opener on this machine — the link is printed above */
   }
 }

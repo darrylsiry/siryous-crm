@@ -61,7 +61,7 @@ export default function LogEntryTarget({
           <Link href="/intake" className="underline">Intake</Link> first, or pick the right contact above. Until then this entry is skipped.
         </p>
       ) : !valid ? (
-        <p className="text-xs text-stone-500">Re-targeted from the model's unknown slug “{modelSlug}”.</p>
+        <p className="text-xs text-stone-500">The AI wrote “{modelSlug}”, which isn&apos;t in your CRM — you picked this person instead.</p>
       ) : null}
     </div>
   );

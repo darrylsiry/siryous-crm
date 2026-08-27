@@ -3,10 +3,13 @@ import { getDb } from "@/lib/db";
 import { allPeople } from "@/lib/queries";
 import { generatePrep } from "@/lib/prep";
 import PendingButton from "@/components/PendingButton";
+import AiStatusBanner from "@/components/AiStatusBanner";
+import { getAiStatus } from "@/lib/aiStatus";
 
 export const dynamic = "force-dynamic";
 
-export default function PrepPage() {
+export default async function PrepPage() {
+  const ai = await getAiStatus();
   const people = allPeople();
   const briefs = getDb()
     .prepare(
@@ -17,6 +20,7 @@ export default function PrepPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <AiStatusBanner />
       <header>
         <h1 className="text-2xl font-bold tracking-tight">🗓 Meeting prep</h1>
         <p className="mt-1 text-sm text-stone-500">
@@ -30,7 +34,7 @@ export default function PrepPage() {
         <label className="block text-xs font-medium text-stone-600">
           Who's the meeting with?
           <select name="person_id" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm">
-            <option value="">✨ Auto — scan my calendar for the next CRM-relevant meeting</option>
+            <option value="">✨ Auto — check my calendar for the next meeting with someone in the CRM</option>
             {people.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}{p.company_name ? ` — ${p.company_name}` : ""}
@@ -49,7 +53,8 @@ export default function PrepPage() {
         <PendingButton
           label="🗓 Generate prep brief"
           pendingLabel="Preparing…"
-          pendingNote="Starting — you'll see the model's progress live on the next page…"
+          pendingNote="Starting — you'll see the AI's progress live on the next page…"
+          disabled={!ai.aiUsable}
         />
       </form>
 
@@ -73,7 +78,7 @@ export default function PrepPage() {
       )}
 
       <p className="text-xs text-stone-400">
-        Calendar and Gmail access is read-only. Briefs are stored locally; delete them from the brief page.
+        Calendar and Gmail are read-only, using the access you&apos;ve already given Claude. Briefs are kept on this Mac; delete them from the brief page.
       </p>
     </div>
   );

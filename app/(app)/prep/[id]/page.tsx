@@ -103,7 +103,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
           <section className="rounded-xl border border-stone-200 bg-white p-5 print:hidden">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">✎ Log this meeting</h2>
             <p className="mt-1 text-xs text-stone-500">
-              After the call, jot down what happened — the model drafts the CRM log entries and follow-ups,
+              After the call, jot down what happened — the AI drafts the CRM log entries and follow-ups,
               and you review everything before it's saved.
             </p>
             <form action={analyzeLog} className="mt-3 space-y-3">
@@ -125,7 +125,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
               <PendingButton
                 label="✎ Analyze & draft log entries"
                 pendingLabel="Starting…"
-                pendingNote="You'll see the model's progress live on the next page…"
+                pendingNote="You'll see the AI's progress live on the next page…"
               />
             </form>
           </section>

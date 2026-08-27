@@ -175,7 +175,7 @@ export default function ImportForm() {
               label={`⇪ Import ${state.report.created} ${state.report.created === 1 ? "person" : "people"}${state.update && state.report.updated ? ` + update ${state.report.updated}` : ""}`}
               pendingLabel="Importing…"
             />
-            <span className="text-xs text-stone-400">Runs in one transaction; rows with errors are skipped, the rest go in.</span>
+            <span className="text-xs text-stone-400">Rows with errors are skipped; the rest go in.</span>
           </form>
         </section>
       ) : null}

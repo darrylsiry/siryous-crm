@@ -183,14 +183,19 @@ function generateAdvice(sessionId: number, weekStart: string, kind: "weekly" | "
   });
 }
 
-/** Start (or resume) this week's weekly session: generate the coach's advice. */
+/**
+ * Start (or resume) this week's weekly session: generate the coach's advice.
+ * A weekly session that failed to generate (Ollama was down, the model timed
+ * out) is thrown away and replaced, so one bad run doesn't block the week.
+ */
 export async function startCoachSession() {
   const db = getDb();
   const weekStart = mondayOf(new Date());
   const existing = db
-    .prepare(`SELECT id FROM coach_sessions WHERE week_start=? AND kind='weekly'`)
-    .get(weekStart) as { id: number } | undefined;
-  if (existing) redirect(`/coach/${existing.id}`);
+    .prepare(`SELECT id, status FROM coach_sessions WHERE week_start=? AND kind='weekly'`)
+    .get(weekStart) as { id: number; status: string } | undefined;
+  if (existing && existing.status !== "error") redirect(`/coach/${existing.id}`);
+  if (existing) db.prepare(`DELETE FROM coach_sessions WHERE id=?`).run(existing.id);
 
   const sessionId = Number(
     db

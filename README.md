@@ -1,316 +1,355 @@
 # Siryous CRM
 
-A local-first personal CRM for a solo advisor or consultant: relationship
-intelligence, a keep-warm cadence, a pipeline, and AI features that run on a
-local open-weight model. Built by [Darryl Siry](https://github.com/darrylsiry)
-for his own advisory practice and open-sourced as-is.
+A private address book with a memory. Siryous CRM keeps track of the people
+and companies in your professional life — who they are, what you last talked
+about, what you promised, who is due a call — and nudges you before a
+relationship goes cold. It runs entirely on your own computer: there is no
+account to create, no monthly fee, and nothing is uploaded anywhere unless you
+switch on the optional AI helpers described below. It was built by
+[Darryl Siry](https://github.com/darrylsiry) for his own advisory practice and
+is shared as-is for other solo advisors, consultants and independent
+professionals. Free and open source (MIT licence).
 
-Runs on your own machine — no accounts, no hosted service. Data lives in a SQLite
-file at `data/crm.db`. See **What leaves your machine** below for the honest
-version of "local".
+## What you need
 
-## Requirements
+- A **Mac with Apple silicon** (M1 or later) and **16 GB of memory**. 32 GB is
+  recommended if you want the default AI model; 16 GB works with a smaller one.
+- About **20 GB of free disk space** (most of it for the optional AI model).
+- **Half an hour** for the setup below. No technical knowledge needed — every
+  step is spelled out.
+- It also runs on Windows and Linux (there is a `Start CRM.bat` for Windows) —
+  see [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
-- Node 20–26 (`.nvmrc` says 22). `better-sqlite3` ships prebuilt binaries for
-  common platforms; otherwise it needs a C++ toolchain (Xcode Command Line
-  Tools on macOS, `build-essential` + Python on Linux, VS Build Tools on Windows).
-- [Ollama](https://ollama.com) with a pulled model for the AI features
-  (`ollama pull gemma4:26b` — about 16 GB of RAM; pick something smaller on the
-  Settings page if you have less).
-- Optional: the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code)
-  logged in to a Claude subscription, with the claude.ai Gmail / Calendar /
-  Zoom / Drive connectors enabled, for the steps that fetch external data.
-  Without it everything still works from pasted text and CRM data.
+Three things to know before you start:
 
-## Run it
+1. **The CRM works without any AI.** People, companies, notes, follow-ups, the
+   pipeline, search, import — all of it works with nothing but Node installed.
+2. **The AI features need Ollama**, a free program that runs an AI model on
+   your Mac. With it you get Intake (paste anything, get a profile), Log (turn a
+   meeting into notes), Prep (a briefing before a meeting) and Coach (a weekly
+   review). Everything stays on your computer.
+3. **The email, calendar and web features additionally need Claude** — the
+   Claude app or command-line tool from Anthropic, signed in to a paid Claude
+   subscription. That is what lets Prep read your calendar and Gmail, Log fetch a
+   Zoom transcript, and Intake look someone up on the web. Optional, and the
+   only part that sends anything off your computer.
 
-```bash
-npm install
-npm run dev        # http://127.0.0.1:3000
-```
+## Set up in 5 steps (Mac)
 
-Or, on a Mac, double-click `Start CRM.command` (builds the production bundle
-and starts it in the background, and opens it signed in; `Stop CRM.command`
-stops it). The server binds to **127.0.0.1 only**.
+### 1. Install Node
 
-### Access
+Node is the engine the CRM runs on.
 
-There are no user accounts. On first start the app generates a random token
-in `data/auth-token` (never leaves the machine) and every browser must present
-it once — after that a cookie keeps you signed in for a year. `Start
-CRM.command` opens the app with the token already applied; `npm run dev`
-prints a sign-in link in the terminal; the Settings page shows the link for
-signing in another browser. This is what stops other software on the same
-machine (or a web page using DNS rebinding) from reading or changing the CRM.
-Set `CRM_AUTH=off` in `.env.local` to run without it. Delete the token file
-and restart to rotate it.
+1. Go to <https://nodejs.org>.
+2. Click the big green **LTS** download button.
+3. Open the downloaded `.pkg` file and click **Continue** until it says
+   **Done**. It will ask for your Mac password.
 
-## What's inside
+### 2. Install Ollama (for the AI features — skip if you don't want them yet)
 
-- **Dashboard** — overdue items (your move), pipeline summary with high-priority
-  deals, "due for a touch" list, dated follow-ups, awaiting-other-party,
-  log-gap reminders, active relationship cards, recent activity.
-- **✨ Intake (AI)** — paste anything (a LinkedIn profile, an email thread, raw
-  notes) and Claude extracts the person and company, researches them on the web,
-  writes the profile sections in house style, finds connections to the existing
-  network, and suggests tags/status/cadence and follow-ups — all on a review
-  screen you edit and confirm before anything is saved.
-- **✎ Log (AI)** — turn a meeting or email into interaction-log entries on the
-  right contacts. Paste content, or have Claude fetch it itself from **Zoom**
-  (recording transcripts), **Gmail** (threads), or **Google Drive** (Google
-  Meet transcripts) via read-only connectors. It drafts entries, proposes
-  next-action updates, closes stale open items (e.g. "outcome never logged"),
-  and suggests follow-ups — review before save.
-- **🗓 Prep (AI)** — a 3-minute meeting brief for any contact (or auto-detected
-  from the next 7 days of your calendar): where things stand, what's changed
-  since last touch (checked against Gmail, Calendar, and the web, with source
-  attribution), objectives, talking points, questions, watch-outs. Briefs can be
-  downloaded as a Word doc, and a "Log this meeting" section closes the loop
-  afterwards.
-- **◎ Coach (AI)** — a weekly coaching session over the whole CRM: the model
-  reads the pipeline, overdue items, and recent activity, gives advice, and you
-  chat it through. Commitments you make and items you report as done show up
-  as proposed CRM changes under each reply — tick the ones to record, the rest
-  are rejected and never re-proposed. Ad-hoc check-ins between weekly sessions too.
-- **Pipeline** — kanban board of opportunities (engagements, partnerships,
-  ventures, referrals) across consultant-shaped stages: Identified → In
-  conversation → Scoping/proposal → Negotiating → Engaged. Move stages inline;
-  ★ marks high priority.
-- **Keep Warm** — every contact scored against a per-person follow-up cadence
-  (defaults were set by status: Active 30d, Exploring 45d, New 21d, Dormant 180d).
-  Logging an interaction resets the clock.
-- **Map** — live force-directed relationship graph: people (colored by status),
-  companies, made intros (violet), owed intros (dashed). Hover isolates a
-  node's network; click opens the profile.
-- **Search** — one box (sidebar or /search) across people, companies, notes,
-  interactions, action items, and pipeline.
-- **Actions** — the full outstanding-items list in urgency buckets (overdue,
-  this week, awaiting the other party, high potential, keep warm, venture, data
-  gaps). Items carry a real due date (typed, or parsed from a label like
-  "Fri 7/25"); anything past its date is shown as overdue whatever bucket it was
-  filed in. Check items off; reopen from "Recently completed."
-- **People / Companies** — rich profiles with narrative sections
-  (Relationship Intelligence, Business Context, Engagement Strategy, Notes), with
-  status pipeline (🌱 New → 🔍 Exploring → 🔥 Active → 🤝 Client …), relationship
-  strength, snapshot fields, and per-profile interaction logs. Every section is
-  editable in place (markdown supported); cross-links between profiles work.
-  People, companies, individual interactions and action items can be deleted
-  from the profile pages (a "Danger zone" at the bottom, or the × on a log
-  entry / open item) — deletion is permanent, with only the daily backups to
-  fall back on; the MCP server deliberately has no delete tools.
-- **Outreach** — imported drafts/sent messages linked to their contacts.
+1. Go to <https://ollama.com> and click **Download** → **Download for macOS**.
+2. Unzip it and drag **Ollama** into your **Applications** folder.
+3. Open it once. A small llama icon appears in the menu bar at the top of the
+   screen — that means it is running. It starts itself when you log in from now
+   on.
 
-Logging an interaction automatically bumps the contact's "last touch" date
-(always an ISO date; any free-text qualifier lives in a separate note).
+### 3. Download the CRM
 
-## How the AI features work
+1. On this page on GitHub, click the green **Code** button, then
+   **Download ZIP**.
+2. Double-click the ZIP in your Downloads folder to unzip it. You get a folder
+   called something like `siryous-crm-main`.
+3. Move that folder somewhere it can live permanently — your **Documents**
+   folder is a good choice. (Your data will be stored inside this folder, so
+   don't leave it in Downloads.) You can rename it to `Siryous CRM` if you like.
 
-### What leaves your machine
+If you know `git`, `git clone` works just as well.
 
-- **Nothing**, for a run that stays on the local model — the database, the
-  prompts and the results never leave the box.
-- **To Anthropic (via your Claude login):** the pasted text when Intake's
-  "research on the web" box is ticked; your request plus the retrieved
-  transcript/thread for Log's Zoom/Meet/Gmail sources; the counterparty's
-  name, company, role, last-touch date and next action for Prep's Calendar/Gmail
-  step, and their public name/role/company for its web step (never the dossier
-  or interaction log); and — only if Ollama is unavailable and the
-  Claude fallback is enabled in Settings — the entire prompt of a write step,
-  which includes your contact roster. Turn the fallback off in Settings if
-  that isn't acceptable.
+### 4. Double-click **Start CRM.command**
+
+Open the folder and double-click the file called **Start CRM.command**. A
+Terminal window opens and tells you what it is doing:
+
+- The first time, it installs the app's components and prepares the app. This
+  takes a few minutes and needs an internet connection. Later starts take a few
+  seconds.
+- When it is ready it opens the CRM in your web browser, already signed in, at
+  `http://127.0.0.1:3000`. You can close the Terminal window; the CRM keeps
+  running until you double-click **Stop CRM.command** or restart the Mac.
+
+**If macOS says the file "can't be opened because it is from an unidentified
+developer"** (or "Apple could not verify…"): right-click (or Control-click)
+**Start CRM.command**, choose **Open**, and click **Open** again in the dialog.
+macOS asks this once for any program that didn't come from the App Store; after
+that a normal double-click works.
+
+**If Terminal says the file "could not be executed because you do not have
+appropriate access privileges"**: unzipping sometimes loses the permission that
+makes the file double-clickable. Open Terminal (press Command-Space, type
+`Terminal`, press Return), type `chmod +x ` (with a space after it), drag
+**Start CRM.command** from the Finder into the Terminal window, press Return,
+then double-click the file again.
+
+### 5. Download an AI model (if you installed Ollama)
+
+Open **Settings** in the CRM's left-hand menu. The **Ollama status** box tells
+you whether Ollama is running and whether the AI model has been downloaded.
+Today the download is one command in Terminal (a later version will offer it
+inside the app):
+
+1. Open Terminal: press **Command-Space**, type `Terminal`, press **Return**.
+2. Type one of these and press Return:
+   - **32 GB Mac or more:** `ollama pull gemma4:26b` — the default model, the
+     best quality. About a 16 GB download; it runs at a comfortable pace on 32
+     GB and is slow and cramped on 16 GB.
+   - **16 GB Mac:** `ollama pull gemma4:12b` (about 8 GB) or `ollama pull qwen3:8b`
+     (about 5 GB). Smaller and faster, slightly less polished writing.
+3. Wait for it to finish (a few minutes to an hour depending on your
+   connection), then go back to Settings, choose the model you downloaded in the
+   **Model** list, and click **Save settings**.
+
+That's it. Try **Intake**: paste the text of someone's LinkedIn profile or an
+email from them and watch a profile appear for you to check and save.
+
+## Using it
+
+The left-hand menu has everything. In rough order of how often you'll use it:
+
+- **Dashboard** — the home page: who is due a touch, what is overdue, deals
+  that need attention, follow-ups with dates, things you are waiting on from
+  other people, and recent activity.
+- **People** and **Companies** — the profiles. Each one has contact details, a
+  status (New → Exploring → Active → Client …), how strong the relationship is,
+  a narrative in four sections (Relationship, Business context, Strategy,
+  Notes) and a log of every interaction. Click any text to edit it in place.
+  Profiles link to each other, and you can delete a person, company, log entry
+  or open item from the profile page (permanent — only the daily backups can
+  bring it back).
+- **Keep Warm** — every contact scored against how often you want to be in
+  touch with them (by default: Active every 30 days, Exploring 45, New 21,
+  Dormant 180 — adjustable per person). Logging an interaction resets the
+  clock.
+- **Pipeline** — a board of the work you are chasing (engagements,
+  partnerships, referrals, ventures) across the stages a consultant actually
+  goes through: Identified → In conversation → Scoping/proposal → Negotiating →
+  Engaged. Change a deal's stage right on its card; ★ marks the important
+  ones.
+- **Actions** — everything you have promised or are waiting for, grouped by
+  urgency (overdue, this week, awaiting the other party, high potential, keep
+  warm, data gaps). Items carry a real due date — type one or write "Fri 7/25"
+  and it is understood. Tick things off; "Recently completed" lets you reopen.
+- **✨ Intake (AI)** — paste anything about a person (a LinkedIn profile, an
+  email thread, your own rough notes) and the AI extracts the person and their
+  company, writes up the profile in a consistent style, spots links to people
+  you already know, and suggests tags, a status and follow-ups. Nothing is
+  saved until you have looked it over and clicked confirm. With Claude, it can
+  also look the person up on the web first.
+- **✎ Log (AI)** — turn a meeting or an email into log entries on the right
+  contacts. Paste the notes or transcript, or (with Claude) have it fetch the
+  Zoom recording transcript, the Gmail thread or the Google Meet transcript
+  itself. It drafts the entries, proposes what your next step is, closes
+  things that are now done, and suggests follow-ups — again, you review before
+  anything is saved.
+- **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
+  things stand, what has changed since you last spoke (with Claude: checked
+  against your calendar, your email and the web, with sources), what you want
+  out of the meeting, talking points, questions and watch-outs. With Claude it
+  can also look at your next seven days of meetings and pick who to prep for.
+  Briefs can be downloaded as a Word document, and a "Log this meeting" button
+  closes the loop afterwards.
+- **◎ Coach (AI)** — a weekly review of your whole practice. The AI reads the
+  pipeline, the overdue items and the recent activity, tells you what it sees,
+  and you talk it through. Anything you commit to in the conversation shows up
+  as a proposed change to the CRM underneath the reply — tick the ones you want
+  recorded. Quick check-ins between weekly sessions work too.
+- **Import** — bring in a spreadsheet of contacts, including your LinkedIn
+  connections (see the next section).
+- **Map** — a live picture of your network: people coloured by status,
+  companies, and who introduced whom. Hover over someone to see just their
+  circle; click to open the profile.
+- **Search** — one box (in the sidebar, or the Search page) that looks across
+  people, companies, notes, interactions, action items and the pipeline.
+- **Outreach** — messages you have drafted or sent, attached to their contacts.
+
+Logging an interaction automatically updates the contact's "last touch" date.
+
+## Import your LinkedIn connections
+
+The fastest way to fill the CRM is your LinkedIn connections list.
+
+1. On LinkedIn, click **Me** (your photo, top right) → **Settings & Privacy**
+   → **Data privacy** → **Get a copy of your data**.
+2. Choose **"Want something in particular?"**, tick **Connections**, and click
+   **Request archive**. LinkedIn emails you a download link within about ten
+   minutes.
+3. Download and unzip it; inside is a file called **Connections.csv**.
+4. In the CRM, open **Import**, choose that file, and look at the preview: it
+   shows how each column was understood and the first ten people as they will
+   be saved. Click **Import** to bring them in.
+
+Names, LinkedIn links, current role and company come across, and the
+"Connected On" date becomes the last-touch date. Anyone already in the CRM is
+left alone (never overwritten); tick **update existing** if you want blank
+fields on existing people filled in from the file. Any spreadsheet with a
+header row works the same way — name, email, company, role, phone, location,
+tags, notes and a few other columns are recognised automatically.
+
+## If you use Claude (optional)
+
+Claude is Anthropic's AI assistant. If you have a paid Claude subscription
+(Pro or Max), the CRM can use it for the parts a local model can't do: read
+your Google Calendar and Gmail to prepare a briefing, fetch a Zoom or Google
+Meet transcript to log a meeting, and look people up on the web during Intake.
+It also serves as a stand-in when Ollama isn't running. No API key or separate
+billing — it uses the same subscription as the Claude app.
+
+### Set it up once
+
+1. **Install the Claude Code command-line tool.** Open Terminal (Command-Space,
+   type `Terminal`, Return), paste this one line, and press Return:
+
+   ```
+   curl -fsSL https://claude.ai/install.sh | bash
+   ```
+
+   (This is Anthropic's official installer; it puts a program called `claude`
+   in your home folder.) Close Terminal and open it again afterwards.
+2. **Sign in.** In Terminal type `claude` and press Return, then type `/login`
+   and press Return. Your browser opens; sign in with your Claude account, then
+   come back and type `/exit`. You only do this once — it stays signed in for
+   weeks.
+3. **Turn on the connectors.** Go to <https://claude.ai>, open **Settings** →
+   **Connectors**, and connect **Gmail**, **Google Calendar**, **Google Drive**
+   and **Zoom** (whichever you use). These are Anthropic's read-only
+   integrations; the CRM never sees your passwords.
+
+The **Intake** page tells you if the Claude tool can't be found. If a Claude
+step fails mid-run, the CRM carries on with what it has locally and says so in
+the result.
+
+### What leaves your computer
+
+This matters, so here it is plainly:
+
+- **Nothing**, for anything that runs on the local model — Intake from pasted
+  text, Log from pasted notes, Prep from your own records, Coach. Your
+  database, the prompts and the results never leave the Mac.
+- **To Anthropic (through your own Claude login), only when you use a Claude
+  step:**
+  - Intake with the **"research on the web"** box ticked: the text you pasted.
+  - Log with the **Zoom / Gmail / Google Meet** source: your request, and the
+    transcript or email thread Claude fetched on your behalf.
+  - Prep's calendar/email check: the other person's name, company, role, the
+    date you last spoke and your noted next step — never your profile notes or
+    interaction log. Prep's web check: only their public name, role and
+    company. These are two separate, walled-off requests so that a session
+    that reads your email never also has a way to send anything out.
+  - **If Ollama isn't running** and the "Fall back to Claude automatically"
+    box in Settings is ticked (it is by default): the whole request for that
+    step, which includes your list of contacts. Untick that box if that isn't
+    acceptable to you — runs will then wait for Ollama instead.
 - **To wherever you point backups:** a daily copy of the whole database goes
-  to the backup folder (default `data/backups`; a synced cloud folder only if
-  you set one).
+  into the backup folder (see below). That is only a cloud folder if you chose
+  one.
 
-The AI features run on a **local open-weight model** by default — Ollama on
-this Mac, `gemma4:26b` unless configured otherwise — with the **locally
-installed Claude Code CLI** used only where a step needs data the local model
-can't reach (Gmail, Calendar, Zoom, Drive, the web) and as an automatic
-fallback when Ollama isn't running. Nothing needs an API key; the Claude steps
-use the same subscription as Claude Desktop.
+Claude runs with a fixed, read-only set of tools: it can search and read, and
+it cannot send email, change your calendar, run anything on your Mac, or read
+your files. Nothing any AI produces is saved into the CRM until you have
+reviewed it.
 
-Every feature is split into a *fetch* step (Claude, read-only connector
-tools) and a *write* step (local model, no tools). `lib/llm.ts` is the Ollama
-client, `runModel` in `lib/ai.ts` does the local-first / Claude-fallback
-routing, and `runWithProgress` in `lib/progress.ts` routes each step by whether
-it carries a tool grant:
+## Where your data lives, and backups
 
-| Feature | Fetch step (Claude, read-only tools) | Write step (local model) |
-|---------|--------------------------------------|--------------------------|
-| Intake  | optional web-research digest (checkbox on the form; skipped gracefully if Claude fails) | extract the profile, connections, actions, log entry |
-| Log     | paste: none · Zoom / Gmail / Meet-via-Drive: retrieve the transcript or thread | write the interaction-log entries |
-| Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
-| Coach   | none | advice, chat replies, closing summary |
+- **Everything is in one file:** `data/crm.db` inside the CRM folder. That is
+  your entire CRM.
+- **Daily backups** are made automatically while the CRM is running, into
+  `data/backups` inside the CRM folder. The newest 30 are kept. The Settings
+  page shows when the last one was made.
+- **To keep a copy off the Mac**, open **Settings** → **Backups** and type the
+  path of a folder that syncs to the cloud — for example a folder inside your
+  iCloud Drive, Dropbox or Google Drive folder. From then on the daily copy
+  goes there. Note that it is a plain, unencrypted copy of everything in the
+  CRM.
+- **Moving to a new Mac:** copy the whole CRM folder across, install Node (and
+  Ollama) on the new machine, and double-click **Start CRM.command**. Your
+  data, settings and sign-in come with the folder.
+- **Restoring a backup:** stop the CRM, replace `data/crm.db` with the backup
+  file you want (rename it to `crm.db`), and start it again.
 
-If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
-continue from local data and say so in the result; Log needs the content, so
-it asks you to paste it instead. JSON repair also runs locally first.
+## Signing in
 
-The **Settings** page (`/settings`) picks the model from whatever Ollama has
-pulled, and sets the context window (default 32768 — raise it if a long
-transcript or the coach snapshot hits the "ran out of room" error),
-temperature, the Ollama URL (point it at another machine to run models there),
-the provider (local vs. Claude for everything), and whether to fall back to
-Claude. Settings are stored in the database and apply to the next run; the
-defaults come from `.env.local` (see `.env.example`). The model must be pulled
-(`ollama pull gemma4:26b`) and Ollama running (`ollama serve`, or the menu-bar
-app).
+The CRM is locked to the Mac it runs on. When it first starts it creates a
+private link (a long random code) and only browsers that have opened that link
+once can use it. This is what stops other programs on the Mac — or a web page
+you happen to visit — from reading or changing your CRM. There is no password
+to remember:
 
-Claude steps run with an explicit, **read-only** tool grant (see `TOOLS` in
-`lib/ai.ts`) and are blocked from spawning subagents and from any local
-shell/file tools. Zoom/Gmail/Calendar/Drive access comes from the claude.ai
-connectors already authorized for the CLI (`claude mcp list`). Nothing the AI
-produces touches the database until it has passed a human review step (the
-Intake and Log review screens, the Coach's tick-to-record proposals), and no
-granted tool can send, write, or delete anything external.
+- **Start CRM.command** always opens the CRM already signed in.
+- **To sign in a second browser** (or after clearing your browser's cookies),
+  open **Settings** in a browser that is signed in and copy the **sign-in link**
+  shown there into the other browser. Or paste the contents of the file
+  `data/auth-token` into the box on the sign-in page.
+- **"That token didn't match" / "That code didn't match":** the code was
+  copied incompletely. It is a single line with no spaces — open
+  `data/auth-token` with TextEdit, select all, copy, and paste it again. Or just
+  double-click **Start CRM.command**, which signs the browser in for you.
+- Always use the address the CRM gives you, `http://127.0.0.1:3000`. The
+  sign-in is tied to that exact address, so `localhost:3000` looks like a
+  different site to your browser and asks you to sign in again.
 
-Intake refuses to create a second profile for a name that already exists
-unless you explicitly opt in on the review screen; if a duplicate slips
-through anyway, `npm run merge-people -- <dup-slug> <keep-slug> [--dry-run]`
-folds it into the profile you want to keep.
+## Troubleshooting
 
-## Make it yours
+Look for the message you are seeing:
 
-Copy `config/owner.example.json` to `config/owner.json` (gitignored) and fill
-in your name, practice, a one-line description, the research triggers that
-matter in your field, and optionally a coach persona and a folder of your own
-notes for the coach to read. Every AI prompt, the app name, and the MCP server
-name come from this file; with no file the wording is generic. Restart the app
-after changing it.
+- **"Ollama isn't running" / "Not reachable at http://127.0.0.1:11434"** —
+  the Ollama app isn't open. Open **Ollama** from Applications; the llama icon
+  should appear in the menu bar. Then try again. If you never installed it, see
+  step 2 of the setup.
+- **"…isn't downloaded yet" / "model … is not pulled (run: ollama pull …)"** — Ollama
+  is running but the model chosen in Settings hasn't been downloaded. Follow
+  step 5 of the setup, then pick the model in Settings and save.
+- **"The local model ran out of room…" / "too much text"** — you gave the AI
+  more text than the model can hold at once (a long transcript, or a very busy
+  Coach week). Either paste less, or open Settings and raise the **Context
+  window** number (32768 by default; doubling it is fine if you have the
+  memory).
+- **"…timed out"** — the model took too long, which usually means the Mac is
+  short of memory for the model you chose. Close other heavy apps, or switch to
+  a smaller model (step 5), and try again.
+- **"Your Claude Code login has expired"** — Claude needs you to sign in
+  again. Open Terminal, type `claude`, then `/login`, finish in the browser,
+  type `/exit`, and try again in the CRM.
+- **"The Claude Code CLI isn't installed"** — you tried a step that needs
+  Claude (calendar, email, Zoom, Drive or web) but the Claude tool isn't set up.
+  Either follow "If you use Claude" above, or untick the web-research box /
+  paste the content instead — everything else works without it.
+- **"Interrupted by a server restart — start it again"** — the CRM was stopped
+  while the AI was working on something. Nothing is lost; open that item and
+  use its "Try again" link (or start the run once more).
+- **"Build failed — see above"** in the Start CRM window — the one-time
+  preparation didn't finish. The most common causes are no internet connection
+  during the first start, or a Node older than version 20 (the window says which
+  version it found). Fix that and double-click **Start CRM.command** again. If
+  it still fails, copy the text in the window and open an issue on GitHub.
+- **Terminal says `command not found: npm` or `command not found: node`** —
+  Node isn't installed, or was installed while Terminal was open. Do step 1 of
+  the setup, then quit Terminal (Command-Q) and double-click **Start
+  CRM.command** again.
+- **The browser says it can't connect to 127.0.0.1:3000** — the CRM isn't
+  running. Double-click **Start CRM.command**. If that window shows an error,
+  the details are also in `data/server.log` inside the CRM folder.
+- **You updated the CRM (downloaded a new ZIP) and it looks the same** — Start
+  CRM notices changed files and rebuilds automatically; if you replaced the
+  folder, make sure you copied your old `data` folder into the new one first.
 
-Statuses, action buckets, pipeline stages, opportunity kinds, relationship
-strengths and default keep-warm cadences are configurable the same way: copy
-`config/vocab.example.json` to `config/vocab.json` (gitignored) and keep only
-the parts you want to change. An entry whose key matches a built-in one
-replaces just the fields you give (so `"new": {"label": "Prospect"}` renames a
-status without touching its emoji or colour), a new key adds an entry, and a
-`"remove": ["venture"]` list drops built-in ones. Colours are palette names
-(`emerald`, `sky`, `rose`, …; the example file lists them all). The app, the
-MCP server's tool descriptions and every AI prompt are generated from the
-merged result, so nothing can drift. Restart the app and the MCP server after
-changing the file.
+## For developers
 
-Two cautions. The *keys* (`new`, `this_week`, `identified`, …) are what the
-database stores, so renaming a key of a status, stage or bucket that rows
-already use would orphan those rows — change the label instead. And removing a
-key that rows still use does not delete anything, but those rows fall into the
-closed/unknown group in the UI (statuses sort last, stages leave the board,
-actions disappear from the bucket view) until you edit them. Keep the keys
-the app falls back to (`new`, `this_week`, `identified`, `engagement`).
-
-## One database, three ways in
-
-**The SQLite database (`data/crm.db`) is the single source of truth.**
-Everything reads and writes the one database:
-
-- the **web app** (this repo, port 3000),
-- **Claude Desktop**, via the `siryous-crm` MCP server (`scripts/mcp-server.mjs`)
-  — 16 tools for conversational CRM work: search, full profiles, agenda
-  ("what's overdue?"), pipeline, logging interactions, building/updating
-  profiles with arbitrary markdown, action items, and deals. Register it in
-  Claude Desktop's config (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`;
-  Windows: `%APPDATA%\Claude\claude_desktop_config.json`) with the absolute
-  path to this folder:
-
-  ```json
-  { "mcpServers": { "siryous-crm": { "command": "node", "args": ["/absolute/path/to/siryous-crm/scripts/mcp-server.mjs"] } } }
-  ```
-
-  The server creates the database and schema itself if the web app hasn't run yet,
-- **Claude Code** sessions in this folder, directly.
-
-Because there is only one copy of the data, there is no sync and no staleness:
-a checkbox clicked in the app is instantly visible to Claude, and vice versa.
-
-## Backups & export
-
-- **Automatic backups:** the web app and the MCP server each ensure a daily
-  snapshot of the database exists in the backup folder (default
-  `data/backups/`; change it on the Settings page or with `CRM_BACKUP_DIR`;
-  `off` disables). Via SQLite's online-backup API; newest 30 kept. A backup
-  happens on any day the data can change — because only those two processes
-  change it. `scripts/backup.sh` does the same manually.
-- **Readable archive on demand:** `npm run export` regenerates a full markdown
-  folder (profiles, index, pipeline) into `exports/` — gitignored, write-only,
-  snapshot-in-time.
-- **Duplicates:** `npm run merge-people -- <dup-slug> <keep-slug> [--dry-run]`
-  folds one person profile into another.
-
-## Getting data in
-
-- **CSV import (bulk).** The **Import** page (`/import`) takes a CSV, shows a
-  preview (how each column was matched, the first ten rows as they would be
-  saved, and the counts) and then imports on a second click. A LinkedIn
-  **Connections.csv** export works as-is (Settings → Data privacy → Get a copy
-  of your data → Connections): First/Last Name become the name, URL the
-  LinkedIn link, Position the role, Company is linked or created, and
-  "Connected On" becomes the last-touch date. Any spreadsheet with a header row
-  works too — columns are matched case- and punctuation-insensitively with
-  synonyms: name (or first name + last name), email, linkedin/url, role/title/
-  position, company, location, phone, tags (comma-separated), notes, status (a
-  `STATUS` key or label; default `new`), cadence (days; default by status),
-  last touch / connected on (ISO, `12 Jul 2026`, `Jul 12, 2026`, `7/12/2026`;
-  anything else is kept as a last-touch note). Unrecognised columns are
-  ignored. The same import runs from the terminal:
-
-  ```bash
-  npm run import-csv -- path/to/file.csv [--update] [--dry-run]
-  ```
-
-  Semantics: the whole import is one transaction. Companies are matched by
-  slug and created (as 🌱 New, no profile text) when missing. **People whose
-  slug already exists are skipped and listed — never overwritten.** With
-  `--update` (or the "update existing" box) an existing person's *blank*
-  email / LinkedIn / role / company / location / phone are filled from the
-  file; filled fields and the narrative sections are never touched. Rows
-  without a name, or with an unknown status or a non-numeric cadence, are
-  reported and skipped while the rest go in. `--dry-run` runs everything and
-  rolls it back. The web page is best for files under about 1 MB (a
-  server-action body limit); use the CLI for anything bigger.
-- **One at a time.** The **Intake** page: paste a LinkedIn profile, an email
-  thread, or your notes about someone, review what the model extracted, and
-  confirm — this is the route that also writes the profile narrative. The
-  **People** and **Companies** pages have plain forms too, and Claude Desktop
-  can create and update profiles through the MCP server ("add Sam Lee at Acme
-  as a new contact — here's what I know…").
-
-All scripts in `scripts/` change to the repo root before touching anything,
-so they can be run from any directory; `CRM_DB_PATH` still overrides the
-database location, and the export and merge scripts refuse to run when the
-database file doesn't exist rather than creating an empty one.
-
-## Stack
-
-Next.js (App Router) · React Server Components + server actions · better-sqlite3 ·
-Tailwind CSS v4 · Ollama (local open-weight model) for AI reasoning/writing ·
-headless Claude Code CLI for external-data steps (read-only claude.ai connector
-grants) and fallback. No client-side state libraries; forms are plain
-HTML `<details>` disclosures posting to server actions.
-
-## Tests
-
-```bash
-npm test          # node --test via tsx; no extra framework
-npm run typecheck # tsc --noEmit
-```
-
-The suite lives in `tests/` and uses Node's built-in test runner. It covers
-date parsing (`lib/dates.mjs`), slugs, the model-output schemas, the Ollama
-URL guard and settings storage, the schema bootstrap and its date-normalisation
-migration, the effective-bucket / keep-warm queries, markdown sanitisation, and
-the access-token proxy. Every suite that touches disk points `CRM_DB_PATH` at a
-temp directory first (`tests/helpers/tempdb.ts`), so `data/crm.db` and
-`data/auth-token` are never opened; each test file runs in its own process and
-cleans up after itself. The GitHub Actions workflow in `.github/workflows/ci.yml`
-runs the type-check, `node --check scripts/mcp-server.mjs`, the tests, and a
-production build with `CRM_AUTH=off` on every push and pull request.
-
-## Documentation
-
-- `docs/siryous-crm-architecture.docx` — system architecture: components, data
-  flows, and the interaction paths (browser, Claude Desktop, built-in AI).
-- `docs/siryous-crm-mcp-server-spec.docx` — tool-level specification of the
-  `siryous-crm` MCP server.
+Everything technical — running it in development mode, environment variables,
+how the access token works, the AI architecture and exactly what each step
+sends where, configuration files for your own vocabulary and owner profile,
+the Claude Desktop MCP server, backups, the export and merge scripts, the CSV
+importer's command-line form, tests and CI — is in
+[docs/DEVELOPING.md](docs/DEVELOPING.md). [CLAUDE.md](CLAUDE.md) has the
+ground rules for AI coding sessions in this repository. Contributions welcome.
 
 ## License
 

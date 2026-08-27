@@ -41,7 +41,7 @@ describe("validateOllamaUrl", () => {
   test("public hosts are rejected unless LOCAL_LLM_ALLOW_REMOTE=1", () => {
     const r = validateOllamaUrl("https://api.example.com");
     assert.equal(r.ok, false);
-    assert.match((r as { reason: string }).reason, /api\.example\.com is not a local\/private address/);
+    assert.match((r as { reason: string }).reason, /api\.example\.com isn't on your own network/);
     assert.match((r as { reason: string }).reason, /LOCAL_LLM_ALLOW_REMOTE=1/);
 
     // 172.32.x.x is outside the 172.16/12 private block; 8.8.8.8 is plainly public.
@@ -78,7 +78,7 @@ describe("validateOllamaUrl", () => {
 
     const junk = validateOllamaUrl("not a url");
     assert.equal(junk.ok, false);
-    assert.equal((junk as { reason: string }).reason, "not a valid URL");
+    assert.equal((junk as { reason: string }).reason, "that isn't a web address");
     assert.equal(validateOllamaUrl("").ok, false);
   });
 

@@ -71,10 +71,11 @@ export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok
   try {
     u = new URL(raw.trim());
   } catch {
-    return { ok: false, reason: "not a valid URL" };
+    return { ok: false, reason: "that isn't a web address" };
   }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, reason: "must start with http:// or https://" };
-  if (u.username || u.password || u.search || u.hash) return { ok: false, reason: "must be a plain host URL (no credentials, query or fragment)" };
+  if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, reason: "the address must start with http:// or https://" };
+  if (u.username || u.password || u.search || u.hash)
+    return { ok: false, reason: "the address should be just the computer's name or number and port, like http://mini.local:11434 (no credentials, query or fragment)" };
   const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const isPrivate =
     host === "localhost" ||
@@ -87,7 +88,12 @@ export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok
     /^fe80:/i.test(host) ||
     /^f[cd][0-9a-f]{2}:/i.test(host);
   if (!isPrivate && process.env.LOCAL_LLM_ALLOW_REMOTE !== "1") {
-    return { ok: false, reason: `${host} is not a local/private address (set LOCAL_LLM_ALLOW_REMOTE=1 to allow it)` };
+    return {
+      ok: false,
+      reason:
+        `${host} isn't on your own network. For safety the AI can only run on this Mac or on another ` +
+        `computer in your home or office network. (developers: LOCAL_LLM_ALLOW_REMOTE=1)`,
+    };
   }
   return { ok: true, url: `${u.protocol}//${u.host}${u.pathname.replace(/\/$/, "")}` };
 }

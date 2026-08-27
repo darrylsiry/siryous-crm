@@ -46,7 +46,7 @@ export function claudeBin(): string | null {
 }
 
 export const CLAUDE_MISSING =
-  "The Claude Code CLI isn't installed (or isn't on PATH / CLAUDE_BIN). Steps that need Gmail, Calendar, Zoom, Drive or the web need it; everything else runs on the local model.";
+  "This needs Claude Code, which isn't installed on this Mac. Everything else still works. See “If you use Claude” in the README.";
 
 /** Is the Claude CLI available on this machine? (No network call.) */
 export function claudeAvailable(): boolean {
@@ -93,7 +93,7 @@ export function explainClaudeError(raw: string): string {
     return (
       "Your Claude Code login has expired, so the AI features can't run. " +
       "Open Terminal, run `claude`, type `/login`, finish the sign-in in the browser, then try again here. " +
-      `(Raw: ${text.slice(0, 200)})`
+      `(Detail: ${text.slice(0, 200)})`
     );
   }
   return `Claude returned an error: ${text.slice(0, 400)}`;
@@ -307,15 +307,31 @@ export async function runModel(
       // falls back. Timeouts, context overflow and empty output are
       // configuration problems the user needs to see, not paper over — and
       // silently re-running them on Claude would also ship the data off-box.
-      if (!(err instanceof LocalUnavailable)) throw new Error(`Local model (${settings.model}) failed: ${reason}`);
-      if (!settings.fallbackToClaude) throw new Error(`Local model unavailable: ${reason}`);
-      if (!claudeAvailable()) throw new Error(`Local model unavailable (${reason}) and ${CLAUDE_MISSING}`);
-      onEvent({ t: "info", label: "Local model unavailable — falling back to Claude", detail: reason, ts: Date.now() });
+      // Those messages (lib/llm.ts) already say what to do, so pass them on as-is.
+      if (!(err instanceof LocalUnavailable)) throw new Error(reason);
+      const claudeOk = claudeAvailable();
+      if (!settings.fallbackToClaude || !claudeOk) {
+        const detail = ` (Detail: ${reason})`;
+        if (err.kind === "model") {
+          // The reason is already the "hasn't been downloaded yet — run ollama pull …" instruction.
+          throw new Error(
+            claudeOk
+              ? `${reason} (Or tick “use Claude instead” in Settings.)`
+              : `${reason} Claude isn't set up on this Mac either, so nothing could fill in.`
+          );
+        }
+        throw new Error(
+          claudeOk
+            ? `The AI on this Mac isn't running and the Claude fallback is off in Settings, so this couldn't run. Open Ollama from Applications (or install it from ollama.com), then try again.${detail}`
+            : `The AI on this Mac isn't running and Claude isn't set up, so this couldn't run. Open Ollama from Applications (or install it from ollama.com), then try again.${detail}`
+        );
+      }
+      onEvent({ t: "info", label: "The AI on this Mac isn't available — using Claude instead", detail: reason, ts: Date.now() });
       try {
         return await runClaudeStream(prompt, { allowedTools: "", timeoutMs, onEvent });
       } catch (err2) {
         throw new Error(
-          `Local model failed (${reason}) and the Claude fallback also failed: ${err2 instanceof Error ? err2.message : String(err2)}`
+          `The AI on this Mac wasn't available, and Claude couldn't run either: ${err2 instanceof Error ? err2.message : String(err2)} (Detail: ${reason})`
         );
       }
     }

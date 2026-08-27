@@ -14,7 +14,8 @@ import { parseDueDate } from "./dates.mjs";
 export async function analyzeIntake(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
   const research = !!formData.get("research");
-  if (raw.length < 40) return;
+  // Too little to analyze: say so on the page instead of silently reloading.
+  if (raw.length < 40) redirect("/intake?short=1");
   const db = getDb();
   const draftId = Number(
     db

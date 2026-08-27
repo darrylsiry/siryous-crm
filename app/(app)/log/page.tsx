@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { getDb } from "@/lib/db";
 import { analyzeLog } from "@/lib/logmeeting";
-import { claudeAvailable } from "@/lib/ai";
+import { getAiStatus } from "@/lib/aiStatus";
 import PendingButton from "@/components/PendingButton";
+import AiStatusBanner from "@/components/AiStatusBanner";
 
 export const dynamic = "force-dynamic";
 
-export default function LogPage() {
-  const hasClaude = claudeAvailable();
+export default async function LogPage() {
+  const ai = await getAiStatus();
+  const hasClaude = ai.claude.ok;
   const drafts = getDb()
     .prepare(
       `SELECT id, status, source, substr(raw_text, 1, 80) AS preview
@@ -17,6 +19,7 @@ export default function LogPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <AiStatusBanner />
       <header>
         <h1 className="text-2xl font-bold tracking-tight">✎ Log activity</h1>
         <p className="mt-1 text-sm text-stone-500">
@@ -37,6 +40,11 @@ export default function LogPage() {
               <span className="font-medium">Paste</span>
               <span className="block text-xs text-stone-500">
                 Paste a transcript, an email thread, or your raw notes directly.
+                {ai.aiUsable ? null : (
+                  <span className="block text-amber-800">
+                    Pasting still needs the AI to write the entries — it&apos;s off right now (see above).
+                  </span>
+                )}
               </span>
             </span>
           </label>
@@ -48,7 +56,7 @@ export default function LogPage() {
               <span className="font-medium">Fetch from Zoom</span>
               <span className="block text-xs text-stone-500">
                 Describe the meeting ("yesterday's call with Sam", "the Acme meeting on 7/15")
-                and Claude pulls the recording transcript / AI summary; the local model writes the log.
+                — Claude fetches the transcript and the AI on this Mac writes the log entries.
               </span>
             </span>
           </label>
@@ -57,8 +65,8 @@ export default function LogPage() {
             <span>
               <span className="font-medium">Fetch from Google Meet</span>
               <span className="block text-xs text-stone-500">
-                Describe the meeting ("Friday's Meet with Sam") and Claude finds the
-                transcript / Gemini notes doc in Google Drive and logs from it.
+                Describe the meeting ("Friday's Meet with Sam") — Claude finds the
+                transcript or Gemini notes in your Google Drive and the AI on this Mac writes the log entries.
               </span>
             </span>
           </label>
@@ -67,15 +75,15 @@ export default function LogPage() {
             <span>
               <span className="font-medium">Fetch from Gmail</span>
               <span className="block text-xs text-stone-500">
-                Describe the thread ("latest thread with Sam about the proposal")
-                and Claude retrieves and logs it.
+                Describe the thread ("latest thread with Sam about the proposal") — Claude
+                fetches it and the AI on this Mac writes the log entries.
               </span>
             </span>
           </label>
             </>
           ) : (
             <p className="text-xs text-stone-400">
-              Fetching from Zoom, Google Meet or Gmail needs the Claude Code CLI with those connectors; it isn&apos;t installed, so paste the content instead.
+              Fetching from Zoom, Google Meet or Gmail needs the Claude app (see &ldquo;If you use Claude&rdquo; in the README). It isn&apos;t installed on this Mac, so paste the content instead.
             </p>
           )}
         </fieldset>
@@ -96,7 +104,8 @@ export default function LogPage() {
         <PendingButton
           label="✎ Analyze & draft log entries"
           pendingLabel="Working…"
-          pendingNote="Starting — you'll see Claude's progress live on the next page…"
+          pendingNote="Starting — you'll see the AI's progress live on the next page…"
+          disabled={!ai.aiUsable}
         />
       </form>
 
@@ -123,9 +132,9 @@ export default function LogPage() {
       )}
 
       <p className="text-xs text-stone-400">
-        Zoom, Google Meet (via Drive), and Gmail access is read-only, via your existing
-        claude.ai connectors. Meet transcripts must be visible to the connected Google
-        account. Nothing is written to the CRM until you confirm on the review screen.
+        Zoom, Google Meet and Gmail are read-only, using the Gmail/Zoom/Drive access you&apos;ve
+        already given Claude. Meet transcripts must be visible to the Google account Claude uses.
+        Nothing is written to the CRM until you confirm on the review screen.
       </p>
     </div>
   );

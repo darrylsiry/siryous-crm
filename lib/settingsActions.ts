@@ -17,7 +17,7 @@ export async function saveAiSettings(formData: FormData) {
   const urlRaw = str("ollama_url");
   if (urlRaw) {
     const v = validateOllamaUrl(urlRaw);
-    if (!v.ok) redirect(`/settings?error=${encodeURIComponent(`Ollama URL not saved: ${v.reason}`)}`);
+    if (!v.ok) redirect(`/settings?error=${encodeURIComponent(`The AI address wasn't saved — ${v.reason}`)}`);
     setSetting("ai.ollama_url", v.url);
   }
   const numCtx = Number(str("num_ctx"));

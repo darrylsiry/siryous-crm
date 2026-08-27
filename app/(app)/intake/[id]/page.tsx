@@ -100,14 +100,14 @@ export default async function IntakeReviewPage({
 
       {blockedSlug ? (
         <section className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
-          Not saved — a profile with the slug <code>{blockedSlug}</code> already exists. Log this on the existing
+          Not saved — a profile with this name (<code>{blockedSlug}</code>) already exists. Log this on the existing
           profile instead, or tick "create a separate profile anyway" below and confirm again.
         </section>
       ) : null}
 
       {existingPerson ? (
         <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          ⚠️ {nameMatch ? "This name already exists as" : "The model thinks this may already be"}{" "}
+          ⚠️ {nameMatch ? "This name already exists as" : "The AI thinks this may already be"}{" "}
           <Link href={`/people/${existingPerson.slug}`} className="font-semibold underline">{existingPerson.name}</Link>{" "}
           in your CRM. Review that profile before creating a duplicate
           {nameMatch ? " — the Log page can add this interaction to the existing profile" : ""}.

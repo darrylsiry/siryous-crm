@@ -131,8 +131,7 @@ export default function ActivityFeed({
 
       {stale ? (
         <p className="mx-5 mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          No activity for a while — the server may have restarted mid-run. You can go back and
-          start a fresh analysis; this one will show an error if it truly died.
+          This seems to have stalled. Go back and start it again.
         </p>
       ) : null}
 

@@ -9,6 +9,7 @@ import {
   recentInteractions,
 } from "@/lib/queries";
 import { ActionRow } from "@/components/ActionList";
+import AiStatusBanner from "@/components/AiStatusBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,16 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       {!people.length ? (
-        <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-          <span className="font-semibold">Welcome — the CRM is empty.</span> Add your first person on the{" "}
-          <Link href="/people" className="font-semibold underline">People page</Link>, or paste a LinkedIn
-          profile into <Link href="/intake" className="font-semibold underline">Intake</Link>.
-        </p>
+        <div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <p>
+            <span className="font-semibold">Welcome — the CRM is empty.</span> Three ways to start: add a person on the{" "}
+            <Link href="/people" className="font-semibold underline">People page</Link>,{" "}
+            <Link href="/import" className="font-semibold underline">import your LinkedIn connections</Link>, or paste a
+            LinkedIn profile into <Link href="/intake" className="font-semibold underline">Intake</Link>. The AI features are
+            set up on <Link href="/settings" className="font-semibold underline">Settings</Link>.
+          </p>
+          <AiStatusBanner />
+        </div>
       ) : null}
       <header>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>

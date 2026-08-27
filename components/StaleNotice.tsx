@@ -11,7 +11,7 @@ export default function StaleNotice({ href }: { href: string }) {
       role="status"
       className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900"
     >
-      This record changed while you were editing (probably via Claude).{" "}
+      This record changed while you were editing (perhaps from another window, or from Claude).{" "}
       <Link href={href} className="font-semibold underline">
         Reload
       </Link>{" "}
