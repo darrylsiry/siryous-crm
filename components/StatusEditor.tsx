@@ -1,6 +1,7 @@
 import { STATUS } from "@/lib/db";
 import ClosingDetails from "@/components/ClosingDetails";
 import { updateStatus } from "@/lib/actions";
+import PendingButton from "@/components/PendingButton";
 
 export default function StatusEditor({
   entity,
@@ -8,12 +9,15 @@ export default function StatusEditor({
   statusKey,
   statusNote,
   nextAction,
+  updatedAt,
 }: {
   entity: "person" | "company";
   id: number;
   statusKey: string;
   statusNote: string | null;
   nextAction: string | null;
+  /** Row's updated_at at render time — the action refuses to overwrite a newer row. */
+  updatedAt: string | null;
 }) {
   return (
     <ClosingDetails className="group">
@@ -26,6 +30,7 @@ export default function StatusEditor({
       >
         <input type="hidden" name="entity" value={entity} />
         <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="updated_at" value={updatedAt ?? ""} />
         <div className="flex flex-wrap gap-3">
           <label className="block text-xs font-medium text-stone-600">
             Status
@@ -59,12 +64,11 @@ export default function StatusEditor({
             className="mt-1 block w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm"
           />
         </label>
-        <button
-          type="submit"
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-        >
-          Save
-        </button>
+        <PendingButton
+          label="Save"
+          pendingLabel="Saving…"
+          className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
+        />
       </form>
     </ClosingDetails>
   );

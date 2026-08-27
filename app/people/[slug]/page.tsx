@@ -6,17 +6,24 @@ import StatusEditor from "@/components/StatusEditor";
 import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
 import InteractionLog from "@/components/InteractionLog";
-import { updateSnapshot } from "@/lib/actions";
+import ConfirmButton from "@/components/ConfirmButton";
+import { deletePerson, updateSnapshot } from "@/lib/actions";
+import PendingButton from "@/components/PendingButton";
+import StaleNotice from "@/components/StaleNotice";
+import { opportunityHref } from "@/lib/queries";
 import { STAGES, STRENGTHS } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function PersonPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ stale?: string }>;
 }) {
   const { slug } = await params;
+  const { stale } = await searchParams;
   const p = personBySlug(slug);
   if (!p) notFound();
   const interactions = interactionsFor({ personId: p.id });
@@ -26,6 +33,7 @@ export default async function PersonPage({
 
   return (
     <div className="space-y-6">
+      {stale ? <StaleNotice href={`/people/${slug}`} /> : null}
       <header>
         <Link href="/people" className="text-xs text-stone-400 hover:text-indigo-600">
           ← People
@@ -76,6 +84,7 @@ export default async function PersonPage({
             statusKey={p.status_key}
             statusNote={p.status_note}
             nextAction={p.next_action}
+            updatedAt={p.updated_at}
           />
         </div>
       </header>
@@ -87,6 +96,7 @@ export default async function PersonPage({
             subtitle="How we're connected and how strong it is"
             entity="person"
             id={p.id}
+            updatedAt={p.updated_at}
             column="relationship_intel"
             value={p.relationship_intel}
           />
@@ -95,6 +105,7 @@ export default async function PersonPage({
             subtitle="What's going on in their world that matters to us"
             entity="person"
             id={p.id}
+            updatedAt={p.updated_at}
             column="business_context"
             value={p.business_context}
           />
@@ -103,6 +114,7 @@ export default async function PersonPage({
             subtitle="The plan for moving this relationship forward"
             entity="person"
             id={p.id}
+            updatedAt={p.updated_at}
             column="engagement_strategy"
             value={p.engagement_strategy}
           />
@@ -111,6 +123,7 @@ export default async function PersonPage({
               title="More"
               entity="person"
               id={p.id}
+            updatedAt={p.updated_at}
               column="extra_sections"
               value={p.extra_sections}
             />
@@ -119,6 +132,7 @@ export default async function PersonPage({
             title="Notes"
             entity="person"
             id={p.id}
+            updatedAt={p.updated_at}
             column="notes"
             value={p.notes}
           />
@@ -146,7 +160,7 @@ export default async function PersonPage({
               <ul className="space-y-2.5">
                 {opps.map((o) => (
                   <li key={o.id}>
-                    <Link href="/pipeline" className="text-sm font-semibold text-stone-900 hover:text-indigo-700">
+                    <Link href={opportunityHref(o)} className="text-sm font-semibold text-stone-900 hover:text-indigo-700">
                       {o.name}
                     </Link>
                     <div className="text-xs text-stone-500">
@@ -211,6 +225,7 @@ export default async function PersonPage({
               <form action={updateSnapshot} className="mt-2 space-y-2">
                 <input type="hidden" name="entity" value="person" />
                 <input type="hidden" name="id" value={p.id} />
+                <input type="hidden" name="updated_at" value={p.updated_at ?? ""} />
                 {[
                   ["role_title", "Role / title", p.role_title],
                   ["email", "Email", p.email],
@@ -260,14 +275,39 @@ export default async function PersonPage({
                     ))}
                   </select>
                 </label>
-                <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700">
-                  Save
-                </button>
+                <PendingButton label="Save" pendingLabel="Saving…" className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"} />
               </form>
             </details>
           </section>
         </aside>
       </div>
+
+      <details className="rounded-xl border border-stone-200 bg-white px-5 py-3">
+        <summary className="cursor-pointer text-xs font-medium text-stone-400 select-none hover:text-red-600">
+          Danger zone
+        </summary>
+        <div className="mt-3 space-y-3 text-sm text-stone-600">
+          <p>
+            Deleting <strong className="text-stone-800">{p.name}</strong> permanently removes the profile,
+            {" "}
+            {interactions.length === 1 ? "its 1 logged interaction" : `its ${interactions.length} logged interactions`},
+            all of this person&apos;s action items (open and completed), their meeting briefs, and any
+            connections to other people.
+            {opps.length
+              ? ` ${opps.length === 1 ? "The 1 opportunity" : `The ${opps.length} opportunities`} linked here will be kept but no longer linked to a person.`
+              : ""}
+            {" "}
+            Outreach drafts are kept, unlinked. There is no undo — restore from a backup in
+            <code className="mx-1 rounded bg-stone-100 px-1 py-0.5 text-xs">data/backups</code>if this was a mistake.
+          </p>
+          <form action={deletePerson.bind(null, p.id)}>
+            <ConfirmButton
+              label={`Delete ${p.name}`}
+              confirm={`Permanently delete ${p.name} and their interactions, action items, briefs and connections? This can't be undone.`}
+            />
+          </form>
+        </div>
+      </details>
     </div>
   );
 }

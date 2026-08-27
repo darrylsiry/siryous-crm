@@ -1,5 +1,6 @@
 import { addInteraction } from "@/lib/actions";
 import ClosingDetails from "@/components/ClosingDetails";
+import PendingButton from "@/components/PendingButton";
 
 export default function AddInteraction({
   personId,
@@ -50,12 +51,11 @@ export default function AddInteraction({
             placeholder="What was discussed, outcome, agreed next step. Markdown supported."
           />
         </label>
-        <button
-          type="submit"
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-        >
-          Log it
-        </button>
+        <PendingButton
+          label="Log it"
+          pendingLabel="Logging…"
+          className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
+        />
         <p className="text-[0.7rem] text-stone-400">
           Logging also bumps “last touch” if this is the newest interaction.
         </p>

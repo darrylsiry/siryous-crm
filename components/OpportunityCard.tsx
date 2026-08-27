@@ -3,11 +3,16 @@ import type { OpportunityJoined } from "@/lib/types";
 import { KINDS, STAGES } from "@/lib/db";
 import { setOpportunityStage, updateOpportunity } from "@/lib/actions";
 import ClosingDetails from "@/components/ClosingDetails";
+import PendingButton from "@/components/PendingButton";
+import SubmitButton from "@/components/SubmitButton";
 
 export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
   const kind = KINDS[o.kind] ?? KINDS.engagement;
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-xs">
+    <div
+      id={`opp-${o.id}`}
+      className="scroll-mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-xs target:ring-2 target:ring-indigo-400"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="text-[0.82rem] font-semibold leading-snug text-stone-900">
           {o.name}
@@ -41,12 +46,13 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
           <span className="font-semibold">Next:</span> {o.next_step}
         </p>
       ) : null}
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <form action={setOpportunityStage} className="flex items-center gap-1">
           <input type="hidden" name="id" value={o.id} />
           <select
             name="stage"
             defaultValue={o.stage}
+            aria-label="Stage"
             className="rounded border border-stone-200 bg-stone-50 px-1 py-0.5 text-[0.68rem] text-stone-600"
           >
             {Object.entries(STAGES).map(([key, s]) => (
@@ -55,41 +61,49 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
               </option>
             ))}
           </select>
-          <button className="rounded bg-stone-100 px-1.5 py-0.5 text-[0.68rem] font-medium text-stone-600 hover:bg-indigo-100 hover:text-indigo-700">
+          <SubmitButton
+            pendingChildren="…"
+            className="rounded bg-stone-100 px-1.5 py-0.5 text-[0.68rem] font-medium text-stone-600 hover:bg-indigo-100 hover:text-indigo-700"
+          >
             Move
-          </button>
+          </SubmitButton>
         </form>
-        <ClosingDetails className="relative">
+        {/* Expands inline (full card width) rather than as an absolutely
+            positioned popover, which the board's overflow-x-auto clipped. */}
+        <ClosingDetails className="group open:basis-full">
           <summary className="cursor-pointer text-[0.68rem] text-stone-400 hover:text-indigo-600 select-none list-none">
-            ✎ edit
+            <span className="group-open:hidden">✎ edit</span>
+            <span className="hidden group-open:inline">✕ close</span>
           </summary>
           <form
             action={updateOpportunity}
-            className="absolute right-0 z-10 mt-1 w-64 space-y-2 rounded-lg border border-stone-300 bg-white p-3 shadow-lg sm:w-72"
+            className="mt-1.5 space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-2.5"
           >
             <input type="hidden" name="id" value={o.id} />
+            <input type="hidden" name="updated_at" value={o.updated_at ?? ""} />
             <input
               name="name"
               defaultValue={o.name}
+              aria-label="Name"
               className="w-full rounded border border-stone-300 px-2 py-1 text-xs"
             />
             <div className="flex gap-2">
-              <select name="kind" defaultValue={o.kind} className="flex-1 rounded border border-stone-300 px-1 py-1 text-xs">
+              <select name="kind" defaultValue={o.kind} aria-label="Kind" className="min-w-0 flex-1 rounded border border-stone-300 px-1 py-1 text-xs">
                 {Object.entries(KINDS).map(([k, v]) => (
                   <option key={k} value={k}>{v.label}</option>
                 ))}
               </select>
-              <select name="priority" defaultValue={o.priority} className="rounded border border-stone-300 px-1 py-1 text-xs">
+              <select name="priority" defaultValue={o.priority} aria-label="Priority" className="rounded border border-stone-300 px-1 py-1 text-xs">
                 <option value={1}>★ High</option>
                 <option value={2}>Normal</option>
                 <option value={3}>Low</option>
               </select>
             </div>
-            <input type="hidden" name="stage" value={o.stage} />
             <textarea
               name="value_note"
               defaultValue={o.value_note ?? ""}
               placeholder="Value / economics"
+              aria-label="Value / economics"
               rows={2}
               className="w-full rounded border border-stone-300 px-2 py-1 text-xs"
             />
@@ -97,6 +111,7 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
               name="next_step"
               defaultValue={o.next_step ?? ""}
               placeholder="Next step"
+              aria-label="Next step"
               rows={2}
               className="w-full rounded border border-stone-300 px-2 py-1 text-xs"
             />
@@ -104,12 +119,15 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
               name="notes"
               defaultValue={o.notes ?? ""}
               placeholder="Notes"
+              aria-label="Notes"
               rows={2}
               className="w-full rounded border border-stone-300 px-2 py-1 text-xs"
             />
-            <button className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
-              Save
-            </button>
+            <PendingButton
+              label="Save"
+              pendingLabel="Saving…"
+              className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            />
           </form>
         </ClosingDetails>
       </div>

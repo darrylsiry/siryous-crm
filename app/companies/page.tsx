@@ -3,6 +3,7 @@ import { allCompanies } from "@/lib/queries";
 import StatusBadge from "@/components/StatusBadge";
 import { createCompany } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
+import PendingButton from "@/components/PendingButton";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export default async function CompaniesPage({
         ))}
         {!companies.length && (
           <li className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
-            No matches.
+            {status ? "No matches." : "No companies yet — add one below. Intake also creates a company when it extracts one from a profile."}
           </li>
         )}
       </ul>
@@ -111,6 +112,13 @@ export default async function CompaniesPage({
                 </td>
               </tr>
             ))}
+            {!companies.length && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-sm italic text-stone-400">
+                  {status ? "No matches." : "No companies yet — add one below. Intake also creates a company when it extracts one from a profile."}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -145,9 +153,7 @@ export default async function CompaniesPage({
             <input name="next_action" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
           </label>
           <div className="sm:col-span-2">
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-              Create company
-            </button>
+            <PendingButton label="Create company" pendingLabel="Creating…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />
           </div>
         </form>
       </details>

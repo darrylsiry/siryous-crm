@@ -21,6 +21,7 @@ const nav = [
   { href: "/pipeline", label: "Pipeline", icon: "⚑" },
   { href: "/followups", label: "Keep Warm", icon: "♨" },
   { href: "/people", label: "People", icon: "๛" },
+  { href: "/import", label: "Import", icon: "⇪" },
   { href: "/companies", label: "Companies", icon: "▣" },
   { href: "/map", label: "Map", icon: "❖" },
   { href: "/outreach", label: "Outreach", icon: "✉" },

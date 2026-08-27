@@ -11,8 +11,11 @@
     "dev": "next dev --turbopack -H 127.0.0.1",
     "build": "next build",
     "start": "next start -H 127.0.0.1",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "export": "tsx scripts/export-markdown.ts",
     "merge-people": "tsx scripts/merge-people.ts",
+    "import-csv": "tsx scripts/import-csv.ts",
     "mcp": "node scripts/mcp-server.mjs"
   },
   "dependencies": {

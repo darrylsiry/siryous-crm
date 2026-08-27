@@ -6,25 +6,34 @@ import StatusEditor from "@/components/StatusEditor";
 import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
 import InteractionLog from "@/components/InteractionLog";
-import { updateSnapshot } from "@/lib/actions";
+import ConfirmButton from "@/components/ConfirmButton";
+import { deleteCompany, updateSnapshot } from "@/lib/actions";
+import PendingButton from "@/components/PendingButton";
+import StaleNotice from "@/components/StaleNotice";
+import { opportunityHref } from "@/lib/queries";
 import { STAGES } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompanyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ stale?: string }>;
 }) {
   const { slug } = await params;
+  const { stale } = await searchParams;
   const c = companyBySlug(slug);
   if (!c) notFound();
   const people = peopleAtCompany(c.id);
   const interactions = interactionsFor({ companyId: c.id });
   const opps = opportunitiesFor({ companyId: c.id });
+  const companyOnlyInteractions = interactions.filter((i) => !i.person_id).length;
 
   return (
     <div className="space-y-6">
+      {stale ? <StaleNotice href={`/companies/${slug}`} /> : null}
       <header>
         <Link href="/companies" className="text-xs text-stone-400 hover:text-indigo-600">
           ← Companies
@@ -51,6 +60,7 @@ export default async function CompanyPage({
             statusKey={c.status_key}
             statusNote={c.status_note}
             nextAction={c.next_action}
+            updatedAt={c.updated_at}
           />
         </div>
       </header>
@@ -62,6 +72,7 @@ export default async function CompanyPage({
             subtitle="What this company cares about and where we fit"
             entity="company"
             id={c.id}
+            updatedAt={c.updated_at}
             column="business_context"
             value={c.business_context}
           />
@@ -70,6 +81,7 @@ export default async function CompanyPage({
             subtitle="Our footprint inside the org"
             entity="company"
             id={c.id}
+            updatedAt={c.updated_at}
             column="relationship_intel"
             value={c.relationship_intel}
           />
@@ -77,6 +89,7 @@ export default async function CompanyPage({
             title="Engagement Strategy"
             entity="company"
             id={c.id}
+            updatedAt={c.updated_at}
             column="engagement_strategy"
             value={c.engagement_strategy}
           />
@@ -85,6 +98,7 @@ export default async function CompanyPage({
               title="More"
               entity="company"
               id={c.id}
+            updatedAt={c.updated_at}
               column="extra_sections"
               value={c.extra_sections}
             />
@@ -93,6 +107,7 @@ export default async function CompanyPage({
             title="Notes"
             entity="company"
             id={c.id}
+            updatedAt={c.updated_at}
             column="notes"
             value={c.notes}
           />
@@ -117,7 +132,7 @@ export default async function CompanyPage({
               <ul className="space-y-2.5">
                 {opps.map((o) => (
                   <li key={o.id}>
-                    <Link href="/pipeline" className="text-sm font-semibold text-stone-900 hover:text-indigo-700">
+                    <Link href={opportunityHref(o)} className="text-sm font-semibold text-stone-900 hover:text-indigo-700">
                       {o.name}
                     </Link>
                     <div className="text-xs text-stone-500">
@@ -200,6 +215,7 @@ export default async function CompanyPage({
               <form action={updateSnapshot} className="mt-2 space-y-2">
                 <input type="hidden" name="entity" value="company" />
                 <input type="hidden" name="id" value={c.id} />
+                <input type="hidden" name="updated_at" value={c.updated_at ?? ""} />
                 {[
                   ["industry", "Industry", c.industry],
                   ["size", "Size / headcount", c.size],
@@ -216,14 +232,40 @@ export default async function CompanyPage({
                     />
                   </label>
                 ))}
-                <button className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700">
-                  Save
-                </button>
+                <PendingButton label="Save" pendingLabel="Saving…" className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"} />
               </form>
             </details>
           </section>
         </aside>
       </div>
+
+      <details className="rounded-xl border border-stone-200 bg-white px-5 py-3">
+        <summary className="cursor-pointer text-xs font-medium text-stone-400 select-none hover:text-red-600">
+          Danger zone
+        </summary>
+        <div className="mt-3 space-y-3 text-sm text-stone-600">
+          <p>
+            Deleting <strong className="text-stone-800">{c.name}</strong> permanently removes the company
+            profile, the {companyOnlyInteractions === 1 ? "1 interaction" : `${companyOnlyInteractions} interactions`} logged
+            on the company itself (not on a person), and any action items filed against the company alone.
+            {people.length
+              ? ` ${people.length === 1 ? "The 1 linked contact keeps" : `The ${people.length} linked contacts keep`} their profiles and interaction logs, just without a company.`
+              : ""}
+            {opps.length
+              ? ` ${opps.length === 1 ? "The 1 opportunity" : `The ${opps.length} opportunities`} linked here will be kept, unlinked from the company.`
+              : ""}
+            {" "}
+            There is no undo — restore from a backup in
+            <code className="mx-1 rounded bg-stone-100 px-1 py-0.5 text-xs">data/backups</code>if this was a mistake.
+          </p>
+          <form action={deleteCompany.bind(null, c.id)}>
+            <ConfirmButton
+              label={`Delete ${c.name}`}
+              confirm={`Permanently delete ${c.name}? Contacts are kept but unlinked; interactions and action items filed only on the company are removed. This can't be undone.`}
+            />
+          </form>
+        </div>
+      </details>
     </div>
   );
 }

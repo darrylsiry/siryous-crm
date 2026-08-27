@@ -21,18 +21,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { openDatabase } from "../lib/schema.mjs";
 import { loadOwner } from "../lib/owner.mjs";
+import { loadVocab, kindList, stageList, bucketList } from "../lib/vocab.mjs";
 import { parseDueDate } from "../lib/dates.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const db = openDatabase(Database, process.env.CRM_DB_PATH || path.join(ROOT, "data", "crm.db"));
 
-const STATUS = {
-  new: "🌱 New", exploring: "🔍 Exploring", active: "🔥 Active", on_hold: "⏸️ On hold",
-  client: "🤝 Client", won: "✅ Won", lost: "❌ Lost", dormant: "😴 Dormant",
-};
-const DEFAULT_CADENCE = { active: 30, client: 14, exploring: 45, new: 21, on_hold: 60, won: 90, dormant: 180, lost: null };
-const STAGES = ["identified", "discussing", "scoping", "negotiating", "engaged", "won", "lost", "on_hold"];
-const BUCKETS = ["overdue", "log_gap", "this_week", "awaiting", "high_potential", "keep_warm", "venture", "data_gap"];
+// Vocabulary is shared with the app via lib/vocab.mjs (defaults + config/vocab.json).
+const VOCAB = loadVocab(ROOT);
+/** status key → "🌱 New" */
+const STATUS = Object.fromEntries(Object.entries(VOCAB.status).map(([k, s]) => [k, `${s.emoji} ${s.label}`.trim()]));
+const DEFAULT_CADENCE = VOCAB.cadence;
+const STAGES = Object.keys(VOCAB.stages);
+const BUCKETS = Object.keys(VOCAB.buckets);
+const KINDS = Object.keys(VOCAB.kinds);
 const SECTIONS = ["relationship_intel", "business_context", "engagement_strategy", "notes", "extra_sections"];
 
 // ---------- helpers ----------
@@ -244,10 +246,9 @@ server.registerTool(
        WHERE a.status='open' ORDER BY a.due_date IS NULL, a.due_date, a.id`
     ).all();
     const out = [];
-    for (const [bucket, label] of [
-      ["overdue", "🔴 Overdue — your move"], ["this_week", "🟡 Dated — this week & upcoming"],
-      ["awaiting", "⏳ Awaiting the other party"], ["log_gap", "🟠 Log missing outcomes"],
-    ]) {
+    // The action-oriented buckets only; outreach/keep-warm/data-gap lists are the app's job.
+    for (const bucket of ["overdue", "this_week", "awaiting", "log_gap"].filter((b) => VOCAB.buckets[b])) {
+      const label = `${VOCAB.buckets[bucket].icon} ${VOCAB.buckets[bucket].label}`.trim();
       const items = open.filter((a) => a.bucket === bucket);
       if (items.length) out.push(`## ${label}\n` + items.map((a) =>
         `- [id ${a.id}]${a.due_label ? ` (due ${a.due_label})` : ""} ${a.title}${a.pname ? ` — ${a.pname}` : ""}${a.cname ? ` / ${a.cname}` : ""}`
@@ -494,7 +495,7 @@ server.registerTool(
   "add_action_item",
   {
     title: "Add an action item",
-    description: `Add a to-do. Buckets: ${BUCKETS.join(", ")}.`,
+    description: `Add a to-do. Buckets: ${bucketList(VOCAB)}.`,
     inputSchema: {
       title: z.string(),
       bucket: z.enum(BUCKETS).default("this_week"),
@@ -537,7 +538,7 @@ server.registerTool(
   "update_opportunity",
   {
     title: "Update a pipeline opportunity",
-    description: `Move stage or update fields of an opportunity (ids from get_pipeline). Stages: ${STAGES.join(", ")}.`,
+    description: `Move stage or update fields of an opportunity (ids from get_pipeline). Stages: ${stageList(VOCAB)}.`,
     inputSchema: {
       id: z.number().int(),
       stage: z.enum(STAGES).optional(),
@@ -565,10 +566,10 @@ server.registerTool(
   "create_opportunity",
   {
     title: "Create a pipeline opportunity",
-    description: `Add a deal/engagement/partnership/venture to the pipeline. Kinds: engagement, partnership, venture, referral. Stages: ${STAGES.join(", ")}.`,
+    description: `Add a deal/engagement/partnership/venture to the pipeline. Kinds: ${kindList(VOCAB)}. Stages: ${stageList(VOCAB)}.`,
     inputSchema: {
       name: z.string(),
-      kind: z.enum(["engagement", "partnership", "venture", "referral"]).default("engagement"),
+      kind: z.enum(KINDS).default(KINDS[0]),
       stage: z.enum(STAGES).default("identified"),
       person: z.string().optional(),
       company: z.string().optional(),

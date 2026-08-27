@@ -1,9 +1,10 @@
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
-import { getDb } from "./db";
+import { getDb, VOCAB } from "./db";
 import { rosterBlock } from "./ai";
 import { loadOwner } from "./owner.mjs";
+import { bucketList } from "./vocab.mjs";
 
 // ---------------------------------------------------------------------------
 // Weekly coaching: context assembly + prompts. Server actions live in coach.ts.
@@ -309,7 +310,7 @@ export interface CoachTurn extends CoachCrmUpdates {
 
 const crmUpdateRules = (O: ReturnType<typeof loadOwner>) => `CRM UPDATE RULES (be conservative — each proposal is shown to the owner to accept or reject):
 - completed_action_ids: ids (from the "[#id]" open-action list) of items ${O.first} CLEARLY STATES are already done ("I sent it", "done", "booked it"). Intent or agreement is NOT completion. Empty array if none.
-- new_actions: commitments ${O.first} explicitly makes in this conversation ("I'll send the proposal Monday"). Do NOT add near-duplicates of existing open items — if an open item already covers it, leave it alone (or complete it if they did it). title: short imperative. bucket: one of overdue, this_week, awaiting, high_potential, keep_warm, venture, data_gap (usually this_week). due_label: e.g. "Fri 7/25" or null. person_slug: the roster slug it concerns, or null.
+- new_actions: commitments ${O.first} explicitly makes in this conversation ("I'll send the proposal Monday"). Do NOT add near-duplicates of existing open items — if an open item already covers it, leave it alone (or complete it if they did it). title: short imperative. bucket: one of ${bucketList(VOCAB)} (usually this_week). due_label: e.g. "Fri 7/25" or null. person_slug: the roster slug it concerns, or null.
 - Items the transcript shows as 📌 recorded, ⏳ proposed/awaiting review, or ❌ rejected must not be proposed again.`;
 
 const transcriptOf = (history: CoachMessage[]) => {

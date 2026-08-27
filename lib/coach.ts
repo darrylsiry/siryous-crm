@@ -217,76 +217,125 @@ export async function startCheckinSession() {
   redirect(`/coach/${sessionId}`);
 }
 
-/** One chat turn: store the owner's message, get the coach's reply. */
-export async function sendCoachMessage(formData: FormData) {
-  const sessionId = Number(formData.get("session_id"));
-  const message = String(formData.get("message") ?? "").trim();
-  if (!sessionId || message.length < 2) return;
+type ReadySession = { id: number; week_start: string; kind: "weekly" | "checkin"; advice_md: string | null; status: string };
+
+const BUSY_MESSAGE: Record<"reply" | "close", string> = {
+  reply: "The coach is still replying — wait a moment, then try again.",
+  close: "The session is being closed — wait a moment.",
+};
+
+/**
+ * Claim the session for one model run. The UPDATE is the lock: it only
+ * succeeds when no other run holds the row, so a double-submit or a Send
+ * racing an End loses cleanly. Returns the session when claimed; otherwise
+ * leaves a friendly note in session.error (when someone else holds it) and
+ * returns null.
+ */
+function claimSession(sessionId: number, mode: "reply" | "close"): ReadySession | null {
   const db = getDb();
+  const claimed = db
+    .prepare(`UPDATE coach_sessions SET in_flight=? WHERE id=? AND in_flight IS NULL AND status='ready'`)
+    .run(mode, sessionId).changes;
+  if (!claimed) {
+    const holder = db.prepare(`SELECT in_flight FROM coach_sessions WHERE id=? AND status='ready'`).get(sessionId) as
+      | { in_flight: "reply" | "close" | null }
+      | undefined;
+    if (holder?.in_flight) db.prepare(`UPDATE coach_sessions SET error=? WHERE id=?`).run(BUSY_MESSAGE[holder.in_flight], sessionId);
+    return null;
+  }
   const session = db
     .prepare(`SELECT id, week_start, kind, advice_md, status FROM coach_sessions WHERE id=?`)
-    .get(sessionId) as
-    | { id: number; week_start: string; kind: "weekly" | "checkin"; advice_md: string | null; status: string }
-    | undefined;
-  if (!session || session.status !== "ready" || !session.advice_md) return;
+    .get(sessionId) as ReadySession | undefined;
+  if (!session?.advice_md) {
+    releaseSession(sessionId);
+    return null;
+  }
+  return session;
+}
 
-  const history = loadMessages(sessionId);
-  db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`).run(
-    sessionId,
-    "owner",
-    message
-  );
+function releaseSession(sessionId: number) {
+  getDb().prepare(`UPDATE coach_sessions SET in_flight=NULL WHERE id=?`).run(sessionId);
+}
+
+/**
+ * One chat turn: get the coach's reply, then store the owner's message and
+ * the reply together — so a failed turn leaves nothing in the transcript and
+ * sending the same message again doesn't duplicate it.
+ */
+export async function sendCoachMessage(formData: FormData): Promise<{ ok: boolean }> {
+  const sessionId = Number(formData.get("session_id"));
+  const message = String(formData.get("message") ?? "").trim();
+  if (!sessionId || message.length < 2) return { ok: false };
+  const db = getDb();
+  const session = claimSession(sessionId, "reply");
+  if (!session) {
+    revalidatePath(`/coach/${sessionId}`);
+    return { ok: false };
+  }
+
+  let ok = false;
   try {
+    const history = loadMessages(sessionId);
     const raw = await runModel(
-      buildCoachReplyPrompt(session.week_start, session.advice_md, history, message, session.kind),
+      buildCoachReplyPrompt(session.week_start, session.advice_md!, history, message, session.kind),
       { json: true, timeoutMs: 300_000 }
     );
     const turn: CoachTurn = validateModelJson(CoachTurnSchema, await extractJsonWithRepair(raw), raw);
-    const replyId = Number(
-      db
-        .prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`)
-        .run(sessionId, "coach", turn.reply_md.trim()).lastInsertRowid
-    );
-    proposeCrmUpdates(sessionId, replyId, turn);
-    db.prepare(`UPDATE coach_sessions SET error=NULL WHERE id=?`).run(sessionId);
+    const insert = db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`);
+    db.transaction(() => {
+      insert.run(sessionId, "owner", message);
+      const replyId = Number(insert.run(sessionId, "coach", turn.reply_md.trim()).lastInsertRowid);
+      proposeCrmUpdates(sessionId, replyId, turn);
+      db.prepare(`UPDATE coach_sessions SET error=NULL WHERE id=?`).run(sessionId);
+    })();
+    ok = true;
   } catch (err) {
     db.prepare(`UPDATE coach_sessions SET error=? WHERE id=?`).run(
-      `Coach reply failed: ${err instanceof Error ? err.message : String(err)} — send your message again.`,
+      `Coach reply failed: ${err instanceof Error ? err.message : String(err)} — your message was not saved; send it again.`,
       sessionId
     );
+  } finally {
+    releaseSession(sessionId);
   }
   revalidatePath("/", "layout"); // action items may have changed — refresh dashboard/actions too
+  return { ok };
 }
 
 /** End the session: coach writes the summary + commitments, session closes. */
-export async function endCoachSession(formData: FormData) {
+export async function endCoachSession(formData: FormData): Promise<{ ok: boolean }> {
   const sessionId = Number(formData.get("session_id"));
-  if (!sessionId) return;
+  if (!sessionId) return { ok: false };
   const db = getDb();
-  const session = db
-    .prepare(`SELECT id, week_start, kind, advice_md, status FROM coach_sessions WHERE id=?`)
-    .get(sessionId) as
-    | { id: number; week_start: string; kind: "weekly" | "checkin"; advice_md: string | null; status: string }
-    | undefined;
-  if (!session || session.status !== "ready" || !session.advice_md) return;
+  const session = claimSession(sessionId, "close");
+  if (!session) {
+    revalidatePath(`/coach/${sessionId}`);
+    return { ok: false };
+  }
 
+  let ok = false;
   try {
     const raw = await runModel(
-      buildCoachSummaryPrompt(session.week_start, session.advice_md, loadMessages(sessionId), session.kind),
+      buildCoachSummaryPrompt(session.week_start, session.advice_md!, loadMessages(sessionId), session.kind),
       { json: true, timeoutMs: 300_000 }
     );
     const close: CoachClose = validateModelJson(CoachCloseSchema, await extractJsonWithRepair(raw), raw);
-    proposeCrmUpdates(sessionId, null, close);
-    db.prepare(
-      `UPDATE coach_sessions SET summary_md=?, status='closed', closed_at=datetime('now'), error=NULL WHERE id=?`
-    ).run(close.summary_md.trim(), sessionId);
+    db.transaction(() => {
+      proposeCrmUpdates(sessionId, null, close);
+      db.prepare(
+        `UPDATE coach_sessions SET summary_md=?, status='closed', closed_at=datetime('now'), error=NULL WHERE id=?`
+      ).run(close.summary_md.trim(), sessionId);
+    })();
+    ok = true;
   } catch (err) {
     db.prepare(`UPDATE coach_sessions SET error=? WHERE id=?`).run(
       `Closing summary failed: ${err instanceof Error ? err.message : String(err)} — try ending the session again.`,
       sessionId
     );
+  } finally {
+    releaseSession(sessionId);
   }
   revalidatePath("/", "layout");
+  return { ok };
 }
 
 /** Remove a session entirely (stale error runs, do-overs). */

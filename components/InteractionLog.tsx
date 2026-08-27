@@ -1,4 +1,6 @@
 import type { Interaction } from "@/lib/types";
+import { deleteInteraction } from "@/lib/actions";
+import ConfirmButton from "./ConfirmButton";
 import Markdown from "./Markdown";
 
 export default function InteractionLog({
@@ -24,6 +26,13 @@ export default function InteractionLog({
                 (w/ {i.person_name})
               </span>
             ) : null}
+            <form action={deleteInteraction.bind(null, i.id)} className="ml-auto">
+              <ConfirmButton
+                label="×"
+                confirm={`Delete the ${i.date} interaction? This can't be undone.`}
+                className="rounded px-1.5 text-base leading-none text-stone-300 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+              />
+            </form>
           </div>
           <div className="mt-0.5">
             <Markdown>{i.summary}</Markdown>

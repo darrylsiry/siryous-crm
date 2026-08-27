@@ -40,6 +40,7 @@ function DueChip({ daysOver, daysSince, cadence, note }: { daysOver: number | nu
 export default function FollowUpsPage() {
   const rows = followUps();
   const overdue = rows.filter((r) => r.days_over != null && r.days_over > 0);
+  const empty = "Nobody to keep warm yet — people show up here once they exist on the People page; set a cadence in each profile's snapshot.";
 
   return (
     <div className="space-y-6">
@@ -86,6 +87,9 @@ export default function FollowUpsPage() {
             ) : null}
           </li>
         ))}
+        {!rows.length && (
+          <li className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">{empty}</li>
+        )}
       </ul>
 
       <div className="hidden overflow-x-auto rounded-xl border border-stone-200 bg-white md:block">
@@ -138,6 +142,11 @@ export default function FollowUpsPage() {
                 </td>
               </tr>
             ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-sm italic text-stone-400">{empty}</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

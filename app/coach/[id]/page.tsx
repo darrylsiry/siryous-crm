@@ -9,7 +9,7 @@ import { loadProposals, type CoachProposal } from "@/lib/coachData";
 import Markdown from "@/components/Markdown";
 import ActivityFeed from "@/components/ActivityFeed";
 import FeedRecap from "@/components/FeedRecap";
-import PendingButton from "@/components/PendingButton";
+import CoachChat from "@/components/CoachChat";
 
 export const dynamic = "force-dynamic";
 
@@ -207,40 +207,7 @@ export default async function CoachSessionPage({ params }: { params: Promise<{ i
             )}
 
             {session.status === "ready" ? (
-              <>
-                {session.error ? (
-                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    {session.error}
-                  </p>
-                ) : null}
-                <form action={sendCoachMessage} className="mt-4 space-y-2">
-                  <input type="hidden" name="session_id" value={session.id} />
-                  <textarea
-                    name="message"
-                    required
-                    minLength={2}
-                    rows={3}
-                    placeholder="Reply to your coach…"
-                    className="w-full rounded-xl border border-stone-300 p-3 text-sm leading-relaxed focus:border-indigo-400 focus:outline-none"
-                  />
-                  <PendingButton
-                    label="Send"
-                    pendingLabel="Coach is thinking…"
-                    pendingNote="Replies usually take under a minute."
-                  />
-                </form>
-                <form action={endCoachSession} className="mt-4 border-t border-stone-100 pt-4">
-                  <input type="hidden" name="session_id" value={session.id} />
-                  <PendingButton
-                    label="⏹ End session — summarize & record commitments"
-                    pendingLabel="Summarizing the session…"
-                    pendingNote="The coach is writing up what was discussed and your commitments."
-                  />
-                  <p className="mt-2 text-xs text-stone-400">
-                    Closes the session for good. The summary and commitments carry into next week's session; any CRM changes it proposes wait for your tick.
-                  </p>
-                </form>
-              </>
+              <CoachChat sessionId={session.id} error={session.error} sendAction={sendCoachMessage} endAction={endCoachSession} />
             ) : null}
           </section>
         </>

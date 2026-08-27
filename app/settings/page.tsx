@@ -8,6 +8,7 @@ import { loadOwner } from "@/lib/owner.mjs";
 import { authEnabled, signInUrl, tokenPath } from "@/lib/auth.mjs";
 import { saveAiSettings } from "@/lib/settingsActions";
 import PendingButton from "@/components/PendingButton";
+import FlashBanner from "@/components/FlashBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       </header>
 
       {saved ? (
-        <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">Saved.</p>
+        <FlashBanner cleanHref="/settings" className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+          Saved.
+        </FlashBanner>
       ) : null}
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</p>

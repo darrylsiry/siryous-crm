@@ -3,6 +3,7 @@ import { allPeople, allCompanies } from "@/lib/queries";
 import StatusBadge from "@/components/StatusBadge";
 import { createPerson } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
+import PendingButton from "@/components/PendingButton";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export default async function PeoplePage({
 
       <div className="flex flex-wrap gap-1.5 text-xs">
         <Link
-          href="/people"
+          href={q ? `/people?q=${encodeURIComponent(q)}` : "/people"}
           className={`rounded-full px-3 py-1 ring-1 ring-inset ${!status ? "bg-stone-900 text-white ring-stone-900" : "bg-white text-stone-600 ring-stone-300 hover:bg-stone-100"}`}
         >
           All
@@ -62,7 +63,7 @@ export default async function PeoplePage({
         {Object.entries(STATUS).map(([key, s]) => (
           <Link
             key={key}
-            href={`/people?status=${key}`}
+            href={q ? `/people?status=${key}&q=${encodeURIComponent(q)}` : `/people?status=${key}`}
             className={`rounded-full px-3 py-1 ring-1 ring-inset ${status === key ? "bg-stone-900 text-white ring-stone-900" : "bg-white text-stone-600 ring-stone-300 hover:bg-stone-100"}`}
           >
             {s.emoji} {s.label}
@@ -108,7 +109,7 @@ export default async function PeoplePage({
         ))}
         {!people.length && (
           <li className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
-            No matches.
+            {q || status ? "No matches." : "No people yet — add one below, or paste a LinkedIn profile into Intake."}
           </li>
         )}
       </ul>
@@ -155,6 +156,13 @@ export default async function PeoplePage({
                 </td>
               </tr>
             ))}
+            {!people.length && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-sm italic text-stone-400">
+                  {q || status ? "No matches." : "No people yet — add one below, or paste a LinkedIn profile into Intake."}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -202,9 +210,7 @@ export default async function PeoplePage({
             <input name="next_action" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
           </label>
           <div className="sm:col-span-2">
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-              Create profile
-            </button>
+            <PendingButton label="Create profile" pendingLabel="Creating…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />
           </div>
         </form>
       </details>

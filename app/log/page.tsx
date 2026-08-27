@@ -80,8 +80,13 @@ export default function LogPage() {
           )}
         </fieldset>
 
+        <label htmlFor="log-raw-text" className="sr-only">
+          Content to log
+        </label>
         <textarea
+          id="log-raw-text"
           name="raw_text"
+          aria-label="Content to log — pasted meeting or email, or a description of what to fetch"
           required
           minLength={10}
           rows={10}

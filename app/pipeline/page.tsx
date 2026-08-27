@@ -2,10 +2,17 @@ import { KINDS, STAGES } from "@/lib/db";
 import { allCompanies, allOpportunities, allPeople } from "@/lib/queries";
 import { createOpportunity } from "@/lib/actions";
 import OpportunityCard from "@/components/OpportunityCard";
+import PendingButton from "@/components/PendingButton";
+import StaleNotice from "@/components/StaleNotice";
 
 export const dynamic = "force-dynamic";
 
-export default function PipelinePage() {
+export default async function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stale?: string; show?: string }>;
+}) {
+  const sp = await searchParams;
   const opps = allOpportunities();
   const people = allPeople();
   const companies = allCompanies();
@@ -18,6 +25,7 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-6">
+      {sp.stale ? <StaleNotice href="/pipeline" /> : null}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
@@ -55,7 +63,7 @@ export default function PipelinePage() {
       </div>
 
       {closed.length > 0 && (
-        <details className="rounded-xl border border-stone-200 bg-white">
+        <details className="rounded-xl border border-stone-200 bg-white" open={sp.show === "closed" || undefined}>
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-stone-500 select-none">
             {closedStages.map(([, s]) => s.icon).join(" ")} Closed / on hold ({closed.length})
           </summary>
@@ -127,9 +135,7 @@ export default function PipelinePage() {
             <input name="next_step" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
           </label>
           <div className="sm:col-span-2">
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-              Add to pipeline
-            </button>
+            <PendingButton label="Add to pipeline" pendingLabel="Adding…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />
           </div>
         </form>
       </details>

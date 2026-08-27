@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, STAGES } from "./db";
 import type {
   ActionItemJoined,
   Company,
@@ -24,13 +24,16 @@ export function allPeople(): PersonWithCompany[] {
     .all() as PersonWithCompany[];
 }
 
-export function personBySlug(slug: string): PersonWithCompany | undefined {
+/** Row version carried by the profile edit forms for optimistic concurrency. */
+export type Versioned = { updated_at: string | null };
+
+export function personBySlug(slug: string): (PersonWithCompany & Versioned) | undefined {
   return getDb()
     .prepare(
       `SELECT p.*, c.name AS company_name, c.slug AS company_slug
        FROM people p LEFT JOIN companies c ON c.id = p.company_id WHERE p.slug = ?`
     )
-    .get(slug) as PersonWithCompany | undefined;
+    .get(slug) as (PersonWithCompany & Versioned) | undefined;
 }
 
 export function allCompanies(): (Company & { people_count: number; key_people: string })[] {
@@ -45,9 +48,9 @@ export function allCompanies(): (Company & { people_count: number; key_people: s
     .all() as (Company & { people_count: number; key_people: string })[];
 }
 
-export function companyBySlug(slug: string): Company | undefined {
+export function companyBySlug(slug: string): (Company & Versioned) | undefined {
   return getDb().prepare(`SELECT * FROM companies WHERE slug = ?`).get(slug) as
-    | Company
+    | (Company & Versioned)
     | undefined;
 }
 
@@ -150,6 +153,12 @@ export function allOpportunities(): OpportunityJoined[] {
     .all() as OpportunityJoined[];
 }
 
+/** Deep link to an opportunity's card on the pipeline board (closed/on-hold cards live in a collapsed section). */
+export function opportunityHref(o: { id: number; stage: string }): string {
+  const open = STAGES[o.stage]?.open ?? true;
+  return `/pipeline${open ? "" : "?show=closed"}#opp-${o.id}`;
+}
+
 export function opportunitiesFor(opts: { personId?: number; companyId?: number }): OpportunityJoined[] {
   const where = opts.personId ? "o.person_id = ?" : "o.company_id = ?";
   return getDb()
@@ -216,65 +225,92 @@ export function mapData(): MapData {
   };
 }
 
+export const SEARCH_LIMIT = 20;
+
 export interface SearchResults {
   people: PersonWithCompany[];
   companies: Company[];
   interactions: (Interaction & { person_name: string | null; person_slug: string | null; company_name: string | null; company_slug: string | null })[];
   actions: ActionItemJoined[];
   opportunities: OpportunityJoined[];
+  /** Sections that hit SEARCH_LIMIT and were cut off. */
+  truncated: { [K in keyof Omit<SearchResults, "truncated">]: boolean };
+}
+
+/** Escape LIKE metacharacters so a literal %, _ or \ in the query matches itself. */
+function likeNeedle(q: string): string {
+  return `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 }
 
 export function search(q: string): SearchResults {
   const db = getDb();
-  const like = `%${q}%`;
+  const like = likeNeedle(q);
+  // Fetch one past the limit so the caller can tell "exactly 20" from "more than 20".
+  const n = SEARCH_LIMIT + 1;
+  const people = db
+    .prepare(
+      `SELECT p.*, c.name AS company_name, c.slug AS company_slug
+       FROM people p LEFT JOIN companies c ON c.id = p.company_id
+       WHERE p.name LIKE @q ESCAPE '\\' OR p.role_title LIKE @q ESCAPE '\\' OR p.tags LIKE @q ESCAPE '\\'
+         OR p.notes LIKE @q ESCAPE '\\' OR p.relationship_intel LIKE @q ESCAPE '\\'
+         OR p.business_context LIKE @q ESCAPE '\\' OR p.engagement_strategy LIKE @q ESCAPE '\\'
+       ORDER BY p.name LIMIT @n`
+    )
+    .all({ q: like, n }) as PersonWithCompany[];
+  const companies = db
+    .prepare(
+      `SELECT * FROM companies
+       WHERE name LIKE @q ESCAPE '\\' OR industry LIKE @q ESCAPE '\\' OR notes LIKE @q ESCAPE '\\'
+         OR business_context LIKE @q ESCAPE '\\'
+       ORDER BY name LIMIT @n`
+    )
+    .all({ q: like, n }) as Company[];
+  const interactions = db
+    .prepare(
+      `SELECT i.*, p.name AS person_name, p.slug AS person_slug,
+              c.name AS company_name, c.slug AS company_slug
+       FROM interactions i
+       LEFT JOIN people p ON p.id = i.person_id
+       LEFT JOIN companies c ON c.id = i.company_id
+       WHERE i.summary LIKE @q ESCAPE '\\' ORDER BY i.date DESC LIMIT @n`
+    )
+    .all({ q: like, n }) as SearchResults["interactions"];
+  const actions = db
+    .prepare(
+      `SELECT a.*, p.name AS person_name, p.slug AS person_slug,
+              c.name AS company_name, c.slug AS company_slug
+       FROM action_items a
+       LEFT JOIN people p ON p.id = a.person_id
+       LEFT JOIN companies c ON c.id = a.company_id
+       WHERE a.detail LIKE @q ESCAPE '\\' OR a.title LIKE @q ESCAPE '\\' ORDER BY a.status, a.id LIMIT @n`
+    )
+    .all({ q: like, n }) as ActionItemJoined[];
+  const opportunities = db
+    .prepare(
+      `SELECT o.*, p.name AS person_name, p.slug AS person_slug,
+              c.name AS company_name, c.slug AS company_slug
+       FROM opportunities o
+       LEFT JOIN people p ON p.id = o.person_id
+       LEFT JOIN companies c ON c.id = o.company_id
+       WHERE o.name LIKE @q ESCAPE '\\' OR o.value_note LIKE @q ESCAPE '\\'
+         OR o.next_step LIKE @q ESCAPE '\\' OR o.notes LIKE @q ESCAPE '\\'
+       ORDER BY o.priority, o.updated_at DESC LIMIT @n`
+    )
+    .all({ q: like, n }) as OpportunityJoined[];
+  const cut = <T,>(rows: T[]) => rows.slice(0, SEARCH_LIMIT);
   return {
-    people: db
-      .prepare(
-        `SELECT p.*, c.name AS company_name, c.slug AS company_slug
-         FROM people p LEFT JOIN companies c ON c.id = p.company_id
-         WHERE p.name LIKE ? OR p.role_title LIKE ? OR p.tags LIKE ? OR p.notes LIKE ?
-           OR p.relationship_intel LIKE ? OR p.business_context LIKE ? OR p.engagement_strategy LIKE ?
-         ORDER BY p.name LIMIT 20`
-      )
-      .all(like, like, like, like, like, like, like) as PersonWithCompany[],
-    companies: db
-      .prepare(
-        `SELECT * FROM companies
-         WHERE name LIKE ? OR industry LIKE ? OR notes LIKE ? OR business_context LIKE ?
-         ORDER BY name LIMIT 20`
-      )
-      .all(like, like, like, like) as Company[],
-    interactions: db
-      .prepare(
-        `SELECT i.*, p.name AS person_name, p.slug AS person_slug,
-                c.name AS company_name, c.slug AS company_slug
-         FROM interactions i
-         LEFT JOIN people p ON p.id = i.person_id
-         LEFT JOIN companies c ON c.id = i.company_id
-         WHERE i.summary LIKE ? ORDER BY i.date DESC LIMIT 20`
-      )
-      .all(like) as SearchResults["interactions"],
-    actions: db
-      .prepare(
-        `SELECT a.*, p.name AS person_name, p.slug AS person_slug,
-                c.name AS company_name, c.slug AS company_slug
-         FROM action_items a
-         LEFT JOIN people p ON p.id = a.person_id
-         LEFT JOIN companies c ON c.id = a.company_id
-         WHERE a.detail LIKE ? OR a.title LIKE ? ORDER BY a.status, a.id LIMIT 20`
-      )
-      .all(like, like) as ActionItemJoined[],
-    opportunities: db
-      .prepare(
-        `SELECT o.*, p.name AS person_name, p.slug AS person_slug,
-                c.name AS company_name, c.slug AS company_slug
-         FROM opportunities o
-         LEFT JOIN people p ON p.id = o.person_id
-         LEFT JOIN companies c ON c.id = o.company_id
-         WHERE o.name LIKE ? OR o.value_note LIKE ? OR o.next_step LIKE ? OR o.notes LIKE ?
-         LIMIT 20`
-      )
-      .all(like, like, like, like) as OpportunityJoined[],
+    people: cut(people),
+    companies: cut(companies),
+    interactions: cut(interactions),
+    actions: cut(actions),
+    opportunities: cut(opportunities),
+    truncated: {
+      people: people.length > SEARCH_LIMIT,
+      companies: companies.length > SEARCH_LIMIT,
+      interactions: interactions.length > SEARCH_LIMIT,
+      actions: actions.length > SEARCH_LIMIT,
+      opportunities: opportunities.length > SEARCH_LIMIT,
+    },
   };
 }
 

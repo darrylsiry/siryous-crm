@@ -32,6 +32,86 @@ export async function reopenActionItem(id: number) {
   revalidatePath("/actions");
 }
 
+export async function deleteActionItem(id: number) {
+  if (!id) return;
+  getDb().prepare(`DELETE FROM action_items WHERE id=?`).run(id);
+  revalidatePath("/", "layout");
+}
+
+/**
+ * After an interaction disappears, the contact's last_touch may point at a date
+ * that no longer has an interaction behind it. Only recompute when the deleted
+ * date could have been the one that set it (a last_touch newer than every
+ * interaction was set by hand and is left alone).
+ */
+function recomputeLastTouch(table: "people" | "companies", fk: "person_id" | "company_id", id: number, deletedDate: string) {
+  const db = getDb();
+  const row = db.prepare(`SELECT last_touch FROM ${table} WHERE id=?`).get(id) as { last_touch: string | null } | undefined;
+  if (!row || !row.last_touch || deletedDate < row.last_touch) return;
+  const newest = (
+    db
+      .prepare(
+        `SELECT MAX(date) AS d FROM interactions WHERE ${fk} = ? AND date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`
+      )
+      .get(id) as { d: string | null } | undefined
+  )?.d;
+  db.prepare(`UPDATE ${table} SET last_touch = ?, last_touch_note = NULL, updated_at = datetime('now') WHERE id = ?`).run(
+    isIsoDate(newest) ? newest : null,
+    id
+  );
+}
+
+export async function deleteInteraction(id: number) {
+  if (!id) return;
+  const db = getDb();
+  const row = db.prepare(`SELECT person_id, company_id, date FROM interactions WHERE id=?`).get(id) as
+    | { person_id: number | null; company_id: number | null; date: string }
+    | undefined;
+  if (!row) return;
+  db.transaction(() => {
+    db.prepare(`DELETE FROM interactions WHERE id=?`).run(id);
+    if (row.person_id) recomputeLastTouch("people", "person_id", row.person_id, row.date);
+    if (row.company_id) recomputeLastTouch("companies", "company_id", row.company_id, row.date);
+  })();
+  revalidatePath("/", "layout");
+}
+
+/**
+ * Permanently remove a person. Foreign keys cascade their interactions and
+ * connections and null them out of opportunities and outreach; their action
+ * items and briefs would be orphaned nonsense without the person, so those go too.
+ */
+export async function deletePerson(id: number) {
+  if (!id) return;
+  const db = getDb();
+  if (!db.prepare(`SELECT 1 FROM people WHERE id=?`).get(id)) return;
+  db.transaction(() => {
+    db.prepare(`DELETE FROM action_items WHERE person_id=?`).run(id);
+    db.prepare(`DELETE FROM briefs WHERE person_id=?`).run(id);
+    db.prepare(`DELETE FROM people WHERE id=?`).run(id);
+  })();
+  revalidatePath("/", "layout");
+  redirect("/people");
+}
+
+/**
+ * Permanently remove a company. Its people stay (company_id nulled by the FK),
+ * as do interactions logged on those people; interactions and action items
+ * that were only ever attached to the company are deleted.
+ */
+export async function deleteCompany(id: number) {
+  if (!id) return;
+  const db = getDb();
+  if (!db.prepare(`SELECT 1 FROM companies WHERE id=?`).get(id)) return;
+  db.transaction(() => {
+    db.prepare(`DELETE FROM interactions WHERE company_id=? AND person_id IS NULL`).run(id);
+    db.prepare(`DELETE FROM action_items WHERE company_id=? AND person_id IS NULL`).run(id);
+    db.prepare(`DELETE FROM companies WHERE id=?`).run(id);
+  })();
+  revalidatePath("/", "layout");
+  redirect("/companies");
+}
+
 export async function addActionItem(formData: FormData) {
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
@@ -77,6 +157,25 @@ export async function addInteraction(formData: FormData) {
   revalidatePath("/", "layout");
 }
 
+/**
+ * Optimistic concurrency for the profile/opportunity edit forms: the form carries
+ * the row's updated_at as rendered; if the DB has moved on since (e.g. Claude
+ * wrote to the record via the MCP server), the write is skipped and the caller
+ * redirects back with ?stale=1. Absent field = legacy form, no check.
+ */
+function isStale(table: "people" | "companies" | "opportunities", id: number, formData: FormData): boolean {
+  const expected = formData.get("updated_at");
+  if (expected == null) return false;
+  const row = getDb().prepare(`SELECT updated_at FROM ${table} WHERE id=?`).get(id) as { updated_at: string | null } | undefined;
+  if (!row) return false;
+  return (row.updated_at ?? "") !== String(expected);
+}
+
+function profilePath(table: "people" | "companies", id: number): string {
+  const row = getDb().prepare(`SELECT slug FROM ${table} WHERE id=?`).get(id) as { slug: string } | undefined;
+  return row ? `/${table}/${row.slug}` : `/${table}`;
+}
+
 export async function updateStatus(formData: FormData) {
   const table = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));
@@ -84,6 +183,7 @@ export async function updateStatus(formData: FormData) {
   const statusNote = String(formData.get("status_note") ?? "").trim() || null;
   const nextAction = String(formData.get("next_action") ?? "").trim() || null;
   if (!id) return;
+  if (isStale(table, id, formData)) redirect(`${profilePath(table, id)}?stale=1`);
   getDb()
     .prepare(
       `UPDATE ${table} SET status_key=?, status_note=?, next_action=?, updated_at=datetime('now') WHERE id=?`
@@ -110,6 +210,7 @@ export async function updateSection(formData: FormData) {
     "extra_sections",
   ]);
   if (!id || !allowed.has(column)) return;
+  if (isStale(table, id, formData)) redirect(`${profilePath(table, id)}?stale=1`);
   const value = String(formData.get("value") ?? "").trim() || null;
   getDb().prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(value, id);
   touch(table, id);
@@ -120,6 +221,7 @@ export async function updateSnapshot(formData: FormData) {
   const entity = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));
   if (!id) return;
+  if (isStale(entity, id, formData)) redirect(`${profilePath(entity, id)}?stale=1`);
   const db = getDb();
   if (entity === "people") {
     const cadenceRaw = String(formData.get("cadence_days") ?? "").trim();
@@ -207,6 +309,10 @@ export async function updateOpportunity(formData: FormData) {
   if (!id) return;
   const current = getDb().prepare(`SELECT name, stage FROM opportunities WHERE id=?`).get(id) as { name: string; stage: string } | undefined;
   if (!current) return;
+  if (isStale("opportunities", id, formData)) redirect("/pipeline?stale=1");
+  // Stage is owned by the "Move" form / MCP; the edit form omits it so a stage
+  // moved elsewhere isn't clobbered. Only honour it when explicitly supplied.
+  const stage = formData.has("stage") ? oneOf(formData.get("stage"), STAGES, current.stage) : current.stage;
   getDb()
     .prepare(
       `UPDATE opportunities SET name=?, kind=?, stage=?, value_note=?, priority=?, next_step=?, notes=?, updated_at=datetime('now') WHERE id=?`
@@ -214,7 +320,7 @@ export async function updateOpportunity(formData: FormData) {
     .run(
       str(formData, "name") ?? current.name,
       oneOf(formData.get("kind"), KINDS, "engagement"),
-      oneOf(formData.get("stage"), STAGES, current.stage),
+      stage,
       str(formData, "value_note"),
       Number(formData.get("priority")) || 2,
       str(formData, "next_step"),

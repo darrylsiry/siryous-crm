@@ -94,6 +94,10 @@ and restart to rotate it.
   status pipeline (🌱 New → 🔍 Exploring → 🔥 Active → 🤝 Client …), relationship
   strength, snapshot fields, and per-profile interaction logs. Every section is
   editable in place (markdown supported); cross-links between profiles work.
+  People, companies, individual interactions and action items can be deleted
+  from the profile pages (a "Danger zone" at the bottom, or the × on a log
+  entry / open item) — deletion is permanent, with only the daily backups to
+  fall back on; the MCP server deliberately has no delete tools.
 - **Outreach** — imported drafts/sent messages linked to their contacts.
 
 Logging an interaction automatically bumps the contact's "last touch" date
@@ -108,7 +112,9 @@ Logging an interaction automatically bumps the contact's "last touch" date
 - **To Anthropic (via your Claude login):** the pasted text when Intake's
   "research on the web" box is ticked; your request plus the retrieved
   transcript/thread for Log's Zoom/Meet/Gmail sources; the counterparty's
-  dossier for Prep's research step; and — only if Ollama is unavailable and the
+  name, company, role, last-touch date and next action for Prep's Calendar/Gmail
+  step, and their public name/role/company for its web step (never the dossier
+  or interaction log); and — only if Ollama is unavailable and the
   Claude fallback is enabled in Settings — the entire prompt of a write step,
   which includes your contact roster. Turn the fallback off in Settings if
   that isn't acceptable.
@@ -133,7 +139,7 @@ it carries a tool grant:
 |---------|--------------------------------------|--------------------------|
 | Intake  | optional web-research digest (checkbox on the form; skipped gracefully if Claude fails) | extract the profile, connections, actions, log entry |
 | Log     | paste: none · Zoom / Gmail / Meet-via-Drive: retrieve the transcript or thread | write the interaction-log entries |
-| Prep    | Calendar + Gmail + web: what's changed since last touch (and which meeting is next, in auto mode) | write the brief |
+| Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
 
 If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
@@ -172,9 +178,25 @@ notes for the coach to read. Every AI prompt, the app name, and the MCP server
 name come from this file; with no file the wording is generic. Restart the app
 after changing it.
 
-Statuses, pipeline stages, action buckets and default cadences live in
-`lib/db.ts` (`STATUS`, `STAGES`, `BUCKETS`, `DEFAULT_CADENCE`) — edit there if
-your practice uses different vocabulary.
+Statuses, action buckets, pipeline stages, opportunity kinds, relationship
+strengths and default keep-warm cadences are configurable the same way: copy
+`config/vocab.example.json` to `config/vocab.json` (gitignored) and keep only
+the parts you want to change. An entry whose key matches a built-in one
+replaces just the fields you give (so `"new": {"label": "Prospect"}` renames a
+status without touching its emoji or colour), a new key adds an entry, and a
+`"remove": ["venture"]` list drops built-in ones. Colours are palette names
+(`emerald`, `sky`, `rose`, …; the example file lists them all). The app, the
+MCP server's tool descriptions and every AI prompt are generated from the
+merged result, so nothing can drift. Restart the app and the MCP server after
+changing the file.
+
+Two cautions. The *keys* (`new`, `this_week`, `identified`, …) are what the
+database stores, so renaming a key of a status, stage or bucket that rows
+already use would orphan those rows — change the label instead. And removing a
+key that rows still use does not delete anything, but those rows fall into the
+closed/unknown group in the UI (statuses sort last, stages leave the board,
+actions disappear from the bucket view) until you edit them. Keep the keys
+the app falls back to (`new`, `this_week`, `identified`, `engagement`).
 
 ## One database, three ways in
 
@@ -216,12 +238,46 @@ a checkbox clicked in the app is instantly visible to Claude, and vice versa.
 
 ## Getting data in
 
-There is no bulk importer yet. The fastest way to build a roster is the
-**Intake** page: paste a LinkedIn profile, an email thread, or your notes about
-someone, review what the model extracted, and confirm. The **People** and
-**Companies** pages have plain forms too, and Claude Desktop can create and
-update profiles through the MCP server ("add Sam Lee at Acme as a new
-contact — here's what I know…").
+- **CSV import (bulk).** The **Import** page (`/import`) takes a CSV, shows a
+  preview (how each column was matched, the first ten rows as they would be
+  saved, and the counts) and then imports on a second click. A LinkedIn
+  **Connections.csv** export works as-is (Settings → Data privacy → Get a copy
+  of your data → Connections): First/Last Name become the name, URL the
+  LinkedIn link, Position the role, Company is linked or created, and
+  "Connected On" becomes the last-touch date. Any spreadsheet with a header row
+  works too — columns are matched case- and punctuation-insensitively with
+  synonyms: name (or first name + last name), email, linkedin/url, role/title/
+  position, company, location, phone, tags (comma-separated), notes, status (a
+  `STATUS` key or label; default `new`), cadence (days; default by status),
+  last touch / connected on (ISO, `12 Jul 2026`, `Jul 12, 2026`, `7/12/2026`;
+  anything else is kept as a last-touch note). Unrecognised columns are
+  ignored. The same import runs from the terminal:
+
+  ```bash
+  npm run import-csv -- path/to/file.csv [--update] [--dry-run]
+  ```
+
+  Semantics: the whole import is one transaction. Companies are matched by
+  slug and created (as 🌱 New, no profile text) when missing. **People whose
+  slug already exists are skipped and listed — never overwritten.** With
+  `--update` (or the "update existing" box) an existing person's *blank*
+  email / LinkedIn / role / company / location / phone are filled from the
+  file; filled fields and the narrative sections are never touched. Rows
+  without a name, or with an unknown status or a non-numeric cadence, are
+  reported and skipped while the rest go in. `--dry-run` runs everything and
+  rolls it back. The web page is best for files under about 1 MB (a
+  server-action body limit); use the CLI for anything bigger.
+- **One at a time.** The **Intake** page: paste a LinkedIn profile, an email
+  thread, or your notes about someone, review what the model extracted, and
+  confirm — this is the route that also writes the profile narrative. The
+  **People** and **Companies** pages have plain forms too, and Claude Desktop
+  can create and update profiles through the MCP server ("add Sam Lee at Acme
+  as a new contact — here's what I know…").
+
+All scripts in `scripts/` change to the repo root before touching anything,
+so they can be run from any directory; `CRM_DB_PATH` still overrides the
+database location, and the export and merge scripts refuse to run when the
+database file doesn't exist rather than creating an empty one.
 
 ## Stack
 
@@ -230,6 +286,24 @@ Tailwind CSS v4 · Ollama (local open-weight model) for AI reasoning/writing ·
 headless Claude Code CLI for external-data steps (read-only claude.ai connector
 grants) and fallback. No client-side state libraries; forms are plain
 HTML `<details>` disclosures posting to server actions.
+
+## Tests
+
+```bash
+npm test          # node --test via tsx; no extra framework
+npm run typecheck # tsc --noEmit
+```
+
+The suite lives in `tests/` and uses Node's built-in test runner. It covers
+date parsing (`lib/dates.mjs`), slugs, the model-output schemas, the Ollama
+URL guard and settings storage, the schema bootstrap and its date-normalisation
+migration, the effective-bucket / keep-warm queries, markdown sanitisation, and
+the access-token proxy. Every suite that touches disk points `CRM_DB_PATH` at a
+temp directory first (`tests/helpers/tempdb.ts`), so `data/crm.db` and
+`data/auth-token` are never opened; each test file runs in its own process and
+cleans up after itself. The GitHub Actions workflow in `.github/workflows/ci.yml`
+runs the type-check, `node --check scripts/mcp-server.mjs`, the tests, and a
+production build with `CRM_AUTH=off` on every push and pull request.
 
 ## Documentation
 

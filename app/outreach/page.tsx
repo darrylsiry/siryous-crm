@@ -13,6 +13,13 @@ export default function OutreachPage() {
           Drafts and sent messages, newest first
         </p>
       </header>
+      {!items.length ? (
+        <p className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
+          Nothing here yet. This section shows imported drafts and sent messages linked to
+          contacts — the app doesn&apos;t create outreach entries itself, so it stays empty until
+          some are imported. Log emails as interactions on a person&apos;s profile instead.
+        </p>
+      ) : null}
       <ul className="space-y-3">
         {items.map((o) => (
           <li key={o.id}>

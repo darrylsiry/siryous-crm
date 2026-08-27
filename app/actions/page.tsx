@@ -2,6 +2,7 @@ import { BUCKETS } from "@/lib/db";
 import { doneActionItems, openActionItems, allPeople, allCompanies } from "@/lib/queries";
 import { ActionRow } from "@/components/ActionList";
 import { addActionItem } from "@/lib/actions";
+import PendingButton from "@/components/PendingButton";
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +67,7 @@ export default function ActionsPage() {
             </select>
           </label>
           <div className="sm:col-span-2">
-            <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
-              Add
-            </button>
+            <PendingButton label="Add" pendingLabel="Adding…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />
           </div>
         </form>
       </details>

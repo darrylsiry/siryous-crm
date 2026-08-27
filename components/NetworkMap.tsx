@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { MapData } from "@/lib/queries";
 
 const STATUS_FILL: Record<string, string> = {
@@ -151,7 +150,6 @@ export default function NetworkMap({ data }: { data: MapData }) {
   // Render client-side only: SVG float coordinates hydrate unreliably from SSR.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  const router = useRouter();
   const neighbors = useMemo(() => {
     if (hover == null) return null;
     const set = new Set<number>([hover]);
@@ -214,12 +212,17 @@ export default function NetworkMap({ data }: { data: MapData }) {
         const r = 7 + Math.min(6, n.degree * 1.5);
         const fill = STATUS_FILL[n.status] ?? "#a8a29e";
         return (
-          <g
+          // A real SVG link: keyboard-focusable, middle-click / cmd-click open
+          // in a new tab, and screen readers announce it as a link.
+          <a
             key={n.key}
-            opacity={dim ? 0.15 : 1}
-            className="cursor-pointer"
+            href={n.href}
+            aria-label={`${n.label} (${n.type})`}
+            style={{ opacity: dim ? 0.15 : 1 }}
+            className="cursor-pointer focus:outline-none [&:focus-visible>*]:stroke-indigo-500"
             onMouseEnter={() => setHover(i)}
-            onClick={() => router.push(n.href)}
+            onFocus={() => setHover(i)}
+            onBlur={() => setHover(null)}
           >
             {n.type === "company" ? (
               <rect
@@ -245,7 +248,7 @@ export default function NetworkMap({ data }: { data: MapData }) {
             >
               {n.label.length > 24 ? n.label.slice(0, 23) + "…" : n.label}
             </text>
-          </g>
+          </a>
         );
       })}
       </svg>

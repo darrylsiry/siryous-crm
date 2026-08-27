@@ -29,6 +29,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+      {!people.length ? (
+        <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <span className="font-semibold">Welcome — the CRM is empty.</span> Add your first person on the{" "}
+          <Link href="/people" className="font-semibold underline">People page</Link>, or paste a LinkedIn
+          profile into <Link href="/intake" className="font-semibold underline">Intake</Link>.
+        </p>
+      ) : null}
       <header>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="mt-1 text-sm text-stone-500">
@@ -179,6 +186,9 @@ export default function Dashboard() {
               {awaiting.map((a) => (
                 <ActionRow key={a.id} item={a} />
               ))}
+              {!awaiting.length && (
+                <li className="py-4 text-sm italic text-stone-400">Nothing waiting on anyone.</li>
+              )}
             </ul>
           </section>
 
@@ -208,6 +218,11 @@ export default function Dashboard() {
             All people →
           </Link>
         </div>
+        {!hot.length ? (
+          <p className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
+            No one is marked 🔥 Active yet — set a person&apos;s status from their profile and they show up here.
+          </p>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {hot.map((p) => (
             <Link
@@ -243,6 +258,11 @@ export default function Dashboard() {
       {/* Recent activity */}
       <section>
         <h2 className="mb-3 text-lg font-semibold">Recent activity</h2>
+        {!recent.length ? (
+          <p className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
+            No interactions logged yet — log one from a profile, or let ✎ Log turn a meeting or email into entries.
+          </p>
+        ) : null}
         <ul className="space-y-1.5">
           {recent.map((i) => (
             <li key={i.id} className="flex flex-wrap items-baseline gap-x-2 text-sm">

@@ -16,4 +16,5 @@ exports/
 .DS_Store
 .claude/settings.local.json
 config/owner.json
+config/vocab.json
 .git-old-history/

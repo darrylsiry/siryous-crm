@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # The build and the tests must never need a real database or the auth token.
+  CRM_AUTH: "off"
+  CRM_DB_PATH: /tmp/ci/crm.db
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
+
+      - name: MCP server syntax
+        run: node --check scripts/mcp-server.mjs
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -2,8 +2,9 @@
 
 - **System of record:** `data/crm.db` (SQLite, WAL). Never write to it with ad-hoc
   scripts while the app or MCP server may be running; use the app, the MCP
-  tools, or the scripts in `scripts/`. There is no import script — do not recreate one
-  that wipes tables.
+  tools, or the scripts in `scripts/`. The CSV importer (`scripts/import-csv.ts`,
+  or the `/import` page) only inserts/updates rows — it never wipes tables; do not
+  write one that does.
 - **Schema and migrations** live in `lib/schema.mjs` (shared by the app and
   `scripts/mcp-server.mjs`). Add columns with the `ALTER TABLE` list there.
 - **Personal configuration** is `config/owner.json` (gitignored). Never hardcode an
@@ -15,9 +16,15 @@
   Zoom/Drive/web go through `runClaudeStream` with an explicit read-only tool grant.
   Nothing the models produce is saved without a review step (Intake/Log review
   screens; Coach proposals are ticked to record).
-- **Vocabulary** (statuses, stages, buckets, cadences) is in `lib/db.ts`; the MCP
-  server keeps a copy — change both.
-- **Check before committing:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`
-  and `node --check scripts/mcp-server.mjs`. The server binds to 127.0.0.1 only.
+- **Vocabulary** (statuses, buckets, stages, kinds, strengths, cadences) is
+  `DEFAULT_VOCAB` in `lib/vocab.mjs`, merged with the gitignored `config/vocab.json`
+  (documented by `config/vocab.example.json`). `lib/db.ts` re-exports it as
+  `STATUS`/`BUCKETS`/`STAGES`/`KINDS`/`STRENGTHS`/`DEFAULT_CADENCE`, the MCP server
+  reads it via `loadVocab(ROOT)`, and prompts build their lists with the helpers
+  in `lib/vocab.mjs` (`bucketList(VOCAB)` etc.). Never spell out a list of keys in
+  a prompt or a zod enum; colours are palette names mapped to Tailwind classes
+  inside `lib/vocab.mjs` (keep those class strings literal).
+- **Check before committing:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`,
+  `npm test` and `node --check scripts/mcp-server.mjs`. The server binds to 127.0.0.1 only.
 - **Deploy locally:** `./Stop CRM.command && ./Start CRM.command` (rebuilds when source
   changed) or `npm run build && npm start`.

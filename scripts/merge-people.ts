@@ -11,8 +11,10 @@
  * profile under a "merged from" marker so nothing is lost. The duplicate row is
  * then deleted. Runs in one transaction; --dry-run prints the plan and rolls back.
  */
+import "./repo-root";
 import Database from "better-sqlite3";
-import path from "path";
+import fs from "fs";
+import { DB_PATH } from "../lib/db";
 
 const [dupSlug, keepSlug, ...flags] = process.argv.slice(2);
 const dryRun = flags.includes("--dry-run");
@@ -21,7 +23,12 @@ if (!dupSlug || !keepSlug || dupSlug === keepSlug) {
   process.exit(1);
 }
 
-const db = new Database(path.join(process.cwd(), "data", "crm.db"));
+// data/crm.db (or CRM_DB_PATH); never create an empty database by mistake.
+if (!fs.existsSync(DB_PATH)) {
+  console.error(`No database at ${DB_PATH} — nothing to merge. Run the app once, or set CRM_DB_PATH.`);
+  process.exit(1);
+}
+const db = new Database(DB_PATH, { fileMustExist: true });
 db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 5000");
 db.pragma("foreign_keys = ON");

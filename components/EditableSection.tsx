@@ -1,6 +1,7 @@
 import Markdown from "./Markdown";
 import ClosingDetails from "@/components/ClosingDetails";
 import { updateSection } from "@/lib/actions";
+import PendingButton from "@/components/PendingButton";
 
 export default function EditableSection({
   title,
@@ -9,6 +10,7 @@ export default function EditableSection({
   id,
   column,
   value,
+  updatedAt,
 }: {
   title: string;
   subtitle?: string;
@@ -16,6 +18,8 @@ export default function EditableSection({
   id: number;
   column: string;
   value: string | null;
+  /** Row's updated_at at render time — the action refuses to overwrite a newer row. */
+  updatedAt?: string | null;
 }) {
   return (
     <section className="rounded-xl border border-stone-200 bg-white p-5">
@@ -42,6 +46,7 @@ export default function EditableSection({
           <input type="hidden" name="entity" value={entity} />
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="column" value={column} />
+          {updatedAt !== undefined ? <input type="hidden" name="updated_at" value={updatedAt ?? ""} /> : null}
           <textarea
             name="value"
             defaultValue={value ?? ""}
@@ -50,12 +55,11 @@ export default function EditableSection({
             placeholder="Markdown supported…"
           />
           <div className="mt-2 flex gap-2">
-            <button
-              type="submit"
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-            >
-              Save
-            </button>
+            <PendingButton
+              label="Save"
+              pendingLabel="Saving…"
+              className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
+            />
           </div>
         </form>
       </ClosingDetails>

@@ -30,8 +30,13 @@ export default function IntakePage() {
       </header>
 
       <form action={analyzeIntake} className="space-y-3">
+        <label htmlFor="intake-raw-text" className="sr-only">
+          Text to analyze
+        </label>
         <textarea
+          id="intake-raw-text"
           name="raw_text"
+          aria-label="Text to analyze — a LinkedIn profile, an email thread, or notes"
           required
           minLength={40}
           rows={16}

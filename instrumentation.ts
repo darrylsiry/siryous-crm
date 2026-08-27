@@ -30,6 +30,16 @@ export async function register() {
       }
     }
 
+    // A coach reply/close that was mid-run when the server died still holds
+    // the session's in_flight lock; nothing will ever release it, so clear
+    // them all (the schema migration has just added the column if needed).
+    try {
+      const n = db.prepare(`UPDATE coach_sessions SET in_flight=NULL WHERE in_flight IS NOT NULL`).run().changes;
+      if (n) console.log(`[startup] released ${n} stale coach session lock(s)`);
+    } catch {
+      /* column missing on a very old DB */
+    }
+
     startBackupLoop(db);
   }
 }

@@ -7,6 +7,7 @@ import Markdown from "@/components/Markdown";
 import PendingButton from "@/components/PendingButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import FeedRecap from "@/components/FeedRecap";
+import LogEntryTarget from "@/components/LogEntryTarget";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +15,15 @@ const input = "mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-s
 const label = "block text-xs font-medium text-stone-600";
 const area = "mt-1 w-full rounded-lg border border-stone-300 p-3 font-mono text-xs leading-relaxed";
 
-export default async function LogReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LogReviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ skipped?: string }>;
+}) {
   const { id } = await params;
+  const skipped = Number((await searchParams).skipped) || 0;
   const db = getDb();
   const draft = db.prepare(`SELECT * FROM log_drafts WHERE id=?`).get(Number(id)) as
     | { id: number; raw_text: string; fetched_text: string | null; source: string; result_json: string | null; status: string; error: string | null; progress: string | null }
@@ -58,15 +66,21 @@ export default async function LogReviewPage({ params }: { params: Promise<{ id: 
     return (
       <div className="max-w-3xl space-y-4">
         <h1 className="text-2xl font-bold tracking-tight">Draft {draft.status}</h1>
+        {skipped > 0 ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            {skipped === 1 ? "One entry was" : `${skipped} entries were`} skipped because the contact isn't in your CRM.
+            Add them via <Link href="/intake" className="font-medium underline">Intake</Link>, then log the meeting for them again.
+          </p>
+        ) : null}
         <Link href="/log" className="text-sm font-medium text-indigo-700 hover:underline">← Log activity</Link>
       </div>
     );
   }
 
   const a = JSON.parse(draft.result_json) as LogAnalysis;
-  const people = new Map(
-    (db.prepare(`SELECT slug, name FROM people`).all() as { slug: string; name: string }[]).map((p) => [p.slug, p.name])
-  );
+  const roster = db.prepare(`SELECT slug, name FROM people ORDER BY name`).all() as { slug: string; name: string }[];
+  const people = new Map(roster.map((p) => [p.slug, p.name]));
+  const unknownEntries = a.entries.filter((e) => !people.has(e.person_slug));
   const resolvable = a.resolves_action_ids
     .map((aid) => db.prepare(`SELECT id, title, bucket FROM action_items WHERE id=? AND status='open'`).get(aid) as { id: number; title: string; bucket: string } | undefined)
     .filter(Boolean) as { id: number; title: string; bucket: string }[];
@@ -91,6 +105,15 @@ export default async function LogReviewPage({ params }: { params: Promise<{ id: 
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-600">
             {a.confidence_flags.map((f, i) => <li key={i}>{f}</li>)}
           </ul>
+        </section>
+      ) : null}
+
+      {unknownEntries.length ? (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          The model drafted {unknownEntries.length === 1 ? "an entry" : `${unknownEntries.length} entries`} for{" "}
+          <span className="font-semibold">{unknownEntries.map((e) => e.person_slug).join(", ")}</span>, who {unknownEntries.length === 1 ? "isn't" : "aren't"} in your CRM.
+          Those entries are unticked below — re-target them to an existing contact, or add the person via{" "}
+          <Link href="/intake" className="underline font-medium">Intake</Link> first.
         </section>
       ) : null}
 
@@ -119,11 +142,7 @@ export default async function LogReviewPage({ params }: { params: Promise<{ id: 
         <section className="space-y-4">
           {a.entries.map((e, i) => (
             <div key={i} className="rounded-xl border border-stone-200 bg-white p-5">
-              <label className="flex items-center gap-2 text-sm font-semibold">
-                <input type="checkbox" name={`entry_${i}`} defaultChecked />
-                Log on {people.get(e.person_slug) ?? e.person_slug}
-                <input type="hidden" name={`entry_slug_${i}`} value={e.person_slug} />
-              </label>
+              <LogEntryTarget index={i} modelSlug={e.person_slug} valid={people.has(e.person_slug)} people={roster} />
               <label className={`${label} mt-3`}>Entry (markdown)
                 <textarea
                   name={`entry_summary_${i}`}

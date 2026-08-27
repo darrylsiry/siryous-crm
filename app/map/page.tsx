@@ -39,7 +39,14 @@ export default function MapPage() {
           </span>
         ))}
       </div>
-      <NetworkMap data={data} />
+      {data.people.length || data.companies.length ? (
+        <NetworkMap data={data} />
+      ) : (
+        <p className="rounded-xl border border-stone-200 bg-white p-6 text-sm italic text-stone-400">
+          Nothing to map yet — the graph draws people, their companies, and intros between them.
+          Add your first person on the People page, or paste a LinkedIn profile into Intake.
+        </p>
+      )}
     </div>
   );
 }

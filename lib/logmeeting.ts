@@ -106,19 +106,28 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
   const channel = str(formData, "channel");
 
   let firstSlug: string | null = null;
+  // Entries the model wrote for someone who isn't in the roster (a
+  // hallucinated or stale slug) that the reviewer didn't re-target: nothing
+  // is logged for them, and the count is reported back on the draft page.
+  let skipped = 0;
 
-  // Entries: checkbox entry_<i>, fields entry_slug_<i>, entry_summary_<i>, entry_next_<i>
+  // Entries: target entry_slug_<i> (select; "" = not in the CRM), checkbox entry_<i>,
+  // fields entry_summary_<i>, entry_next_<i>
   for (const [key] of formData.entries()) {
-    const m = key.match(/^entry_(\d+)$/);
+    const m = key.match(/^entry_slug_(\d+)$/);
     if (!m) continue;
     const i = m[1];
     const slug = str(formData, `entry_slug_${i}`);
+    const person = slug
+      ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as { id: number; company_id: number | null } | undefined)
+      : undefined;
+    if (!slug || !person) {
+      skipped++;
+      continue;
+    }
+    if (!formData.has(`entry_${i}`)) continue; // unticked on purpose
     const summary = str(formData, `entry_summary_${i}`);
-    if (!slug || !summary) continue;
-    const person = db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as
-      | { id: number; company_id: number | null }
-      | undefined;
-    if (!person) continue;
+    if (!summary) continue;
     db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`).run(
       person.id,
       person.company_id,
@@ -170,5 +179,6 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
 
   db.prepare(`UPDATE log_drafts SET status='confirmed' WHERE id=?`).run(draftId);
   revalidatePath("/", "layout");
+  if (skipped) redirect(`/log/${draftId}?skipped=${skipped}`);
   redirect(firstSlug ? `/people/${firstSlug}` : "/");
 }

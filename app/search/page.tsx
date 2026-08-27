@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { search } from "@/lib/queries";
+import { opportunityHref, search, SEARCH_LIMIT, type SearchResults } from "@/lib/queries";
 import StatusBadge from "@/components/StatusBadge";
 import { STAGES } from "@/lib/db";
 
@@ -20,6 +20,13 @@ export default async function SearchPage({
       results.actions.length +
       results.opportunities.length
     : 0;
+  const anyTruncated = results ? Object.values(results.truncated).some(Boolean) : false;
+  const Truncated = ({ section }: { section: keyof SearchResults["truncated"] }) =>
+    results?.truncated[section] ? (
+      <span className="ml-2 font-normal normal-case tracking-normal text-stone-400">
+        showing first {SEARCH_LIMIT} — narrow the search to see the rest
+      </span>
+    ) : null;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -37,7 +44,8 @@ export default async function SearchPage({
         </form>
         {results ? (
           <p className="mt-2 text-sm text-stone-500">
-            {total} result{total === 1 ? "" : "s"} for “{query}”
+            {anyTruncated ? `${total}+` : total} result{total === 1 ? "" : "s"} for “{query}”
+            {anyTruncated ? ` — some sections show only the first ${SEARCH_LIMIT}` : ""}
           </p>
         ) : null}
       </header>
@@ -46,7 +54,10 @@ export default async function SearchPage({
         <div className="space-y-6">
           {results.people.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">People</h2>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+                People
+                <Truncated section="people" />
+              </h2>
               <ul className="space-y-1.5">
                 {results.people.map((p) => (
                   <li key={p.id} className="flex items-center gap-2">
@@ -62,7 +73,10 @@ export default async function SearchPage({
           )}
           {results.companies.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Companies</h2>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+                Companies
+                <Truncated section="companies" />
+              </h2>
               <ul className="space-y-1.5">
                 {results.companies.map((c) => (
                   <li key={c.id} className="flex min-w-0 items-center gap-2">
@@ -77,11 +91,14 @@ export default async function SearchPage({
           )}
           {results.opportunities.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Pipeline</h2>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+                Pipeline
+                <Truncated section="opportunities" />
+              </h2>
               <ul className="space-y-1.5">
                 {results.opportunities.map((o) => (
                   <li key={o.id} className="text-sm">
-                    <Link href="/pipeline" className="font-semibold hover:text-indigo-700">
+                    <Link href={opportunityHref(o)} className="font-semibold hover:text-indigo-700">
                       {o.name}
                     </Link>
                     <span className="ml-2 text-xs text-stone-400">
@@ -94,7 +111,10 @@ export default async function SearchPage({
           )}
           {results.interactions.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Interactions</h2>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+                Interactions
+                <Truncated section="interactions" />
+              </h2>
               <ul className="space-y-2">
                 {results.interactions.map((i) => (
                   <li key={i.id} className="text-sm">
@@ -116,12 +136,30 @@ export default async function SearchPage({
           )}
           {results.actions.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Action items</h2>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+                Action items
+                <Truncated section="actions" />
+              </h2>
               <ul className="space-y-1.5">
                 {results.actions.map((a) => (
                   <li key={a.id} className="text-sm text-stone-700">
                     {a.status === "done" ? "✅ " : "☐ "}
-                    <span className={a.status === "done" ? "text-stone-400 line-through" : ""}>{a.title}</span>
+                    <Link
+                      href={
+                        a.person_slug
+                          ? `/people/${a.person_slug}`
+                          : a.company_slug
+                            ? `/companies/${a.company_slug}`
+                            : "/actions"
+                      }
+                      className={`hover:text-indigo-700 ${a.status === "done" ? "text-stone-400 line-through" : "font-medium"}`}
+                    >
+                      {a.title}
+                    </Link>
+                    <span className="ml-2 text-xs text-stone-400">
+                      {a.person_name ?? a.company_name ?? "Actions"}
+                      {a.due_date || a.due_label ? ` · due ${a.due_date ?? a.due_label}` : ""}
+                    </span>
                   </li>
                 ))}
               </ul>

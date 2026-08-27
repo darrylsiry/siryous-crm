@@ -6,11 +6,18 @@
  *
  * Usage: npx tsx scripts/export-markdown.ts
  */
+import "./repo-root";
 import fs from "fs";
 import path from "path";
 import { loadOwner } from "../lib/owner.mjs";
-import { getDb, STATUS } from "../lib/db";
+import { DB_PATH, getDb, STATUS } from "../lib/db";
 import type { Company, Person } from "../lib/types";
+
+// Never create an empty database (or wipe an exports folder) by mistake.
+if (!fs.existsSync(DB_PATH)) {
+  console.error(`No database at ${DB_PATH} — nothing to export. Run the app once, or set CRM_DB_PATH.`);
+  process.exit(1);
+}
 
 const db = getDb();
 const OUT = path.join(process.cwd(), "exports");

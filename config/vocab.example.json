@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Copy to config/vocab.json (gitignored) to rename, recolour, add or drop vocabulary without editing code.",
+    "Every top-level key is optional. Inside status/buckets/stages/kinds/cadence, a key that matches a built-in entry",
+    "replaces only the fields you give (so {\"label\": \"Prospect\"} renames without touching emoji/colour); a key that",
+    "does not exist is added; the special list \"remove\" drops built-in entries. Built-in keys: see lib/vocab.mjs.",
+    "Keys (new, this_week, identified, …) are what the database stores — change labels, emoji and colours freely, but",
+    "keep the keys of anything rows already use. The app falls back to new / this_week / identified / engagement, so keep those.",
+    "\"color\" is a palette name, one of: emerald, sky, orange, slate, violet, green, red, zinc, amber, stone, indigo,",
+    "fuchsia, teal, blue, rose, yellow (anything else renders as stone). \"order\" sorts entries; omitted = appended.",
+    "Restart the app and the MCP server after changing this file."
+  ],
+  "status": {
+    "new": { "label": "Prospect", "emoji": "🌱", "color": "emerald" },
+    "advisor": { "label": "Advisor", "emoji": "🧭", "color": "blue" },
+    "remove": ["dormant"]
+  },
+  "buckets": {
+    "keep_warm": { "label": "Nurture", "icon": "🔵" },
+    "content": { "label": "Content & newsletter", "icon": "✍️", "order": 6.5 },
+    "remove": ["venture"]
+  },
+  "stages": {
+    "discussing": { "label": "First call", "icon": "📞", "color": "sky" },
+    "pilot": { "label": "Pilot", "icon": "🧪", "color": "teal", "order": 4.5, "open": true }
+  },
+  "kinds": {
+    "engagement": { "label": "Retainer", "color": "indigo" },
+    "speaking": { "label": "Speaking", "color": "rose" },
+    "remove": ["venture"]
+  },
+  "strengths": ["Cold", "Acquaintance", "Warm", "Trusted"],
+  "cadence": {
+    "new": 14,
+    "advisor": 60,
+    "remove": ["won"]
+  }
+}
