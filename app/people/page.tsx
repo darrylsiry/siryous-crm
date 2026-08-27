@@ -95,7 +95,7 @@ export default async function PeoplePage({
               ) : null}
               {p.relationship_strength ? <span>{p.relationship_strength}</span> : null}
               {p.last_touch ? (
-                <span className="tabular-nums text-stone-400">touched {p.last_touch}</span>
+                <span className="tabular-nums text-stone-400">touched {p.last_touch}{p.last_touch_note ? ` · ${p.last_touch_note}` : ""}</span>
               ) : null}
             </div>
             {p.next_action ? (
@@ -149,7 +149,7 @@ export default async function PeoplePage({
                   <StatusBadge statusKey={p.status_key} note={p.status_note} compact />
                 </td>
                 <td className="px-4 py-3 text-xs text-stone-500">{p.relationship_strength ?? "—"}</td>
-                <td className="px-4 py-3 tabular-nums text-xs text-stone-500">{p.last_touch ?? "—"}</td>
+                <td className="px-4 py-3 tabular-nums text-xs text-stone-500">{p.last_touch ?? (p.last_touch_note ? `undated — ${p.last_touch_note}` : "—")}</td>
                 <td className="px-4 py-3 text-xs text-stone-600 max-w-72">
                   <span className="line-clamp-2">{p.next_action ?? "—"}</span>
                 </td>

@@ -25,8 +25,11 @@ export function ActionRow({ item, done = false }: { item: ActionItemJoined; done
           <Markdown>{item.detail ?? item.title}</Markdown>
         </div>
         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-stone-400">
-          {item.due_label ? (
-            <span className="font-medium text-amber-700">due {item.due_label}</span>
+          {item.due_date || item.due_label ? (
+            <span className={`font-medium ${!done && item.bucket === "overdue" && item.bucket_raw !== "overdue" ? "text-red-700" : "text-amber-700"}`}>
+              due {item.due_date ?? item.due_label}
+              {item.due_date && item.due_label && item.due_label !== item.due_date ? ` (${item.due_label})` : ""}
+            </span>
           ) : null}
           {item.person_name ? (
             <Link href={`/people/${item.person_slug}`} className="hover:text-indigo-600">

@@ -4,14 +4,14 @@ import StatusBadge from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
-function DueChip({ daysOver, daysSince, cadence }: { daysOver: number | null; daysSince: number | null; cadence: number | null }) {
+function DueChip({ daysOver, daysSince, cadence, note }: { daysOver: number | null; daysSince: number | null; cadence: number | null; note?: string | null }) {
   if (cadence == null) {
     return <span className="text-xs text-stone-400">no cadence</span>;
   }
   if (daysOver != null && daysOver >= 9999) {
     return (
       <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-600/20">
-        never touched
+        {note ? "no dated touch" : "never touched"}
       </span>
     );
   }
@@ -68,12 +68,12 @@ export default function FollowUpsPage() {
                   <div className="truncate text-xs text-stone-400">{r.company_name}</div>
                 ) : null}
               </div>
-              <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} />
+              <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500">
               <StatusBadge statusKey={r.status_key} compact />
               <span className="tabular-nums">
-                {r.last_touch ?? "never"}
+                {r.last_touch ?? (r.last_touch_note ? `undated — ${r.last_touch_note}` : "never")}
                 {r.days_since != null ? ` (${r.days_since}d)` : ""}
               </span>
               <span>{r.cadence_days ? `every ${r.cadence_days}d` : "no cadence"}</span>
@@ -122,10 +122,10 @@ export default function FollowUpsPage() {
                   <StatusBadge statusKey={r.status_key} compact />
                 </td>
                 <td className="px-4 py-3">
-                  <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} />
+                  <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />
                 </td>
                 <td className="px-4 py-3 tabular-nums text-xs text-stone-500">
-                  {r.last_touch ?? "—"}
+                  {r.last_touch ?? (r.last_touch_note ? `undated — ${r.last_touch_note}` : "—")}
                   {r.days_since != null ? (
                     <span className="text-stone-400"> ({r.days_since}d)</span>
                   ) : null}

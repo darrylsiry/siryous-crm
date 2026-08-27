@@ -74,7 +74,9 @@ binds to **127.0.0.1 only** — there is no login, so don't expose the port.
   interactions, action items, and pipeline.
 - **Actions** — the full outstanding-items list in urgency buckets (overdue,
   this week, awaiting the other party, high potential, keep warm, venture, data
-  gaps). Check items off; reopen from "Recently completed."
+  gaps). Items carry a real due date (typed, or parsed from a label like
+  "Fri 7/25"); anything past its date is shown as overdue whatever bucket it was
+  filed in. Check items off; reopen from "Recently completed."
 - **People / Companies** — rich profiles with narrative sections
   (Relationship Intelligence, Business Context, Engagement Strategy, Notes), with
   status pipeline (🌱 New → 🔍 Exploring → 🔥 Active → 🤝 Client …), relationship
@@ -82,7 +84,8 @@ binds to **127.0.0.1 only** — there is no login, so don't expose the port.
   editable in place (markdown supported); cross-links between profiles work.
 - **Outreach** — imported drafts/sent messages linked to their contacts.
 
-Logging an interaction automatically bumps the contact's "last touch" date.
+Logging an interaction automatically bumps the contact's "last touch" date
+(always an ISO date; any free-text qualifier lives in a separate note).
 
 ## How the AI features work
 

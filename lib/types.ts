@@ -38,7 +38,8 @@ export interface Person {
   engagement_strategy: string | null;
   extra_sections: string | null;
   notes: string | null;
-  last_touch: string | null;
+  last_touch: string | null; // ISO date or null
+  last_touch_note: string | null; // free text that used to live in last_touch ("recent call")
   next_action: string | null;
   cadence_days: number | null;
   tags: string | null;

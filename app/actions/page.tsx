@@ -40,8 +40,12 @@ export default function ActionsPage() {
             </select>
           </label>
           <label className="text-xs font-medium text-stone-600">
-            Due (freeform)
-            <input name="due_label" placeholder="07-30, ~late summer, ASAP…" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
+            Due date
+            <input name="due_date" type="date" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
+          </label>
+          <label className="text-xs font-medium text-stone-600">
+            Due (freeform, optional)
+            <input name="due_label" placeholder="ASAP, ~late summer, Fri 7/25…" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs font-medium text-stone-600">
             Person

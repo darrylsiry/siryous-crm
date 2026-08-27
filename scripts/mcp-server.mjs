@@ -21,6 +21,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { openDatabase } from "../lib/schema.mjs";
 import { loadOwner } from "../lib/owner.mjs";
+import { parseDueDate } from "../lib/dates.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const db = openDatabase(Database, process.env.CRM_DB_PATH || path.join(ROOT, "data", "crm.db"));
@@ -80,7 +81,7 @@ function personCard(p) {
     : null;
   const lines = [
     `# ${p.name}  [slug: ${p.slug}]`,
-    `Status: ${statusLine(p)} · Strength: ${p.relationship_strength ?? "—"} · Last touch: ${p.last_touch ?? "—"}`,
+    `Status: ${statusLine(p)} · Strength: ${p.relationship_strength ?? "—"} · Last touch: ${p.last_touch ?? (p.last_touch_note ? `undated (${p.last_touch_note})` : "—")}${p.last_touch && p.last_touch_note ? ` (${p.last_touch_note})` : ""}`,
     `Role: ${p.role_title ?? "—"}${company ? ` · Company: ${company.name} [${company.slug}]` : ""}${p.company_note ? ` · ${p.company_note}` : ""}`,
     `Email: ${p.email ?? "—"} · Phone: ${p.phone ?? "—"} · Location: ${p.location ?? "—"}`,
     `LinkedIn: ${p.linkedin ?? "—"}`,
@@ -100,7 +101,7 @@ function personCard(p) {
   if (opps.length) {
     lines.push(`\n## Opportunities\n` + opps.map((o) => `- ${o.name} — ${o.stage}${o.priority === 1 ? " ★" : ""}`).join("\n"));
   }
-  const actions = db.prepare(`SELECT id, bucket, due_label, title FROM action_items WHERE person_id = ? AND status='open'`).all(p.id);
+  const actions = db.prepare(`SELECT id, CASE WHEN due_date IS NOT NULL AND due_date < date('now','localtime') THEN 'overdue' ELSE bucket END AS bucket, COALESCE(due_date, due_label) AS due_label, title FROM action_items WHERE person_id = ? AND status='open'`).all(p.id);
   if (actions.length) {
     lines.push(`\n## Open action items\n` + actions.map((a) => `- [id ${a.id}] (${a.bucket}${a.due_label ? `, due ${a.due_label}` : ""}) ${a.title}`).join("\n"));
   }
@@ -113,7 +114,7 @@ function personCard(p) {
 function companyCard(c) {
   const lines = [
     `# ${c.name}  [slug: ${c.slug}]`,
-    `Status: ${statusLine(c)} · Last touch: ${c.last_touch ?? "—"}`,
+    `Status: ${statusLine(c)} · Last touch: ${c.last_touch ?? (c.last_touch_note ? `undated (${c.last_touch_note})` : "—")}`,
     `Industry: ${c.industry ?? "—"} · HQ: ${c.hq ?? "—"} · Size: ${c.size ?? "—"} · Website: ${c.website ?? "—"}`,
     `Next action: ${c.next_action ?? "—"}`,
   ];
@@ -141,10 +142,10 @@ function companyCard(c) {
   return lines.join("\n");
 }
 function bumpLastTouch(table, id, date) {
-  // Compare on the date part so free-text last_touch values ("recent call") don't block the bump.
+  // last_touch is always an ISO date (or NULL); a newer dated touch also retires any free-text note.
   db.prepare(
-    `UPDATE ${table} SET last_touch = ?, updated_at = datetime('now')
-     WHERE id = ? AND (last_touch IS NULL OR julianday(substr(last_touch,1,10)) IS NULL OR substr(last_touch,1,10) < ?)`
+    `UPDATE ${table} SET last_touch = ?, last_touch_note = NULL, updated_at = datetime('now')
+     WHERE id = ? AND (last_touch IS NULL OR last_touch < ?)`
   ).run(date, id, date);
 }
 
@@ -216,13 +217,13 @@ server.registerTool(
   },
   async ({ status, tag }) => {
     let rows = db.prepare(
-      `SELECT p.slug, p.name, p.status_key, p.status_note, p.last_touch, p.next_action, p.tags, c.name AS company
+      `SELECT p.slug, p.name, p.status_key, p.status_note, p.last_touch, p.last_touch_note, p.next_action, p.tags, c.name AS company
        FROM people p LEFT JOIN companies c ON c.id = p.company_id ORDER BY p.name`
     ).all();
     if (status) rows = rows.filter((r) => r.status_key === status);
     if (tag) rows = rows.filter((r) => (r.tags ?? "").includes(tag));
     return text(rows.map((r) =>
-      `- ${r.name} [${r.slug}] — ${statusLine(r)} · ${r.company ?? "no company"} · last touch ${r.last_touch ?? "—"}${r.next_action ? ` · next: ${r.next_action}` : ""}`
+      `- ${r.name} [${r.slug}] — ${statusLine(r)} · ${r.company ?? "no company"} · last touch ${r.last_touch ?? (r.last_touch_note ? `undated (${r.last_touch_note})` : "—")}${r.next_action ? ` · next: ${r.next_action}` : ""}`
     ).join("\n") || "No matches.");
   }
 );
@@ -236,9 +237,11 @@ server.registerTool(
   },
   async () => {
     const open = db.prepare(
-      `SELECT a.id, a.bucket, a.due_label, a.title, p.name AS pname, c.name AS cname
+      `SELECT a.id,
+              CASE WHEN a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END AS bucket,
+              COALESCE(a.due_date, a.due_label) AS due_label, a.title, p.name AS pname, c.name AS cname
        FROM action_items a LEFT JOIN people p ON p.id=a.person_id LEFT JOIN companies c ON c.id=a.company_id
-       WHERE a.status='open' ORDER BY a.id`
+       WHERE a.status='open' ORDER BY a.due_date IS NULL, a.due_date, a.id`
     ).all();
     const out = [];
     for (const [bucket, label] of [
@@ -251,13 +254,13 @@ server.registerTool(
       ).join("\n"));
     }
     const due = db.prepare(
-      `SELECT name, slug, cadence_days, last_touch,
-              CAST(julianday('now','localtime') - julianday(substr(last_touch,1,10)) AS INTEGER) AS days_since
+      `SELECT name, slug, cadence_days, last_touch, last_touch_note,
+              CAST(julianday('now','localtime') - julianday(last_touch) AS INTEGER) AS days_since
        FROM people WHERE cadence_days IS NOT NULL AND status_key NOT IN ('lost')`
     ).all().map((r) => ({ ...r, over: r.days_since == null ? 9999 : r.days_since - r.cadence_days }))
       .filter((r) => r.over > 0).sort((a, b) => b.over - a.over).slice(0, 12);
     if (due.length) out.push(`## ♨ Due for a keep-warm touch\n` + due.map((r) =>
-      `- ${r.name} [${r.slug}] — ${r.over >= 9999 ? "never touched" : `${r.over}d over cadence`} (last: ${r.last_touch ?? "never"})`
+      `- ${r.name} [${r.slug}] — ${r.over >= 9999 ? (r.last_touch_note ? "no dated touch" : "never touched") : `${r.over}d over cadence`} (last: ${r.last_touch ?? r.last_touch_note ?? "never"})`
     ).join("\n"));
     return text(out.join("\n\n") || "Agenda is clear.");
   }
@@ -495,7 +498,7 @@ server.registerTool(
     inputSchema: {
       title: z.string(),
       bucket: z.enum(BUCKETS).default("this_week"),
-      due: z.string().optional().describe("Freeform: '07-30', '~late summer', 'ASAP'"),
+      due: z.string().optional().describe("Due date (YYYY-MM-DD preferred) or freeform: '07-30', 'Fri 7/25', '~late summer', 'ASAP'"),
       person: z.string().optional(),
       company: z.string().optional(),
     },
@@ -505,8 +508,8 @@ server.registerTool(
     const c = company ? findCompany(company) : null;
     if (person && !p) return fail(`${whyNot("person", person)}.`);
     if (company && !c) return fail(`${whyNot("company", company)}.`);
-    const r = db.prepare(`INSERT INTO action_items (bucket, due_label, title, person_id, company_id) VALUES (?,?,?,?,?)`)
-      .run(bucket ?? "this_week", due ?? null, title, p?.id ?? null, c?.id ?? null);
+    const r = db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`)
+      .run(bucket ?? "this_week", due ?? null, parseDueDate(due), title, p?.id ?? null, c?.id ?? null);
     return text(`Added action item [id ${r.lastInsertRowid}] to ${bucket}.`);
   }
 );
