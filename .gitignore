@@ -18,3 +18,5 @@ exports/
 config/owner.json
 config/vocab.json
 .git-old-history/
+# Private working notes (reviews reference real contacts) — not for the public repo
+docs/reviews/
