@@ -30,6 +30,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const backupSetting = getSetting("backup.dir") ?? "";
   const coach = getCoachSettings();
   const tones = coachToneChoices();
+  // The coach's AI choice as one select value: "default" | "claude" | "local:<model>".
+  const coachAiValue = coach.provider === "claude" ? "claude" : coach.provider === "local" && coach.model ? `local:${coach.model}` : "default";
+  const coachModelListed = !coach.model || models.some((m) => m.name === coach.model || m.name === `${coach.model}:latest`);
   const port = process.env.PORT || "3000";
   const link = signInUrl(`http://127.0.0.1:${port}`);
   const isMac = process.platform === "darwin";
@@ -250,6 +253,36 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             ))}
             <p className="text-xs text-stone-400">Applies to the next reply — you can change it mid-session.</p>
           </fieldset>
+
+          <label className={label}>
+            Which AI the coach uses
+            <select name="coach_ai" defaultValue={coachAiValue} className={input}>
+              <option value="default">
+                Same as everything else (currently {s.provider === "claude" ? "Claude" : `${s.model} on this Mac`})
+              </option>
+              {coach.provider === "local" && coach.model && !coachModelListed ? (
+                <option value={`local:${coach.model}`}>{coach.model} on this Mac (not downloaded yet)</option>
+              ) : null}
+              {models.map((m) => (
+                <option key={m.name} value={`local:${m.name}`}>
+                  {m.name} on this Mac{m.parameter_size ? ` · ${m.parameter_size}` : ""}
+                </option>
+              ))}
+              <option value="claude">Claude — sends your whole CRM and your notes to Anthropic each turn</option>
+            </select>
+            <span className="mt-1 block text-xs text-stone-400">
+              The coach reads your entire book of business and writes at length, so it is the one feature where a bigger model (or
+              Claude) earns its keep while Intake and Log stay on something faster.
+              {coach.provider === "local" && coach.model && !coachModelListed ? (
+                <span className="block text-red-700">
+                  {coach.model} hasn&apos;t been downloaded — the coach will fail until you pick a downloaded model or run <code>ollama pull {coach.model}</code>.
+                </span>
+              ) : null}
+              {coach.provider === "claude" && !ai.claude.ok ? (
+                <span className="block text-amber-800">Claude isn&apos;t set up on this Mac, so the coach won&apos;t run until it is.</span>
+              ) : null}
+            </span>
+          </label>
 
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" name="coach_use_profile" value="1" defaultChecked={coach.useProfile} className="mt-1" />

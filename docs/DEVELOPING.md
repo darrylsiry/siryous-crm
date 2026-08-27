@@ -190,8 +190,12 @@ the Ollama URL (point it at another machine to run models there), the provider
 backup folder, plus the coach's tone and notes folder. Values are stored in
 the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
 `ai.num_ctx`, `ai.temperature`, `ai.provider`, `ai.fallback`, `backup.dir`,
-`coach.tone`, `coach.use_profile`, `coach.context_dir`) and apply to the next
-run; the defaults come from the environment. The three coach tones are defined
+`coach.tone`, `coach.use_profile`, `coach.context_dir`, `coach.provider`,
+`coach.model`) and apply to the next run; the defaults come from the
+environment. `coach.provider`/`coach.model` let the coach run on a different
+model (or on Claude) than the rest of the app: `getCoachSettings().route` is
+spread into the coach's `runModel`/`runWithProgress` calls, which accept
+`provider` and `model` overrides. The three coach tones are defined
 in `lib/coachTone.ts` as behavioural rules plus a section plan for the advice
 and a reply style; every coach prompt in `lib/coachai.ts` is assembled from
 them, so adding a level is a matter of adding a spec there. The model must be pulled

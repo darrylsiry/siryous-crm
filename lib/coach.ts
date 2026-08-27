@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { getDb, BUCKETS } from "./db";
 import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
+import { getCoachSettings } from "./settings";
 import { loadProposals, type CoachProposal } from "./coachData";
 import { parseDueDate } from "./dates.mjs";
 import { CoachCloseSchema, CoachTurnSchema, validateModelJson } from "./schemas";
@@ -168,6 +169,7 @@ function generateAdvice(sessionId: number, weekStart: string, kind: "weekly" | "
     try {
       const md = await runWithProgress("coach", sessionId, buildCoachAdvicePrompt(weekStart, kind), {
         timeoutMs: 420_000,
+        ...getCoachSettings().route,
       });
       if (!md.trim()) throw new Error("Empty advice returned.");
       db.prepare(`UPDATE coach_sessions SET advice_md=?, status='ready', error=NULL WHERE id=?`).run(
@@ -283,7 +285,7 @@ export async function sendCoachMessage(formData: FormData): Promise<{ ok: boolea
     const history = loadMessages(sessionId);
     const raw = await runModel(
       buildCoachReplyPrompt(session.week_start, session.advice_md!, history, message, session.kind),
-      { json: true, timeoutMs: 300_000 }
+      { json: true, timeoutMs: 300_000, ...getCoachSettings().route }
     );
     const turn: CoachTurn = validateModelJson(CoachTurnSchema, await extractJsonWithRepair(raw), raw);
     const insert = db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`);
@@ -321,7 +323,7 @@ export async function endCoachSession(formData: FormData): Promise<{ ok: boolean
   try {
     const raw = await runModel(
       buildCoachSummaryPrompt(session.week_start, session.advice_md!, loadMessages(sessionId), session.kind),
-      { json: true, timeoutMs: 300_000 }
+      { json: true, timeoutMs: 300_000, ...getCoachSettings().route }
     );
     const close: CoachClose = validateModelJson(CoachCloseSchema, await extractJsonWithRepair(raw), raw);
     db.transaction(() => {

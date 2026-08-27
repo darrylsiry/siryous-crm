@@ -110,6 +110,12 @@ export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok
 export interface CoachSettings {
   /** How hard the coach pushes (lib/coachTone.ts). */
   tone: CoachTone;
+  /** Per-feature override of where the coach runs: null = same as everything else. */
+  provider: Provider | null;
+  /** Per-feature override of the local model: null = the default model. */
+  model: string | null;
+  /** What the coach will actually use, after applying the overrides. */
+  route: { provider: Provider; model: string };
   /** Whether the coach reads the owner's own notes folder at all. */
   useProfile: boolean;
   /** The notes folder actually in use (settings override, else config/owner.json), or "" for none. */
@@ -130,8 +136,15 @@ export function getCoachSettings(): CoachSettings {
   const contextDirSetting = getSetting("coach.context_dir") ?? "";
   const ownerContextDir = loadOwner().coachContextDir || "";
   const contextDir = useProfile ? expandHome(contextDirSetting) || ownerContextDir : "";
+  const providerRaw = getSetting("coach.provider");
+  const provider = providerRaw === "claude" || providerRaw === "local" ? providerRaw : null;
+  const model = getSetting("coach.model") || null;
+  const ai = getAiSettings();
   return {
     tone: isCoachTone(toneRaw) ? toneRaw : DEFAULT_COACH_TONE,
+    provider,
+    model,
+    route: { provider: provider ?? ai.provider, model: model ?? ai.model },
     useProfile,
     contextDir,
     contextDirSetting,

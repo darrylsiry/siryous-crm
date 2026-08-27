@@ -145,3 +145,25 @@ describe("coach prompts follow the chosen tone", () => {
     assert.ok(!/darryl|siry/i.test(p));
   });
 });
+
+describe("coach AI route", () => {
+  test("defaults to the app-wide provider and model", () => {
+    const s = getCoachSettings();
+    assert.equal(s.provider, null);
+    assert.equal(s.model, null);
+    assert.equal(s.route.provider, "local");
+    assert.equal(typeof s.route.model, "string");
+  });
+
+  test("a local model override keeps the provider local; Claude override drops the model", () => {
+    setSetting("coach.provider", "local");
+    setSetting("coach.model", "qwen3:32b");
+    assert.deepEqual(getCoachSettings().route, { provider: "local", model: "qwen3:32b" });
+    setSetting("coach.provider", "claude");
+    setSetting("coach.model", null);
+    assert.equal(getCoachSettings().route.provider, "claude");
+    setSetting("coach.provider", "gpt");
+    assert.equal(getCoachSettings().provider, null, "unknown provider is ignored");
+    setSetting("coach.provider", null);
+  });
+});

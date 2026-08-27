@@ -97,8 +97,11 @@ export function modelNotPulledMessage(model: string): string {
  * Cheap health check: is Ollama up, and is the configured model pulled?
  * Resolves with a human-readable reason on failure instead of throwing.
  */
-export async function localAvailable(): Promise<{ ok: true } | { ok: false; reason: string; kind: LocalUnavailableKind }> {
-  const { ollamaUrl, model } = getAiSettings();
+export async function localAvailable(
+  modelOverride?: string
+): Promise<{ ok: true } | { ok: false; reason: string; kind: LocalUnavailableKind }> {
+  const { ollamaUrl, model: defaultModel } = getAiSettings();
+  const model = modelOverride || defaultModel;
   let names: string[];
   try {
     names = (await listLocalModels(ollamaUrl)).map((m) => m.name);
@@ -150,7 +153,7 @@ let queue: Promise<unknown> = Promise.resolve();
 
 export function runLocalStream(
   prompt: string,
-  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void } = {}
+  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string } = {}
 ): Promise<string> {
   const onEvent = opts.onEvent ?? (() => {});
   let waited = false;
@@ -173,10 +176,12 @@ async function runLocalStreamNow(
     json = false,
     timeoutMs = 420_000,
     onEvent = () => {},
-  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void } = {}
+    model: modelOverride,
+  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string } = {}
 ): Promise<string> {
-  const LOCAL = getAiSettings();
-  const health = await localAvailable();
+  // A feature may run on a different model than the default (Settings → Coach).
+  const LOCAL = { ...getAiSettings(), model: modelOverride || getAiSettings().model };
+  const health = await localAvailable(LOCAL.model);
   if (!health.ok) throw new LocalUnavailable(health.reason, health.kind);
 
   // Ollama silently drops the middle of a prompt that exceeds num_ctx, so

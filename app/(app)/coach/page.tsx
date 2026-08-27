@@ -56,6 +56,8 @@ export default async function CoachPage() {
         </p>
         <p className="mt-2 text-xs text-stone-400">
           Tone: <span className="font-medium text-stone-600">{toneLabel}</span>
+          {" · AI: "}
+          <span className="font-medium text-stone-600">{coach.route.provider === "claude" ? "Claude" : `${coach.route.model} on this Mac`}</span>
           {coach.contextDir ? " · reads your notes folder" : " · CRM data only"} —{" "}
           <Link href="/settings" className="underline hover:text-indigo-600">change in Settings</Link>
         </p>

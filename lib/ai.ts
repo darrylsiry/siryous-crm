@@ -295,12 +295,13 @@ export async function runModel(
     timeoutMs = 420_000,
     onEvent = () => {},
     provider,
-  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; provider?: Provider } = {}
+    model,
+  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; provider?: Provider; model?: string } = {}
 ): Promise<string> {
   const settings = getAiSettings();
   if ((provider ?? settings.provider) === "local") {
     try {
-      return await runLocalStream(prompt, { json, timeoutMs, onEvent });
+      return await runLocalStream(prompt, { json, timeoutMs, onEvent, model });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       // Only an *unavailable* local model (Ollama down, model not pulled)

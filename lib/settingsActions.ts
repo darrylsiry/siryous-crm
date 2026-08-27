@@ -33,6 +33,18 @@ export async function saveAiSettings(formData: FormData) {
   const tone = str("coach_tone");
   setSetting("coach.tone", isCoachTone(tone) ? tone : null);
   setSetting("coach.use_profile", formData.get("coach_use_profile") ? null : "off");
+  // Which AI the coach uses: "default" (same as everything else), "claude", or "local:<model tag>".
+  const coachAi = str("coach_ai");
+  if (coachAi === "claude") {
+    setSetting("coach.provider", "claude");
+    setSetting("coach.model", null);
+  } else if (coachAi.startsWith("local:") && coachAi.length > 6) {
+    setSetting("coach.provider", "local");
+    setSetting("coach.model", coachAi.slice(6));
+  } else {
+    setSetting("coach.provider", null);
+    setSetting("coach.model", null);
+  }
   setSetting("coach.context_dir", ctx.dir || null);
   revalidatePath("/settings");
   redirect("/settings?saved=1");
