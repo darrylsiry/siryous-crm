@@ -8,6 +8,7 @@ import PendingButton from "@/components/PendingButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import FeedRecap from "@/components/FeedRecap";
 import LogEntryTarget from "@/components/LogEntryTarget";
+import { COMPANY_TARGET } from "@/lib/logHint";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +27,33 @@ export default async function LogReviewPage({
   const skipped = Number((await searchParams).skipped) || 0;
   const db = getDb();
   const draft = db.prepare(`SELECT * FROM log_drafts WHERE id=?`).get(Number(id)) as
-    | { id: number; raw_text: string; fetched_text: string | null; source: string; result_json: string | null; status: string; error: string | null; progress: string | null }
+    | {
+        id: number;
+        raw_text: string;
+        fetched_text: string | null;
+        source: string;
+        result_json: string | null;
+        status: string;
+        error: string | null;
+        progress: string | null;
+        hint_person_id: number | null;
+        hint_company_id: number | null;
+      }
     | undefined;
   if (!draft) notFound();
+  // Where the draft was opened from, so every state of this page can link back.
+  const origin = draft.hint_person_id
+    ? (db.prepare(`SELECT slug, name FROM people WHERE id=?`).get(draft.hint_person_id) as { slug: string; name: string } | undefined)
+    : draft.hint_company_id
+      ? (db.prepare(`SELECT slug, name FROM companies WHERE id=?`).get(draft.hint_company_id) as { slug: string; name: string } | undefined)
+      : undefined;
+  const originHref = origin ? (draft.hint_person_id ? `/people/${origin.slug}` : `/companies/${origin.slug}`) : null;
+  const originLink =
+    origin && originHref ? (
+      <Link href={originHref} className="text-xs text-stone-400 hover:text-indigo-600">
+        ← {origin.name}
+      </Link>
+    ) : null;
 
   if (draft.status === "analyzing" || draft.status === "pending") {
     let events: ProgressEvent[] = [];
@@ -38,7 +63,10 @@ export default async function LogReviewPage({
     return (
       <div className="max-w-3xl space-y-4">
         <header>
-          <Link href="/log" className="text-xs text-stone-400 hover:text-indigo-600">← Log activity</Link>
+          <div className="flex gap-3">
+            <Link href="/log" className="text-xs text-stone-400 hover:text-indigo-600">← Log activity</Link>
+            {originLink}
+          </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">✎ Drafting log entries…</h1>
         </header>
         <ActivityFeed
@@ -58,7 +86,19 @@ export default async function LogReviewPage({
         <h1 className="text-2xl font-bold tracking-tight">Analysis failed</h1>
         <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{draft.error}</p>
         <FeedRecap progress={draft.progress} />
-        <Link href="/log" className="text-sm font-medium text-indigo-700 hover:underline">← Try again</Link>
+        <div className="flex gap-4">
+          <Link
+            href={draft.hint_person_id && origin ? `/log?person=${origin.slug}` : draft.hint_company_id && origin ? `/log?company=${origin.slug}` : "/log"}
+            className="text-sm font-medium text-indigo-700 hover:underline"
+          >
+            ← Try again
+          </Link>
+          {originHref && origin ? (
+            <Link href={originHref} className="text-sm text-stone-500 hover:underline">
+              Back to {origin.name} (log it by hand there)
+            </Link>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -79,8 +119,11 @@ export default async function LogReviewPage({
 
   const a = JSON.parse(draft.result_json) as LogAnalysis;
   const roster = db.prepare(`SELECT slug, name FROM people ORDER BY name`).all() as { slug: string; name: string }[];
+  const companies = db.prepare(`SELECT slug, name FROM companies ORDER BY name`).all() as { slug: string; name: string }[];
   const people = new Map(roster.map((p) => [p.slug, p.name]));
-  const unknownEntries = a.entries.filter((e) => !people.has(e.person_slug));
+  const companyTargets = new Set(companies.map((c) => `${COMPANY_TARGET}${c.slug}`));
+  const isValidTarget = (slug: string) => people.has(slug) || companyTargets.has(slug);
+  const unknownEntries = a.entries.filter((e) => !isValidTarget(e.person_slug));
   const resolvable = a.resolves_action_ids
     .map((aid) => db.prepare(`SELECT id, title, bucket FROM action_items WHERE id=? AND status='open'`).get(aid) as { id: number; title: string; bucket: string } | undefined)
     .filter(Boolean) as { id: number; title: string; bucket: string }[];
@@ -89,7 +132,10 @@ export default async function LogReviewPage({
   return (
     <div className="max-w-3xl space-y-6">
       <header>
-        <Link href="/log" className="text-xs text-stone-400 hover:text-indigo-600">← Log activity</Link>
+        <div className="flex gap-3">
+          <Link href="/log" className="text-xs text-stone-400 hover:text-indigo-600">← Log activity</Link>
+          {originLink}
+        </div>
         <h1 className="mt-1 text-2xl font-bold tracking-tight">Review draft log entries</h1>
         <p className="mt-1 text-sm text-stone-500">Everything is editable. Nothing is saved until you confirm.</p>
       </header>
@@ -142,7 +188,7 @@ export default async function LogReviewPage({
         <section className="space-y-4">
           {a.entries.map((e, i) => (
             <div key={i} className="rounded-xl border border-stone-200 bg-white p-5">
-              <LogEntryTarget index={i} modelSlug={e.person_slug} valid={people.has(e.person_slug)} people={roster} />
+              <LogEntryTarget index={i} modelSlug={e.person_slug} valid={isValidTarget(e.person_slug)} people={roster} companies={companies} />
               <label className={`${label} mt-3`}>Entry (markdown)
                 <textarea
                   name={`entry_summary_${i}`}

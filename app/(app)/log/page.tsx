@@ -7,10 +7,29 @@ import AiStatusBanner from "@/components/AiStatusBanner";
 
 export const dynamic = "force-dynamic";
 
-export default async function LogPage() {
+export default async function LogPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ person?: string; company?: string }>;
+}) {
   const ai = await getAiStatus();
   const hasClaude = ai.claude.ok;
-  const drafts = getDb()
+  const db = getDb();
+  const sp = await searchParams;
+  // Opened from a profile's "Draft with AI" link: the entries default to that contact.
+  const hintPerson = sp.person
+    ? (db.prepare(`SELECT id, slug, name FROM people WHERE slug=?`).get(sp.person) as { id: number; slug: string; name: string } | undefined)
+    : undefined;
+  const hintCompany =
+    !hintPerson && sp.company
+      ? (db.prepare(`SELECT id, slug, name FROM companies WHERE slug=?`).get(sp.company) as { id: number; slug: string; name: string } | undefined)
+      : undefined;
+  const hint = hintPerson
+    ? { kind: "person" as const, id: hintPerson.id, name: hintPerson.name, href: `/people/${hintPerson.slug}` }
+    : hintCompany
+      ? { kind: "company" as const, id: hintCompany.id, name: hintCompany.name, href: `/companies/${hintCompany.slug}` }
+      : null;
+  const drafts = db
     .prepare(
       `SELECT id, status, source, substr(raw_text, 1, 80) AS preview
        FROM log_drafts WHERE status IN ('analyzing','ready','error') ORDER BY id DESC LIMIT 5`
@@ -30,6 +49,21 @@ export default async function LogPage() {
       </header>
 
       <form action={analyzeLog} className="space-y-4">
+        {hint ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3 text-sm">
+            <input type="hidden" name={hint.kind === "person" ? "hint_person_id" : "hint_company_id"} value={hint.id} />
+            <span className="text-stone-600">Logging for</span>
+            <Link href={hint.href} className="font-semibold text-indigo-800 hover:underline">
+              {hint.name}
+            </Link>
+            <span className="text-xs text-stone-500">
+              — the entries will go on {hint.kind === "person" ? "them" : "this company"} even if the text doesn&apos;t name {hint.kind === "person" ? "them" : "anyone"}; other roster contacts who took part are picked up too.
+            </span>
+            <Link href="/log" className="ml-auto text-xs text-stone-400 hover:text-indigo-600" title="Log without a preset contact">
+              ✕ clear
+            </Link>
+          </div>
+        ) : null}
         <fieldset className="space-y-2 rounded-xl border border-stone-200 bg-white p-4 text-sm">
           <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-stone-500">
             Source

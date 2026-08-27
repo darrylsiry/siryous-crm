@@ -1,15 +1,27 @@
+import Link from "next/link";
 import { addInteraction } from "@/lib/actions";
 import ClosingDetails from "@/components/ClosingDetails";
 import PendingButton from "@/components/PendingButton";
 
+/**
+ * The quick, no-AI way to record a touch: what you type is what gets saved.
+ * For longer material (notes, a transcript, an email thread) the link hands
+ * off to the ✎ Log page with this contact preset, where the AI drafts the
+ * entries for review.
+ */
 export default function AddInteraction({
   personId,
   companyId,
+  personSlug,
+  companySlug,
 }: {
   personId?: number;
   companyId?: number;
+  personSlug?: string;
+  companySlug?: string;
 }) {
   const today = new Date().toLocaleDateString("sv-SE"); // local date, not UTC
+  const aiHref = personSlug ? `/log?person=${encodeURIComponent(personSlug)}` : companySlug ? `/log?company=${encodeURIComponent(companySlug)}` : null;
   return (
     <ClosingDetails className="group">
       <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none list-none">
@@ -57,8 +69,16 @@ export default function AddInteraction({
           className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
         />
         <p className="text-[0.7rem] text-stone-400">
-          Logging also bumps “last touch” if this is the newest interaction.
+          Saved exactly as typed, no AI involved. Logging also bumps “last touch” if this is the newest interaction.
         </p>
+        {aiHref ? (
+          <p className="text-xs text-stone-500">
+            Have notes, a transcript, or an email thread?{" "}
+            <Link href={aiHref} className="font-medium text-indigo-600 hover:text-indigo-800">
+              Draft the entry with AI →
+            </Link>
+          </p>
+        ) : null}
       </form>
     </ClosingDetails>
   );

@@ -149,7 +149,9 @@ The left-hand menu has everything. In rough order of how often you'll use it:
   Zoom recording transcript, the Gmail thread or the Google Meet transcript
   itself. It drafts the entries, proposes what your next step is, closes
   things that are now done, and suggests follow-ups — again, you review before
-  anything is saved.
+  anything is saved. A profile's own "Log interaction" form is the no-AI
+  route (what you type is what is saved); its "Draft the entry with AI" link
+  opens Log with that contact preset.
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want

@@ -16,11 +16,14 @@ export default function LogEntryTarget({
   modelSlug,
   valid,
   people,
+  companies = [],
 }: {
   index: number;
   modelSlug: string;
   valid: boolean;
   people: { slug: string; name: string }[];
+  /** Offered as "company:<slug>" targets — an entry on the company with no specific person. */
+  companies?: { slug: string; name: string }[];
 }) {
   const [slug, setSlug] = useState(valid ? modelSlug : "");
   const [checked, setChecked] = useState(valid);
@@ -53,6 +56,15 @@ export default function LogEntryTarget({
               {p.name}
             </option>
           ))}
+          {companies.length ? (
+            <optgroup label="A company (no specific person)">
+              {companies.map((c) => (
+                <option key={c.slug} value={`company:${c.slug}`}>
+                  {c.name}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
         </select>
       </label>
       {untargeted ? (

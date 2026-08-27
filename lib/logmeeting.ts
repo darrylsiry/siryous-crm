@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
 import { buildFetchPrompt, buildLogPrompt, extractJsonWithRepair, FETCH_NOT_FOUND, TOOLS, type LogAnalysis } from "./ai";
+import { applyLogHintFallback, COMPANY_TARGET, loadLogHint } from "./logHint";
 import { runWithProgress } from "./progress";
 import { parseDueDate } from "./dates.mjs";
 import { LogAnalysisSchema, validateModelJson } from "./schemas";
@@ -14,10 +15,13 @@ export async function analyzeLog(formData: FormData) {
   const source = String(formData.get("source") ?? "paste");
   if (raw.length < 10) return;
   const db = getDb();
+  const hintPersonId = Number(formData.get("hint_person_id")) || null;
+  const hintCompanyId = Number(formData.get("hint_company_id")) || null;
+  const hint = loadLogHint(db, hintPersonId, hintCompanyId);
   const draftId = Number(
     db
-      .prepare(`INSERT INTO log_drafts (source, raw_text, status) VALUES (?,?,'analyzing')`)
-      .run(source, raw).lastInsertRowid
+      .prepare(`INSERT INTO log_drafts (source, raw_text, status, hint_person_id, hint_company_id) VALUES (?,?,'analyzing',?,?)`)
+      .run(source, raw, hint?.kind === "person" ? hintPersonId : null, hint?.kind === "company" ? hintCompanyId : null).lastInsertRowid
   );
   const allowedTools =
     source === "zoom"
@@ -48,11 +52,15 @@ export async function analyzeLog(formData: FormData) {
         db.prepare(`UPDATE log_drafts SET fetched_text=? WHERE id=?`).run(fetched, draftId);
       }
       // Step 2 (local model): write the log entries.
-      const text = await runWithProgress("log", draftId, buildLogPrompt(content, source, allowedTools ? raw : null), {
+      const text = await runWithProgress("log", draftId, buildLogPrompt(content, source, allowedTools ? raw : null, hint), {
         json: true,
         timeoutMs: 420_000,
       });
-      const analysis: LogAnalysis = validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text);
+      const analysis: LogAnalysis = applyLogHintFallback(
+        validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text),
+        hint,
+        content
+      );
       if (!analysis?.entries?.length) {
         throw new Error(
           "No roster contacts were found to log against. " +
@@ -105,7 +113,7 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
   const channel = str(formData, "channel");
 
-  let firstSlug: string | null = null;
+  let firstTarget: string | null = null;
   // Entries the model wrote for someone who isn't in the roster (a
   // hallucinated or stale slug) that the reviewer didn't re-target: nothing
   // is logged for them, and the count is reported back on the draft page.
@@ -118,34 +126,44 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
     if (!m) continue;
     const i = m[1];
     const slug = str(formData, `entry_slug_${i}`);
-    const person = slug
-      ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as { id: number; company_id: number | null } | undefined)
+    // A target is a person slug, or "company:<slug>" for a company-level entry.
+    const companySlug = slug?.startsWith(COMPANY_TARGET) ? slug.slice(COMPANY_TARGET.length) : null;
+    const person =
+      slug && !companySlug
+        ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as { id: number; company_id: number | null } | undefined)
+        : undefined;
+    const company = companySlug
+      ? (db.prepare(`SELECT id FROM companies WHERE slug=?`).get(companySlug) as { id: number } | undefined)
       : undefined;
-    if (!slug || !person) {
+    if (!slug || (!person && !company)) {
       skipped++;
       continue;
     }
     if (!formData.has(`entry_${i}`)) continue; // unticked on purpose
     const summary = str(formData, `entry_summary_${i}`);
     if (!summary) continue;
+    const personId = person?.id ?? null;
+    const companyId = person ? person.company_id : (company?.id ?? null);
     db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`).run(
-      person.id,
-      person.company_id,
+      personId,
+      companyId,
       date,
       channel,
       summary
     );
-    db.prepare(
-      `UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
-    ).run(date, person.id, date);
-    if (person.company_id) {
+    if (personId) {
+      db.prepare(
+        `UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
+      ).run(date, personId, date);
+    }
+    if (companyId) {
       db.prepare(
         `UPDATE companies SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
-      ).run(date, person.company_id, date);
+      ).run(date, companyId, date);
     }
     const next = str(formData, `entry_next_${i}`);
-    if (next) db.prepare(`UPDATE people SET next_action=? WHERE id=?`).run(next, person.id);
-    if (!firstSlug) firstSlug = slug;
+    if (next && personId) db.prepare(`UPDATE people SET next_action=? WHERE id=?`).run(next, personId);
+    if (!firstTarget) firstTarget = companySlug ? `/companies/${companySlug}` : `/people/${slug}`;
   }
 
   // Resolved action items: checkbox resolve_<id>
@@ -180,5 +198,5 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
   db.prepare(`UPDATE log_drafts SET status='confirmed' WHERE id=?`).run(draftId);
   revalidatePath("/", "layout");
   if (skipped) redirect(`/log/${draftId}?skipped=${skipped}`);
-  redirect(firstSlug ? `/people/${firstSlug}` : "/");
+  redirect(firstTarget ?? "/");
 }

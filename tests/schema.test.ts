@@ -56,6 +56,8 @@ describe("openDatabase", () => {
       assert.ok(columns(db, "action_items").includes("due_date"));
       assert.ok(columns(db, "briefs").includes("progress"));
       assert.ok(columns(db, "log_drafts").includes("fetched_text"));
+      assert.ok(columns(db, "log_drafts").includes("hint_person_id"));
+      assert.ok(columns(db, "log_drafts").includes("hint_company_id"));
     } finally {
       db.close();
     }

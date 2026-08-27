@@ -144,7 +144,7 @@ export default async function PersonPage({
               </h2>
             </div>
             <div className="mb-4">
-              <AddInteraction personId={p.id} companyId={p.company_id ?? undefined} />
+              <AddInteraction personId={p.id} companyId={p.company_id ?? undefined} personSlug={p.slug} />
             </div>
             <InteractionLog interactions={interactions} />
           </section>

@@ -593,7 +593,27 @@ ${request}
 ---`;
 }
 
-export function buildLogPrompt(rawText: string, source: string, request: string | null = null): string {
+/**
+ * Who the Log page was opened for, when it was reached from a profile's
+ * "Draft with AI" link. The model is told to attribute the content to this
+ * contact even when the text never names them (a quick note rarely does).
+ */
+export interface LogHint {
+  kind: "person" | "company";
+  slug: string;
+  name: string;
+  /** Person hints: their company name, if any. */
+  company: string | null;
+  /** Company hints: roster people at that company (slug | name). */
+  members: { slug: string; name: string }[];
+}
+
+export function buildLogPrompt(
+  rawText: string,
+  source: string,
+  request: string | null = null,
+  hint: LogHint | null = null
+): string {
   const db = getDb();
   const O = loadOwner();
   const openActions = db
@@ -610,10 +630,17 @@ export function buildLogPrompt(rawText: string, source: string, request: string 
       ? `The INPUT below is pasted content (meeting transcript, email thread, or ${O.possessive} raw notes). Log directly from it.`
       : `The INPUT below is the content of a ${source === "gmail" ? "Gmail thread" : source === "meet" ? "Google Meet transcript" : "Zoom meeting transcript"} that a retrieval step already fetched${request ? ` in response to ${O.possessive} request: "${request.slice(0, 200)}"` : ""}. It starts with TITLE/DATE/PARTICIPANTS/SOURCE header lines — use them for meeting metadata — followed by the content. Log from it.`;
 
+  const hintBlock =
+    hint?.kind === "person"
+      ? `\nCONTEXT: ${O.first} opened this from the profile of ${hint.name}${hint.company ? ` (${hint.company})` : ""}, roster slug "${hint.slug}". The INPUT is about an interaction with them. ALWAYS include an entry with person_slug "${hint.slug}" — even if the INPUT never names them (short notes usually don't) — plus entries for any other roster people who genuinely took part.\n`
+      : hint?.kind === "company"
+        ? `\nCONTEXT: ${O.first} opened this from the profile of the company ${hint.name} (slug "${hint.slug}"). The INPUT is about an interaction with that company. Attribute it to the roster people at ${hint.name} who took part${hint.members.length ? ` — the roster has: ${hint.members.map((m) => `${m.slug} (${m.name})`).join(", ")}` : ""}. If the INPUT doesn't identify anyone there, return no entries and describe the interaction in summary_md; it will be logged on the company itself.\n`
+        : "";
+
   return `You are the interaction logger for ${O.practiceIntro}. Your job: turn a meeting, call, or email thread into dated CRM interaction-log entries for the RIGHT existing contacts, in ${O.possessive} house style.
 
 ${fetchInstructions}
-
+${hintBlock}
 CURRENT CRM ROSTER:
 ${rosterBlock()}
 

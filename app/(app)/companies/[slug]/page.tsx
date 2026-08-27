@@ -117,7 +117,7 @@ export default async function CompanyPage({
               Interaction Log
             </h2>
             <div className="mb-4">
-              <AddInteraction companyId={c.id} />
+              <AddInteraction companyId={c.id} companySlug={c.slug} />
             </div>
             <InteractionLog interactions={interactions} />
           </section>
