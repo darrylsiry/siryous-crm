@@ -1,4 +1,4 @@
-import { execFile, spawn } from "child_process";
+import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -97,56 +97,6 @@ export function explainClaudeError(raw: string): string {
     );
   }
   return `Claude returned an error: ${text.slice(0, 400)}`;
-}
-
-export function runClaude(
-  prompt: string,
-  {
-    model = "sonnet",
-    timeoutMs = 420_000,
-    allowedTools = TOOLS.web,
-  }: { model?: string; timeoutMs?: number; allowedTools?: string } = {}
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-    const args = ["-p", "--output-format", "json", "--model", model];
-    args.push("--disallowedTools", DISALLOWED_TOOLS);
-    if (allowedTools) args.push("--allowedTools", allowedTools);
-    const bin = claudeBin();
-    if (!bin) {
-      reject(new Error(CLAUDE_MISSING));
-      return;
-    }
-    const child = execFile(
-      bin,
-      args,
-      { env, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const detail = stderr?.slice(0, 400) || err.message;
-          reject(new Error(/authenticat|logged in/i.test(detail) ? explainClaudeError(detail) : `Claude CLI failed: ${detail}`));
-          return;
-        }
-        try {
-          const envelope = JSON.parse(stdout);
-          if (envelope.is_error) {
-            reject(new Error(explainClaudeError(String(envelope.result))));
-            return;
-          }
-          resolve(String(envelope.result ?? ""));
-        } catch {
-          reject(new Error(`Could not parse Claude CLI output: ${stdout.slice(0, 200)}`));
-        }
-      }
-    );
-    child.stdin?.on("error", () => {
-      /* EPIPE when the CLI exits early — the exec callback reports the real error */
-    });
-    child.stdin?.write(prompt);
-    child.stdin?.end();
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -375,12 +325,35 @@ export async function runModel(
 
 /** Extract the first JSON object from model text (tolerates ```json fences and prose). */
 export function extractJson(text: string): unknown {
+  // Prefer a fenced block if the whole thing parses; otherwise scan from the
+  // first "{" for its matching "}" (string-aware), which survives prose after
+  // the object and braces or fences inside string values.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1] : text;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error("No JSON object found in the model's response.");
-  return JSON.parse(candidate.slice(start, end + 1));
+  if (fenced) {
+    try {
+      return JSON.parse(fenced[1]);
+    } catch {
+      /* fall through to the scan */
+    }
+  }
+  const start = text.indexOf("{");
+  if (start === -1) throw new Error("No JSON object found in the model's response.");
+  let depth = 0;
+  let inStr = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
+    }
+  }
+  // Unbalanced (truncated output) — let JSON.parse produce the real error.
+  return JSON.parse(text.slice(start));
 }
 
 /**

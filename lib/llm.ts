@@ -92,7 +92,31 @@ const fmtTimeout = (ms: number) => (ms >= 120_000 ? `${Math.round(ms / 60000)} m
  * activity feed shows the model thinking/writing) and returning the full text.
  * `json: true` turns on Ollama's JSON mode — the prompt must still ask for JSON.
  */
-export async function runLocalStream(
+// Ollama serves one request at a time per loaded model; queue in-process so a
+// second run waits (and says so) instead of sitting in Ollama's queue with its
+// abort timer already counting.
+let queue: Promise<unknown> = Promise.resolve();
+
+export function runLocalStream(
+  prompt: string,
+  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void } = {}
+): Promise<string> {
+  const onEvent = opts.onEvent ?? (() => {});
+  let waited = false;
+  const waitNote = setTimeout(() => {
+    waited = true;
+    onEvent({ t: "info", label: "Waiting for the local model to finish another run…", ts: Date.now() });
+  }, 1500);
+  const run = queue.then(() => {
+    clearTimeout(waitNote);
+    if (waited) onEvent({ t: "info", label: "Model free — starting", ts: Date.now() });
+    return runLocalStreamNow(prompt, opts);
+  });
+  queue = run.catch(() => {});
+  return run;
+}
+
+async function runLocalStreamNow(
   prompt: string,
   {
     json = false,
