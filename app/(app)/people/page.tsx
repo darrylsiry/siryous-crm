@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { allPeople, allCompanies } from "@/lib/queries";
-import StatusBadge from "@/components/StatusBadge";
+import StatusPicker from "@/components/StatusPicker";
 import { createPerson } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
 import PendingButton from "@/components/PendingButton";
@@ -84,7 +84,7 @@ export default async function PeoplePage({
                   <div className="truncate text-xs text-stone-400">{p.role_title}</div>
                 ) : null}
               </div>
-              <StatusBadge statusKey={p.status_key} note={p.status_note} compact />
+              <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
             </div>
             <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-stone-500">
               {p.company_slug ? (
@@ -147,7 +147,7 @@ export default async function PeoplePage({
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge statusKey={p.status_key} note={p.status_note} compact />
+                  <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
                 </td>
                 <td className="px-4 py-3 text-xs text-stone-500">{p.relationship_strength ?? "—"}</td>
                 <td className="px-4 py-3 tabular-nums text-xs text-stone-500">{p.last_touch ?? (p.last_touch_note ? `undated — ${p.last_touch_note}` : "—")}</td>

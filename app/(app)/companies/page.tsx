@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { allCompanies } from "@/lib/queries";
-import StatusBadge from "@/components/StatusBadge";
+import StatusPicker from "@/components/StatusPicker";
 import { createCompany } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
 import PendingButton from "@/components/PendingButton";
@@ -56,7 +56,7 @@ export default async function CompaniesPage({
               <Link href={`/companies/${c.slug}`} className="min-w-0 font-semibold text-stone-900 hover:text-indigo-700">
                 {c.name}
               </Link>
-              <StatusBadge statusKey={c.status_key} note={c.status_note} compact />
+              <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} compact />
             </div>
             {c.industry ? (
               <div className="mt-1 text-xs text-stone-500 line-clamp-2">{c.industry}</div>
@@ -102,7 +102,7 @@ export default async function CompaniesPage({
                   <span className="line-clamp-2">{c.industry ?? "—"}</span>
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge statusKey={c.status_key} note={c.status_note} compact />
+                  <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} compact />
                 </td>
                 <td className="px-4 py-3 text-xs text-stone-500 max-w-48">
                   <span className="line-clamp-2">{c.key_people || "—"}</span>

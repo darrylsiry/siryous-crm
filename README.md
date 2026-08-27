@@ -121,7 +121,9 @@ The left-hand menu has everything. In rough order of how often you'll use it:
 - **People** and **Companies** — the profiles. Each one has contact details, a
   status (New → Exploring → Active → Client …), how strong the relationship is,
   a narrative in four sections (Relationship, Business context, Strategy,
-  Notes) and a log of every interaction. Click any text to edit it in place.
+  Notes) and a log of every interaction. Click any text to edit it in place,
+  and click the status badge — on a profile or in the People/Companies lists —
+  to change the status on the spot.
   Profiles link to each other, and you can delete a person, company, log entry
   or open item from the profile page (permanent — only the daily backups can
   bring it back).

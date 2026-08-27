@@ -14,14 +14,14 @@ const STATUS_ORDER = `CASE status_key
   WHEN 'active' THEN 0 WHEN 'client' THEN 1 WHEN 'exploring' THEN 2 WHEN 'new' THEN 3
   WHEN 'on_hold' THEN 4 WHEN 'won' THEN 5 WHEN 'dormant' THEN 6 WHEN 'lost' THEN 7 ELSE 8 END`;
 
-export function allPeople(): PersonWithCompany[] {
+export function allPeople(): (PersonWithCompany & Versioned)[] {
   return getDb()
     .prepare(
       `SELECT p.*, c.name AS company_name, c.slug AS company_slug
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
        ORDER BY ${STATUS_ORDER.replaceAll("status_key", "p.status_key")}, p.name`
     )
-    .all() as PersonWithCompany[];
+    .all() as (PersonWithCompany & Versioned)[];
 }
 
 /** Row version carried by the profile edit forms for optimistic concurrency. */
@@ -36,7 +36,7 @@ export function personBySlug(slug: string): (PersonWithCompany & Versioned) | un
     .get(slug) as (PersonWithCompany & Versioned) | undefined;
 }
 
-export function allCompanies(): (Company & { people_count: number; key_people: string })[] {
+export function allCompanies(): (Company & Versioned & { people_count: number; key_people: string })[] {
   return getDb()
     .prepare(
       `SELECT c.*,
@@ -45,7 +45,7 @@ export function allCompanies(): (Company & { people_count: number; key_people: s
        FROM companies c
        ORDER BY ${STATUS_ORDER.replaceAll("status_key", "c.status_key")}, c.name`
     )
-    .all() as (Company & { people_count: number; key_people: string })[];
+    .all() as (Company & Versioned & { people_count: number; key_people: string })[];
 }
 
 export function companyBySlug(slug: string): (Company & Versioned) | undefined {

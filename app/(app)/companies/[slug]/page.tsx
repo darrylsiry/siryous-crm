@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { companyBySlug, interactionsFor, opportunitiesFor, peopleAtCompany } from "@/lib/queries";
-import StatusBadge from "@/components/StatusBadge";
+import StatusPicker from "@/components/StatusPicker";
 import StatusEditor from "@/components/StatusEditor";
 import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
@@ -11,7 +11,7 @@ import { deleteCompany, updateSnapshot } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
 import StaleNotice from "@/components/StaleNotice";
 import { opportunityHref } from "@/lib/queries";
-import { STAGES } from "@/lib/db";
+import { STAGES, STATUS } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,7 @@ export default async function CompanyPage({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{c.name}</h1>
-          <StatusBadge statusKey={c.status_key} note={c.status_note} />
+          <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} />
         </div>
         {c.industry ? (
           <p className="mt-1 text-sm text-stone-500">{c.industry}</p>

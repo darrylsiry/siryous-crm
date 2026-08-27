@@ -198,6 +198,33 @@ export async function updateStatus(formData: FormData) {
   revalidatePath("/", "layout");
 }
 
+/**
+ * Change just the status, from the badge on a list row or a profile header.
+ * The note and next action are left alone (the full StatusEditor edits those).
+ * Returns rather than redirects so the picker can show the outcome inline.
+ */
+export async function setStatus(
+  entity: "person" | "company",
+  id: number,
+  statusKey: string,
+  updatedAt: string | null
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const table = entity === "company" ? "companies" : "people";
+  if (!id || !Object.hasOwn(STATUS, statusKey)) return { ok: false, reason: "That status doesn't exist." };
+  const db = getDb();
+  const row = db.prepare(`SELECT updated_at FROM ${table} WHERE id=?`).get(id) as { updated_at: string | null } | undefined;
+  if (!row) return { ok: false, reason: "This profile no longer exists." };
+  if (updatedAt !== null && (row.updated_at ?? "") !== updatedAt) {
+    return { ok: false, reason: "This profile changed since the page loaded — reload and try again." };
+  }
+  db.prepare(`UPDATE ${table} SET status_key=?, updated_at=datetime('now') WHERE id=?`).run(statusKey, id);
+  if (table === "people") {
+    db.prepare(`UPDATE people SET cadence_days=? WHERE id=? AND cadence_days IS NULL`).run(DEFAULT_CADENCE[statusKey] ?? null, id);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 export async function updateSection(formData: FormData) {
   const table = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));

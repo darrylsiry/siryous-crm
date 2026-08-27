@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { interactionsFor, opportunitiesFor, personBySlug } from "@/lib/queries";
-import StatusBadge from "@/components/StatusBadge";
+import StatusPicker from "@/components/StatusPicker";
 import StatusEditor from "@/components/StatusEditor";
 import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
@@ -11,7 +11,7 @@ import { deletePerson, updateSnapshot } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
 import StaleNotice from "@/components/StaleNotice";
 import { opportunityHref } from "@/lib/queries";
-import { STAGES, STRENGTHS } from "@/lib/db";
+import { STAGES, STATUS, STRENGTHS } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,7 @@ export default async function PersonPage({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{p.name}</h1>
-          <StatusBadge statusKey={p.status_key} note={p.status_note} />
+          <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} />
           {p.relationship_strength ? (
             <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-600 ring-1 ring-inset ring-stone-300">
               {p.relationship_strength}
