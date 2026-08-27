@@ -261,7 +261,7 @@ server.registerTool(
     ).all().map((r) => ({ ...r, over: r.days_since == null ? 9999 : r.days_since - r.cadence_days }))
       .filter((r) => r.over > 0).sort((a, b) => b.over - a.over).slice(0, 12);
     if (due.length) out.push(`## ♨ Due for a keep-warm touch\n` + due.map((r) =>
-      `- ${r.name} [${r.slug}] — ${r.over >= 9999 ? (r.last_touch_note ? "no dated touch" : "never touched") : `${r.over}d over cadence`} (last: ${r.last_touch ?? r.last_touch_note ?? "never"})`
+      `- ${r.name} [${r.slug}] — ${r.over >= 9999 ? (r.last_touch_note ? "no dated touch" : "no touch logged") : `${r.over}d over cadence`} (last: ${r.last_touch ?? r.last_touch_note ?? "never"})`
     ).join("\n"));
     return text(out.join("\n\n") || "Agenda is clear.");
   }

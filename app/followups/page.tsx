@@ -11,7 +11,7 @@ function DueChip({ daysOver, daysSince, cadence, note }: { daysOver: number | nu
   if (daysOver != null && daysOver >= 9999) {
     return (
       <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-600/20">
-        {note ? "no dated touch" : "never touched"}
+        {note ? "no dated touch" : "no touch logged"}
       </span>
     );
   }

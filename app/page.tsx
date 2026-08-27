@@ -127,7 +127,9 @@ export default function Dashboard() {
                 </Link>
                 <span className="text-xs text-red-600">
                   {f.days_over != null && f.days_over >= 9999
-                    ? "never touched"
+                    ? f.last_touch_note
+                      ? `no dated touch (${f.last_touch_note})`
+                      : "no touch logged"
                     : `${f.days_over}d over cadence`}
                 </span>
               </li>
