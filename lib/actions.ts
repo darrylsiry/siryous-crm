@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { slugify } from "./slug";
 import { getDb, STATUS, STAGES, KINDS, BUCKETS, DEFAULT_CADENCE } from "./db";
+import { isIsoDate, parseDueDate } from "./dates.mjs";
 
 /** Keep a form-supplied enum value only if it's one we know; else the fallback. */
 const oneOf = (value: FormDataEntryValue | null, allowed: Record<string, unknown>, fallback: string) => {
@@ -36,13 +37,15 @@ export async function addActionItem(formData: FormData) {
   if (!title) return;
   const bucket = oneOf(formData.get("bucket"), BUCKETS, "this_week");
   const due = String(formData.get("due_label") ?? "").trim() || null;
+  const dueDateRaw = String(formData.get("due_date") ?? "").trim();
+  const dueDate = isIsoDate(dueDateRaw) ? dueDateRaw : parseDueDate(due);
   const personId = Number(formData.get("person_id")) || null;
   const companyId = Number(formData.get("company_id")) || null;
   getDb()
     .prepare(
-      `INSERT INTO action_items (bucket, due_label, title, person_id, company_id) VALUES (?,?,?,?,?)`
+      `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`
     )
-    .run(bucket, due, title, personId, companyId);
+    .run(bucket, due ?? dueDate, dueDate, title, personId, companyId);
   revalidatePath("/");
   revalidatePath("/actions");
 }
@@ -61,14 +64,14 @@ export async function addInteraction(formData: FormData) {
   // bump last_touch if this interaction is the newest
   if (personId) {
     db.prepare(
-      `UPDATE people SET last_touch = ?, updated_at = datetime('now')
-       WHERE id = ? AND (last_touch IS NULL OR julianday(substr(last_touch,1,10)) IS NULL OR substr(last_touch,1,10) < ?)`
+      `UPDATE people SET last_touch = ?, last_touch_note = NULL, updated_at = datetime('now')
+       WHERE id = ? AND (last_touch IS NULL OR last_touch < ?)`
     ).run(date, personId, date);
   }
   if (companyId) {
     db.prepare(
-      `UPDATE companies SET last_touch = ?, updated_at = datetime('now')
-       WHERE id = ? AND (last_touch IS NULL OR julianday(substr(last_touch,1,10)) IS NULL OR substr(last_touch,1,10) < ?)`
+      `UPDATE companies SET last_touch = ?, last_touch_note = NULL, updated_at = datetime('now')
+       WHERE id = ? AND (last_touch IS NULL OR last_touch < ?)`
     ).run(date, companyId, date);
   }
   revalidatePath("/", "layout");

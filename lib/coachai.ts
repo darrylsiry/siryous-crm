@@ -82,7 +82,9 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
 
   const openActions = db
     .prepare(
-      `SELECT a.id, a.bucket, a.title, a.due_label, a.created_at, COALESCE(p.name,'') AS person
+      `SELECT a.id,
+              CASE WHEN a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END AS bucket,
+              a.title, COALESCE(a.due_date, a.due_label) AS due_label, a.created_at, COALESCE(p.name,'') AS person
        FROM action_items a LEFT JOIN people p ON p.id = a.person_id
        WHERE a.status = 'open' ORDER BY a.bucket, a.id`
     )

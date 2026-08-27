@@ -674,12 +674,16 @@ export function personContext(personId: number): string {
     .prepare(`SELECT name, kind, stage, priority, value_note, next_step, notes FROM opportunities WHERE person_id = ? OR company_id = ?`)
     .all(personId, (p.company_id as number) ?? -1) as Record<string, unknown>[];
   const actions = db
-    .prepare(`SELECT bucket, due_label, title FROM action_items WHERE person_id = ? AND status='open'`)
+    .prepare(
+      `SELECT CASE WHEN due_date IS NOT NULL AND due_date < date('now','localtime') THEN 'overdue' ELSE bucket END AS bucket,
+              COALESCE(due_date, due_label) AS due_label, title
+       FROM action_items WHERE person_id = ? AND status='open'`
+    )
     .all(personId) as { bucket: string; due_label: string | null; title: string }[];
 
   return [
     `# ${p.name} [${p.slug}]`,
-    `Status: ${p.status_key}${p.status_note ? ` (${p.status_note})` : ""} · Strength: ${p.relationship_strength ?? "?"} · Last touch: ${p.last_touch ?? "never"} · Tags: ${p.tags ?? "-"}`,
+    `Status: ${p.status_key}${p.status_note ? ` (${p.status_note})` : ""} · Strength: ${p.relationship_strength ?? "?"} · Last touch: ${p.last_touch ?? (p.last_touch_note ? `undated (${p.last_touch_note})` : "never")}${p.last_touch && p.last_touch_note ? ` (${p.last_touch_note})` : ""} · Tags: ${p.tags ?? "-"}`,
     `Role: ${p.role_title ?? "?"} · Company: ${p.company_name ?? "-"} (${p.company_status ?? ""}${p.company_status_note ? ` — ${p.company_status_note}` : ""})${p.company_note ? ` · ${p.company_note}` : ""}`,
     `Email: ${p.email ?? "-"} · LinkedIn: ${p.linkedin ?? "-"} · Location: ${p.location ?? "-"}`,
     `Next action on file: ${p.next_action ?? "-"}`,

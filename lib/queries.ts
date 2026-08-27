@@ -75,16 +75,20 @@ export function interactionsFor(opts: { personId?: number; companyId?: number })
     .all(opts.companyId, opts.companyId) as Interaction[];
 }
 
+/** SQL for the effective bucket: anything with a passed due date is overdue, whatever it was filed under. */
+export const EFFECTIVE_BUCKET = `CASE WHEN a.status='open' AND a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END`;
+
 export function openActionItems(): ActionItemJoined[] {
   return getDb()
     .prepare(
-      `SELECT a.*, p.name AS person_name, p.slug AS person_slug,
+      `SELECT a.*, a.bucket AS bucket_raw, ${EFFECTIVE_BUCKET} AS bucket,
+              p.name AS person_name, p.slug AS person_slug,
               c.name AS company_name, c.slug AS company_slug
        FROM action_items a
        LEFT JOIN people p ON p.id = a.person_id
        LEFT JOIN companies c ON c.id = a.company_id
        WHERE a.status = 'open'
-       ORDER BY a.id`
+       ORDER BY a.due_date IS NULL, a.due_date, a.id`
     )
     .all() as ActionItemJoined[];
 }
@@ -127,7 +131,9 @@ export function dashboardStats() {
   const people = db.prepare(`SELECT status_key, COUNT(*) n FROM people GROUP BY status_key`).all() as { status_key: string; n: number }[];
   const companies = db.prepare(`SELECT status_key, COUNT(*) n FROM companies GROUP BY status_key`).all() as { status_key: string; n: number }[];
   const openActions = (db.prepare(`SELECT COUNT(*) n FROM action_items WHERE status='open'`).get() as { n: number }).n;
-  const overdue = (db.prepare(`SELECT COUNT(*) n FROM action_items WHERE status='open' AND bucket='overdue'`).get() as { n: number }).n;
+  const overdue = (
+    db.prepare(`SELECT COUNT(*) n FROM action_items a WHERE a.status='open' AND ${EFFECTIVE_BUCKET} = 'overdue'`).get() as { n: number }
+  ).n;
   return { people, companies, openActions, overdue };
 }
 
@@ -163,7 +169,7 @@ export function followUps(): FollowUp[] {
   const rows = getDb()
     .prepare(
       `SELECT p.id, p.slug, p.name, p.status_key, p.status_note, p.relationship_strength,
-              p.tags, p.last_touch, p.next_action, p.cadence_days,
+              p.tags, p.last_touch, p.last_touch_note, p.next_action, p.cadence_days,
               c.name AS company_name, c.slug AS company_slug,
               CAST(julianday('now','localtime') - julianday(substr(p.last_touch, 1, 10)) AS INTEGER) AS days_since
        FROM people p LEFT JOIN companies c ON c.id = p.company_id

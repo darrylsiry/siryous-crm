@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { getDb } from "./db";
 import { buildFetchPrompt, buildLogPrompt, extractJsonWithRepair, FETCH_NOT_FOUND, TOOLS, type LogAnalysis } from "./ai";
 import { runWithProgress } from "./progress";
+import { parseDueDate } from "./dates.mjs";
 
 export async function analyzeLog(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
@@ -125,11 +126,11 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
       summary
     );
     db.prepare(
-      `UPDATE people SET last_touch=?, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
+      `UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
     ).run(date, person.id, date);
     if (person.company_id) {
       db.prepare(
-        `UPDATE companies SET last_touch=?, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
+        `UPDATE companies SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
       ).run(date, person.company_id, date);
     }
     const next = str(formData, `entry_next_${i}`);
@@ -155,9 +156,11 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
     const person = slug
       ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as { id: number; company_id: number | null } | undefined)
       : undefined;
-    db.prepare(`INSERT INTO action_items (bucket, due_label, title, person_id, company_id) VALUES (?,?,?,?,?)`).run(
+    const due = str(formData, `action_due_${i}`);
+    db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`).run(
       String(formData.get(`action_bucket_${i}`) ?? "this_week"),
-      str(formData, `action_due_${i}`),
+      due,
+      parseDueDate(due),
       title,
       person?.id ?? null,
       person?.company_id ?? null

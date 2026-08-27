@@ -7,6 +7,7 @@ import { getDb, BUCKETS } from "./db";
 import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
 import { loadProposals, type CoachProposal } from "./coachData";
+import { parseDueDate } from "./dates.mjs";
 import {
   buildCoachAdvicePrompt,
   buildCoachReplyPrompt,
@@ -145,8 +146,8 @@ export async function reviewCoachProposals(formData: FormData) {
               | undefined)
           : undefined;
         db.prepare(
-          `INSERT INTO action_items (bucket, due_label, title, person_id, company_id, source) VALUES (?,?,?,?,?,'coach')`
-        ).run(p.bucket ?? "this_week", p.due_label, p.title, person?.id ?? null, person?.company_id ?? null);
+          `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id, source) VALUES (?,?,?,?,?,?,'coach')`
+        ).run(p.bucket ?? "this_week", p.due_label, parseDueDate(p.due_label), p.title, person?.id ?? null, person?.company_id ?? null);
         lines.push(`➕ Committed: ${p.title}${p.due_label ? ` (due ${p.due_label})` : ""}`);
       }
       db.prepare(`UPDATE coach_proposals SET status='applied', resolved_at=datetime('now') WHERE id=?`).run(p.id);

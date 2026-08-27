@@ -8,6 +8,7 @@ import { buildIntakePrompt, buildIntakeResearchPrompt, extractJsonWithRepair, TO
 import { noteProgress, runWithProgress } from "./progress";
 import { slugify } from "./slug";
 import { DEFAULT_CADENCE } from "./db";
+import { parseDueDate } from "./dates.mjs";
 
 export async function analyzeIntake(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
@@ -178,13 +179,13 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
         str(formData, "interaction_channel"),
         isum
       );
-      db.prepare(`UPDATE people SET last_touch=? WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
+      db.prepare(`UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
         idate,
         personId,
         idate
       );
       if (companyId) {
-        db.prepare(`UPDATE companies SET last_touch=? WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
+        db.prepare(`UPDATE companies SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
           idate,
           companyId,
           idate
@@ -214,9 +215,11 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
     const i = m[1];
     const title = str(formData, `action_title_${i}`);
     if (!title) continue;
-    db.prepare(`INSERT INTO action_items (bucket, due_label, title, person_id, company_id) VALUES (?,?,?,?,?)`).run(
+    const due = str(formData, `action_due_${i}`);
+    db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`).run(
       String(formData.get(`action_bucket_${i}`) ?? "this_week"),
-      str(formData, `action_due_${i}`),
+      due,
+      parseDueDate(due),
       title,
       personId,
       companyId

@@ -14,7 +14,8 @@ export interface Company {
   engagement_strategy: string | null;
   extra_sections: string | null;
   notes: string | null;
-  last_touch: string | null;
+  last_touch: string | null; // ISO date or null
+  last_touch_note: string | null; // free text that used to live in last_touch ("recent call")
   next_action: string | null;
 }
 
@@ -59,8 +60,12 @@ export interface Interaction {
 
 export interface ActionItem {
   id: number;
+  /** Effective bucket: 'overdue' when due_date has passed, else the stored bucket. */
   bucket: string;
+  /** The bucket as stored (category chosen at creation). */
+  bucket_raw?: string;
   due_label: string | null;
+  due_date: string | null; // ISO, parsed from due_label or entered directly
   title: string;
   detail: string | null;
   person_id: number | null;
@@ -109,6 +114,7 @@ export interface FollowUp {
   relationship_strength: string | null;
   tags: string | null;
   last_touch: string | null;
+  last_touch_note: string | null;
   next_action: string | null;
   cadence_days: number | null;
   days_since: number | null; // null = never touched / unparseable date
