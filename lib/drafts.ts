@@ -14,6 +14,23 @@ import {
 import { applyLogHintFallback, loadLogHint } from "./logHint";
 import { noteProgress, runWithProgress } from "./progress";
 import { IntakeAnalysisSchema, LogAnalysisSchema, validateModelJson } from "./schemas";
+import { RunCancelled } from "./llm";
+
+/** A queued run should only start if its draft is still waiting for it. */
+function stillAnalyzing(table: "log_drafts" | "intake_drafts", id: number): () => boolean {
+  return () => {
+    const r = getDb().prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string } | undefined;
+    return r?.status === "analyzing";
+  };
+}
+
+/** Record a failure — unless the draft was discarded meanwhile (then the outcome no longer matters). */
+function failDraft(table: "log_drafts" | "intake_drafts", id: number, err: unknown) {
+  if (err instanceof RunCancelled) return;
+  getDb()
+    .prepare(`UPDATE ${table} SET status='error', error=? WHERE id=? AND status='analyzing'`)
+    .run(err instanceof Error ? err.message : String(err), id);
+}
 
 /**
  * The Intake and Log pipelines, separated from the forms that usually start
@@ -100,6 +117,7 @@ export async function processLogDraft(draftId: number): Promise<void> {
     const text = await runWithProgress("log", draftId, buildLogPrompt(content, row.source, request, hint), {
       json: true,
       timeoutMs: 420_000,
+      stillWanted: stillAnalyzing("log_drafts", draftId),
     });
     const analysis: LogAnalysis = applyLogHintFallback(
       validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text),
@@ -112,12 +130,9 @@ export async function processLogDraft(draftId: number): Promise<void> {
           (analysis?.summary_md ? `Its summary: ${analysis.summary_md.slice(0, 300)}` : "")
       );
     }
-    db.prepare(`UPDATE log_drafts SET result_json=?, status='ready' WHERE id=?`).run(JSON.stringify(analysis), draftId);
+    db.prepare(`UPDATE log_drafts SET result_json=?, status='ready' WHERE id=? AND status='analyzing'`).run(JSON.stringify(analysis), draftId);
   } catch (err) {
-    db.prepare(`UPDATE log_drafts SET status='error', error=? WHERE id=?`).run(
-      err instanceof Error ? err.message : String(err),
-      draftId
-    );
+    failDraft("log_drafts", draftId, err);
   }
 }
 
@@ -157,7 +172,10 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
       }
     }
     // Step 2 (local model): the analysis itself.
-    const text = await runWithProgress("intake", draftId, buildIntakePrompt(raw, digest), { json: true });
+    const text = await runWithProgress("intake", draftId, buildIntakePrompt(raw, digest), {
+      json: true,
+      stillWanted: stillAnalyzing("intake_drafts", draftId),
+    });
     const analysis: IntakeAnalysis = validateModelJson(IntakeAnalysisSchema, await extractJsonWithRepair(text), text);
     if (research && !digest) {
       analysis.confidence_flags = [
@@ -165,11 +183,8 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
         ...(analysis.confidence_flags ?? []),
       ];
     }
-    db.prepare(`UPDATE intake_drafts SET result_json=?, status='ready' WHERE id=?`).run(JSON.stringify(analysis), draftId);
+    db.prepare(`UPDATE intake_drafts SET result_json=?, status='ready' WHERE id=? AND status='analyzing'`).run(JSON.stringify(analysis), draftId);
   } catch (err) {
-    db.prepare(`UPDATE intake_drafts SET status='error', error=? WHERE id=?`).run(
-      err instanceof Error ? err.message : String(err),
-      draftId
-    );
+    failDraft("intake_drafts", draftId, err);
   }
 }

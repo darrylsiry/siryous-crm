@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { getDb, VOCAB } from "./db";
 import { bucketList, cadenceSentence, statusList } from "./vocab.mjs";
-import { LocalUnavailable, runLocalStream, type Provider } from "./llm";
+import { LocalUnavailable, runLocalStream, type Provider, RunCancelled } from "./llm";
 import { getAiSettings } from "./settings";
 import { loadOwner } from "./owner.mjs";
 
@@ -296,13 +296,23 @@ export async function runModel(
     onEvent = () => {},
     provider,
     model,
-  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; provider?: Provider; model?: string } = {}
+    stillWanted,
+  }: {
+    json?: boolean;
+    timeoutMs?: number;
+    onEvent?: (e: ProgressEvent) => void;
+    provider?: Provider;
+    model?: string;
+    /** Checked when the run reaches the front of the local queue; false skips it (RunCancelled). */
+    stillWanted?: () => boolean;
+  } = {}
 ): Promise<string> {
   const settings = getAiSettings();
   if ((provider ?? settings.provider) === "local") {
     try {
-      return await runLocalStream(prompt, { json, timeoutMs, onEvent, model });
+      return await runLocalStream(prompt, { json, timeoutMs, onEvent, model, stillWanted });
     } catch (err) {
+      if (err instanceof RunCancelled) throw err;
       const reason = err instanceof Error ? err.message : String(err);
       // Only an *unavailable* local model (Ollama down, model not pulled)
       // falls back. Timeouts, context overflow and empty output are

@@ -35,7 +35,9 @@ export async function checkInboxNow() {
 export async function rerouteInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
   const as = String(formData.get("as") ?? "");
-  if (id && (as === "log" || as === "intake")) routeMessage(getDb(), id, as);
+  const who = String(formData.get("who") ?? "").trim() || null;
+  if (id && who) routeMessage(getDb(), id, null, who);
+  else if (id && (as === "log" || as === "intake")) routeMessage(getDb(), id, as);
   revalidatePath("/inbox");
   redirect("/inbox");
 }

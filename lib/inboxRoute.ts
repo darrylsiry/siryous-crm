@@ -136,6 +136,30 @@ export function matchRoster(email: InboxEmail, participants: Participant[], rost
   return roster.filter((r) => hits.has(r.slug)).map((r) => ({ slug: r.slug, name: r.name }));
 }
 
+/**
+ * Of the unknown participants, the one the email is really about: the sender
+ * of the forwarded message if there is one (the first From: line in the
+ * body), else the email's own sender, else the first unknown person.
+ */
+export function primaryParticipant(email: InboxEmail, unknown: Participant[]): Participant | null {
+  if (!unknown.length) return null;
+  const byEmail = new Map(unknown.map((p) => [p.email, p]));
+  for (const line of email.body.split(/\r?\n/)) {
+    const m = line.match(FWD_HEADER_RE);
+    if (!m || m[1].toLowerCase() !== "from") continue;
+    for (const p of parseAddresses(m[2])) {
+      const hit = byEmail.get(p.email);
+      if (hit) return hit;
+    }
+    break; // only the outermost forwarded message counts
+  }
+  for (const p of parseAddresses(email.from)) {
+    const hit = byEmail.get(p.email);
+    if (hit) return hit;
+  }
+  return unknown[0];
+}
+
 export function routeEmail(email: InboxEmail, roster: RosterEntry[], ownerEmails: string[]): Route {
   const participants = participantsOf(email, ownerEmails);
   const known = matchRoster(email, participants, roster);

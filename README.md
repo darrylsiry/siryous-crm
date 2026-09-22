@@ -161,11 +161,15 @@ The left-hand menu has everything. In rough order of how often you'll use it:
   Gmail's plus-addressing means `you+crm@gmail.com` works with no setup, as
   long as that is the mailbox your Claude Gmail connector is signed in to;
   mail you get at other addresses can be forwarded to it. People are matched
-  by email address, then by full name; `#log` or `#intake` in the subject
-  decides for you; a note you type above a forwarded message is passed to
-  the AI as your instruction ("log this on Sam — next step is the proposal").
-  The page checks the mailbox on a schedule (one short Claude run each time)
-  or on demand, and lets you re-route anything it guessed wrong.
+  by email address, then by full name; the new person the email is about (the
+  forwarded message's sender, usually) gets the Intake, and anyone else new is
+  listed with an "add" button, because every draft is a full run of the local
+  model. `#log` or `#intake` in the subject decides for you; a note you type
+  above a forwarded message is passed to the AI as your instruction ("log this
+  on Sam — next step is the proposal"). The page checks the mailbox on a
+  schedule (one short Claude run each time) or on demand, shows where each
+  draft is in the model's queue, and lets you re-route anything it guessed
+  wrong (which replaces that email's drafts rather than adding more).
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "./db";
 import { buildInboxFetchPrompt, claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS, type InboxFetchedMessage } from "./ai";
 import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
-import { intakeInputFor, logInputFor, ownerAddresses, routeEmail, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
+import { intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
 
@@ -197,6 +197,7 @@ export interface InboxRow {
   route: string | null;
   log_draft_id: number | null;
   intake_draft_ids: string | null;
+  pending_people: string | null;
   note: string | null;
   error: string | null;
   created_at: string;
@@ -222,18 +223,71 @@ function roster(db: Database.Database): RosterEntry[] {
 }
 
 /**
- * Decide where a message goes and start the draft(s). `force` re-routes a
- * message by hand from the queue ("Send to Intake" / "Send to Log").
+ * Discard the drafts an earlier routing of this message created (unless they
+ * were already confirmed), so a re-route doesn't leave duplicates — and a
+ * discarded draft's queued model run is skipped (see lib/drafts.ts).
  */
-export function routeMessage(db: Database.Database, id: number, force: "log" | "intake" | null = null): void {
+function discardDrafts(db: Database.Database, row: InboxRow): void {
+  if (row.log_draft_id) {
+    db.prepare(`UPDATE log_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(row.log_draft_id);
+  }
+  for (const id of parseIds(row.intake_draft_ids)) {
+    db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(id);
+  }
+}
+
+export function parseIds(json: string | null): number[] {
+  try {
+    const v = json ? JSON.parse(json) : [];
+    return Array.isArray(v) ? v.filter((n) => Number.isInteger(n)) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function parsePeople(json: string | null): Participant[] {
+  try {
+    const v = json ? JSON.parse(json) : [];
+    return Array.isArray(v) ? v.filter((p) => p && typeof p.email === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Decide where a message goes and start the draft(s). `force` re-routes a
+ * message by hand from the queue (→ Log / → Intake), replacing the drafts
+ * the previous routing made; `who` (an address) intakes one specific person
+ * from the "also on this email" list without touching the other drafts.
+ */
+export function routeMessage(db: Database.Database, id: number, force: "log" | "intake" | null = null, who: string | null = null): void {
   const row = loadInboxRow(db, id);
   if (!row) return;
   const email = emailOf(row);
   const owners = inboxOwnerEmails();
+
+  // Add one more person from the email (no re-route).
+  if (who) {
+    const pending = parsePeople(row.pending_people);
+    const person = pending.find((p) => p.email === who.toLowerCase());
+    if (!person) return;
+    const draftId = insertIntakeDraft(db, intakeInputFor(email, person, row.date, owners));
+    void processIntakeDraft(draftId, false);
+    db.prepare(`UPDATE inbox_messages SET intake_draft_ids=?, pending_people=?, note=? WHERE id=?`).run(
+      JSON.stringify([...parseIds(row.intake_draft_ids), draftId]),
+      JSON.stringify(pending.filter((p) => p.email !== person.email)),
+      [row.note, `Intake: ${person.name ?? person.email}`].filter(Boolean).join(" · "),
+      id
+    );
+    return;
+  }
+
+  if (force) discardDrafts(db, row);
   const route = routeEmail(force ? { ...email, subject: `#${force} ${email.subject}` } : email, roster(db), owners);
   const notes: string[] = [];
   let logDraftId: number | null = null;
   const intakeIds: number[] = [];
+  let pending: Participant[] = [];
 
   try {
     if (route.mode === "log" || route.mode === "both") {
@@ -248,21 +302,32 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
       notes.push(route.known.length ? `Log: ${route.known.map((k) => k.name).join(", ")}` : "Log: nobody matched by address — the model will look for roster names in the text");
     }
     if (route.mode === "intake" || route.mode === "both") {
-      // One Intake per unknown participant (Intake adds one person at a time);
-      // with nobody identifiable, one draft from the whole email.
-      const targets: Participant[] = route.unknown.length ? route.unknown.slice(0, 3) : [{ name: null, email: "" }];
-      for (const who of targets) {
-        const raw = who.email ? intakeInputFor(email, who, row.date, owners) : `Email subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`;
-        const draftId = insertIntakeDraft(db, raw);
-        intakeIds.push(draftId);
-        void processIntakeDraft(draftId, false);
-      }
-      if (route.unknown.length > 3) notes.push(`${route.unknown.length - 3} more people on the email were not sent to Intake (limit 3 per email)`);
-      notes.push(`Intake: ${route.unknown.length ? route.unknown.map((u) => u.name ?? u.email).join(", ") : "from the email text"}`);
+      // One Intake, for the person the email is about (the forwarded
+      // message's sender, usually). Each Intake is a full model run, so the
+      // other unknown people are listed on the queue with an "add" button
+      // instead of being drafted unasked. With nobody identifiable, one
+      // draft from the whole email.
+      const primary = primaryParticipant(email, route.unknown);
+      const raw = primary ? intakeInputFor(email, primary, row.date, owners) : `Email subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`;
+      const draftId = insertIntakeDraft(db, raw);
+      intakeIds.push(draftId);
+      void processIntakeDraft(draftId, false);
+      pending = route.unknown.filter((p) => p.email !== primary?.email);
+      notes.push(`Intake: ${primary ? (primary.name ?? primary.email) : "from the email text"}`);
+    } else {
+      // Log only: anyone unknown can still be added by hand.
+      pending = route.unknown;
     }
     db.prepare(
-      `UPDATE inbox_messages SET status='routed', route=?, log_draft_id=?, intake_draft_ids=?, note=?, error=NULL WHERE id=?`
-    ).run(route.forced ? `${route.mode} (tagged)` : route.mode, logDraftId, intakeIds.length ? JSON.stringify(intakeIds) : null, notes.join(" · "), id);
+      `UPDATE inbox_messages SET status='routed', route=?, log_draft_id=?, intake_draft_ids=?, pending_people=?, note=?, error=NULL WHERE id=?`
+    ).run(
+      route.forced ? `${route.mode} (tagged)` : route.mode,
+      logDraftId,
+      intakeIds.length ? JSON.stringify(intakeIds) : null,
+      pending.length ? JSON.stringify(pending) : null,
+      notes.join(" · "),
+      id
+    );
   } catch (err) {
     db.prepare(`UPDATE inbox_messages SET status='error', error=? WHERE id=?`).run(err instanceof Error ? err.message : String(err), id);
   }

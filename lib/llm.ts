@@ -150,23 +150,46 @@ const fmtTimeout = (ms: number) => (ms >= 120_000 ? `${Math.round(ms / 60000)} m
 // second run waits (and says so) instead of sitting in Ollama's queue with its
 // abort timer already counting.
 let queue: Promise<unknown> = Promise.resolve();
+/** Runs queued or in flight on the local model (the one running counts). */
+let inQueue = 0;
+
+export function localQueueDepth(): number {
+  return inQueue;
+}
+
+/** Thrown when a queued run's `stillWanted` says the work is no longer needed (its draft was discarded). */
+export class RunCancelled extends Error {
+  constructor() {
+    super("This run was cancelled before it started.");
+    this.name = "RunCancelled";
+  }
+}
 
 export function runLocalStream(
   prompt: string,
-  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string } = {}
+  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string; stillWanted?: () => boolean } = {}
 ): Promise<string> {
   const onEvent = opts.onEvent ?? (() => {});
+  const ahead = inQueue;
+  inQueue++;
   let waited = false;
   const waitNote = setTimeout(() => {
     waited = true;
-    onEvent({ t: "info", label: "Waiting for the local model to finish another run…", ts: Date.now() });
+    onEvent({
+      t: "info",
+      label: ahead > 1 ? `Queued — ${ahead} runs ahead on the local model…` : "Waiting for the local model to finish another run…",
+      ts: Date.now(),
+    });
   }, 1500);
   const run = queue.then(() => {
     clearTimeout(waitNote);
+    if (opts.stillWanted && !opts.stillWanted()) throw new RunCancelled();
     if (waited) onEvent({ t: "info", label: "Model free — starting", ts: Date.now() });
     return runLocalStreamNow(prompt, opts);
   });
-  queue = run.catch(() => {});
+  queue = run.catch(() => {}).finally(() => {
+    inQueue--;
+  });
   return run;
 }
 

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { getDb } from "@/lib/db";
 import { getAiStatus } from "@/lib/aiStatus";
-import { getInboxSettings, inboxPollRunning, type InboxRow } from "@/lib/inbox";
+import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, type InboxRow } from "@/lib/inbox";
+import { localQueueDepth } from "@/lib/llm";
+import { readProgress } from "@/lib/progress";
 import { cleanSubject } from "@/lib/inboxRoute";
 import { checkInboxNow, ignoreInboxMessage, rerouteInboxMessage, saveInboxSettings } from "@/lib/inboxActions";
 import { loadOwner } from "@/lib/owner.mjs";
@@ -21,25 +23,41 @@ function suggestedAddress(ownerEmail: string | null | undefined): string {
   return m ? `${m[1]}+crm@${m[2]}` : "";
 }
 
-function draftStatus(db: ReturnType<typeof getDb>, table: "log_drafts" | "intake_drafts", id: number) {
-  const r = db.prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string } | undefined;
-  return r?.status ?? "gone";
+/**
+ * A draft's status word, with the queue position while it waits for the
+ * local model ("queued, 2 ahead") — taken from the last progress event.
+ */
+function draftStatus(kind: "log" | "intake", id: number): string {
+  const p = readProgress(kind, id);
+  if (!p) return "gone";
+  if (p.status !== "analyzing") return p.status;
+  const last = [...p.events].reverse().find((e) => e.t === "info");
+  const m = last?.label.match(/^Queued — (\d+) runs? ahead/);
+  if (m) return `queued, ${m[1]} ahead`;
+  if (last?.label.startsWith("Waiting for the local model")) return "queued, 1 ahead";
+  return "analyzing";
 }
 
 function StatusWord({ status }: { status: string }) {
   const cls =
-    status === "error" ? "text-red-600" : status === "analyzing" ? "animate-pulse text-indigo-600" : status === "ready" ? "text-green-700" : "text-stone-500";
+    status === "error"
+      ? "text-red-600"
+      : status === "analyzing" || status.startsWith("queued")
+        ? "animate-pulse text-indigo-600"
+        : status === "ready"
+          ? "text-green-700"
+          : "text-stone-500";
   return <span className={cls}>[{status}]</span>;
 }
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const { saved, error } = await searchParams;
-  const db = getDb();
   const ai = await getAiStatus();
   const s = getInboxSettings();
   const owner = loadOwner();
   const running = inboxPollRunning();
-  const rows = db
+  const queued = localQueueDepth();
+  const rows = getDb()
     .prepare(`SELECT * FROM inbox_messages ORDER BY id DESC LIMIT 40`)
     .all() as InboxRow[];
 
@@ -94,6 +112,11 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
             <>No CRM address yet — set one below.</>
           )}
           {s.lastError ? <span className="block text-red-700">Last check failed: {s.lastError}</span> : null}
+          {queued > 0 ? (
+            <span className="block text-indigo-700">
+              The local model is working through {queued} run{queued === 1 ? "" : "s"} — each Intake or Log draft is one run, one at a time.
+            </span>
+          ) : null}
         </p>
 
         {rows.length === 0 ? (
@@ -101,13 +124,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         ) : (
           <ul className="divide-y divide-stone-100">
             {rows.map((r) => {
-              const intakeIds: number[] = (() => {
-                try {
-                  return r.intake_draft_ids ? (JSON.parse(r.intake_draft_ids) as number[]) : [];
-                } catch {
-                  return [];
-                }
-              })();
+              const intakeIds = parseIds(r.intake_draft_ids);
+              const pending = parsePeople(r.pending_people);
               return (
                 <li key={r.id} className="py-3 text-sm">
                   <div className="flex flex-wrap items-baseline gap-x-2">
@@ -124,7 +142,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                             <Link href={`/log/${r.log_draft_id}`} className="font-medium text-indigo-700 hover:underline">
                               Log draft #{r.log_draft_id}
                             </Link>{" "}
-                            <StatusWord status={draftStatus(db, "log_drafts", r.log_draft_id)} />
+                            <StatusWord status={draftStatus("log", r.log_draft_id)} />
                           </span>
                         ) : null}
                         {intakeIds.map((id) => (
@@ -132,10 +150,24 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                             <Link href={`/intake/${id}`} className="font-medium text-indigo-700 hover:underline">
                               Intake draft #{id}
                             </Link>{" "}
-                            <StatusWord status={draftStatus(db, "intake_drafts", id)} />
+                            <StatusWord status={draftStatus("intake", id)} />
                           </span>
                         ))}
                         {r.note ? <span className="text-stone-500">{r.note}</span> : null}
+                        {pending.length ? (
+                          <span className="flex flex-wrap items-center gap-1.5 text-stone-500">
+                            Also on this email:
+                            {pending.map((p) => (
+                              <form key={p.email} action={rerouteInboxMessage} className="inline">
+                                <input type="hidden" name="id" value={r.id} />
+                                <input type="hidden" name="who" value={p.email} />
+                                <button className={smallBtn} title={`Draft an Intake for ${p.email}`}>
+                                  + {p.name ?? p.email}
+                                </button>
+                              </form>
+                            ))}
+                          </span>
+                        ) : null}
                       </>
                     ) : r.status === "error" ? (
                       <span className="text-red-700">Couldn&apos;t route: {r.error}</span>
@@ -148,14 +180,14 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                       <form action={rerouteInboxMessage}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="as" value="log" />
-                        <button className={smallBtn} title="Draft interaction-log entries from this email (again)">
+                        <button className={smallBtn} title="Replace the drafts made for this email with a Log draft">
                           → Log
                         </button>
                       </form>
                       <form action={rerouteInboxMessage}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="as" value="intake" />
-                        <button className={smallBtn} title="Draft an Intake for the people on this email (again)">
+                        <button className={smallBtn} title="Replace the drafts made for this email with an Intake for the sender">
                           → Intake
                         </button>
                       </form>
@@ -236,13 +268,16 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         <h2 className={h2}>How routing works</h2>
         <p>
           The people on the email — sender, recipients, and the From/To/Cc lines of a forwarded message — are matched
-          against your roster by email address, then by full name. Roster people get a <b>Log</b> draft; anyone else
-          gets an <b>Intake</b> draft (one per person, up to three). Both when the email has both kinds.
+          against your roster by email address, then by full name. Roster people get a <b>Log</b> draft. If there is
+          someone new, the person the email is about (the sender of the forwarded message, usually) gets an{" "}
+          <b>Intake</b> draft; anyone else new is listed under &ldquo;Also on this email&rdquo; with a button, since
+          every draft is a full run of the local model. Both when the email has both kinds.
         </p>
         <p>
           To decide yourself, put <code>#log</code> or <code>#intake</code> in the subject. Anything you write above a
           forwarded message is passed to the AI as your note (&ldquo;log this on Sam, next step is the proposal&rdquo;).
-          A wrong guess can be re-sent with the → Log / → Intake buttons.
+          A wrong guess can be re-sent with the → Log / → Intake buttons, which replace the drafts made so far for that
+          email.
         </p>
       </section>
 

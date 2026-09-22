@@ -38,7 +38,7 @@ export function runWithProgress(
   kind: ProgressKind,
   id: number,
   prompt: string,
-  opts: { allowedTools?: string; timeoutMs?: number; json?: boolean; provider?: Provider; model?: string } = {}
+  opts: { allowedTools?: string; timeoutMs?: number; json?: boolean; provider?: Provider; model?: string; stillWanted?: () => boolean } = {}
 ): Promise<string> {
   const table = PROGRESS_TABLES[kind];
   const db = getDb();
@@ -53,7 +53,14 @@ export function runWithProgress(
   if (opts.allowedTools) {
     return runClaudeStream(prompt, { allowedTools: opts.allowedTools, timeoutMs: opts.timeoutMs, onEvent });
   }
-  return runModel(prompt, { json: opts.json, timeoutMs: opts.timeoutMs, onEvent, provider: opts.provider, model: opts.model });
+  return runModel(prompt, {
+    json: opts.json,
+    timeoutMs: opts.timeoutMs,
+    onEvent,
+    provider: opts.provider,
+    model: opts.model,
+    stillWanted: opts.stillWanted,
+  });
 }
 
 /** Append a one-off note to a draft row's activity feed (e.g. "research skipped: …"). */

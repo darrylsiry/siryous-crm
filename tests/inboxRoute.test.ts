@@ -5,6 +5,7 @@ import {
   intakeInputFor,
   logInputFor,
   participantsOf,
+  primaryParticipant,
   routeEmail,
   stripPlusTag,
   subjectTag,
@@ -139,5 +140,24 @@ describe("draft inputs", () => {
     assert.match(text, /^THIS INTAKE IS FOR: Bob Smith <bob@x.example>\n/);
     assert.match(text, /Others on the email .*Jane Doe <jane@acme.example>/);
     assert.doesNotMatch(text, /Others on the email .*owner@firm.example/);
+  });
+});
+
+describe("primaryParticipant", () => {
+  test("prefers the forwarded message's sender", () => {
+    const e = email({
+      from: "Owner <owner@example.com>",
+      body: "FYI\n\n---------- Forwarded message ---------\nFrom: Bob Smith <bob@x.example>\nTo: Ann Lee <ann@y.example>\nCc: Cal <cal@z.example>\n",
+    });
+    const unknown = participantsOf(e, OWNER);
+    assert.equal(primaryParticipant(e, unknown)?.email, "bob@x.example");
+  });
+
+  test("falls back to the email's own sender, then the first unknown", () => {
+    const direct = email({ from: "Ann Lee <ann@y.example>", to: ["owner+crm@example.com", "cal@z.example"] });
+    assert.equal(primaryParticipant(direct, participantsOf(direct, OWNER))?.email, "ann@y.example");
+    const none = email({ body: "To: cal@z.example, dee@z.example" });
+    assert.equal(primaryParticipant(none, participantsOf(none, OWNER))?.email, "cal@z.example");
+    assert.equal(primaryParticipant(none, []), null);
   });
 });
