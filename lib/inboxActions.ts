@@ -1,0 +1,48 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { getDb } from "./db";
+import { pollInbox, routeMessage, validateInboxAddress } from "./inbox";
+import { setSetting } from "./settings";
+
+export async function saveInboxSettings(formData: FormData) {
+  const str = (k: string) => String(formData.get(k) ?? "").trim();
+  const addr = validateInboxAddress(str("address"));
+  if (!addr.ok) redirect(`/inbox?error=${encodeURIComponent(`The address wasn't saved — ${addr.reason}`)}`);
+  const minutes = Number(str("poll_minutes"));
+  setSetting("inbox.address", addr.address || null);
+  setSetting("inbox.enabled", formData.get("enabled") && addr.address ? "on" : null);
+  setSetting("inbox.poll_minutes", minutes >= 10 ? String(Math.round(minutes)) : null);
+  setSetting("inbox.extra_owner_emails", str("extra_owner_emails") || null);
+  revalidatePath("/inbox");
+  redirect("/inbox?saved=1");
+}
+
+/** "Check now": one poll, then back to the queue with a one-line result. */
+export async function checkInboxNow() {
+  const r = await pollInbox();
+  revalidatePath("/inbox");
+  const msg = r.error
+    ? `Check failed — ${r.error}`
+    : r.fetched === 0
+      ? "Checked — nothing new at the CRM address."
+      : `Checked — ${r.routed} new email${r.routed === 1 ? "" : "s"} routed${r.skipped ? ` (${r.skipped} already seen)` : ""}.`;
+  redirect(`/inbox?${r.error ? "error" : "saved"}=${encodeURIComponent(msg)}`);
+}
+
+/** Re-route one message by hand (a wrong guess, or an error after a retry). */
+export async function rerouteInboxMessage(formData: FormData) {
+  const id = Number(formData.get("id"));
+  const as = String(formData.get("as") ?? "");
+  if (id && (as === "log" || as === "intake")) routeMessage(getDb(), id, as);
+  revalidatePath("/inbox");
+  redirect("/inbox");
+}
+
+export async function ignoreInboxMessage(formData: FormData) {
+  const id = Number(formData.get("id"));
+  if (id) getDb().prepare(`UPDATE inbox_messages SET status='ignored' WHERE id=?`).run(id);
+  revalidatePath("/inbox");
+  redirect("/inbox");
+}

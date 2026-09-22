@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
-import { buildIntakePrompt, buildIntakeResearchPrompt, extractJsonWithRepair, TOOLS, type IntakeAnalysis } from "./ai";
-import { noteProgress, runWithProgress } from "./progress";
-import { IntakeAnalysisSchema, validateModelJson } from "./schemas";
+import type { IntakeAnalysis } from "./ai";
+import { insertIntakeDraft, processIntakeDraft } from "./drafts";
+import { IntakeAnalysisSchema } from "./schemas";
 import { slugify } from "./slug";
 import { DEFAULT_CADENCE } from "./db";
 import { parseDueDate } from "./dates.mjs";
@@ -16,52 +16,8 @@ export async function analyzeIntake(formData: FormData) {
   const research = !!formData.get("research");
   // Too little to analyze: say so on the page instead of silently reloading.
   if (raw.length < 40) redirect("/intake?short=1");
-  const db = getDb();
-  const draftId = Number(
-    db
-      .prepare(`INSERT INTO intake_drafts (raw_text, status) VALUES (?, 'analyzing')`)
-      .run(raw).lastInsertRowid
-  );
-  after(async () => {
-    try {
-      // Step 1 (optional, Claude + web): research digest. A failure here is
-      // not fatal — the analysis proceeds from the paste alone and says so.
-      let digest: string | null = null;
-      if (research) {
-        try {
-          digest = (await runWithProgress("intake", draftId, buildIntakeResearchPrompt(raw), {
-            allowedTools: TOOLS.web,
-            timeoutMs: 300_000,
-          })).trim() || null;
-        } catch (err) {
-          noteProgress(
-            "intake",
-            draftId,
-            "Web research skipped — continuing from the pasted text only",
-            err instanceof Error ? err.message : String(err)
-          );
-        }
-      }
-      // Step 2 (local model): the analysis itself.
-      const text = await runWithProgress("intake", draftId, buildIntakePrompt(raw, digest), { json: true });
-      const analysis: IntakeAnalysis = validateModelJson(IntakeAnalysisSchema, await extractJsonWithRepair(text), text);
-      if (research && !digest) {
-        analysis.confidence_flags = [
-          "Web research was unavailable for this run — nothing here was verified online.",
-          ...(analysis.confidence_flags ?? []),
-        ];
-      }
-      db.prepare(`UPDATE intake_drafts SET result_json=?, status='ready' WHERE id=?`).run(
-        JSON.stringify(analysis),
-        draftId
-      );
-    } catch (err) {
-      db.prepare(`UPDATE intake_drafts SET status='error', error=? WHERE id=?`).run(
-        err instanceof Error ? err.message : String(err),
-        draftId
-      );
-    }
-  });
+  const draftId = insertIntakeDraft(getDb(), raw);
+  after(() => processIntakeDraft(draftId, research));
   redirect(`/intake/${draftId}`);
 }
 

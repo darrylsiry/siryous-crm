@@ -154,6 +154,18 @@ The left-hand menu has everything. In rough order of how often you'll use it:
   anything is saved. A profile's own "Log interaction" form is the no-AI
   route (what you type is what is saved); its "Draft the entry with AI" link
   opens Log with that contact preset.
+- **📥 Inbox (AI, needs Claude)** — a CRM email address. Forward an email
+  there, or copy the address on one you send, and it becomes a Log draft for
+  the people already in your roster, an Intake draft for anyone who isn't, or
+  both — the same review screens as a paste, nothing saved until you confirm.
+  Gmail's plus-addressing means `you+crm@gmail.com` works with no setup, as
+  long as that is the mailbox your Claude Gmail connector is signed in to;
+  mail you get at other addresses can be forwarded to it. People are matched
+  by email address, then by full name; `#log` or `#intake` in the subject
+  decides for you; a note you type above a forwarded message is passed to
+  the AI as your instruction ("log this on Sam — next step is the proposal").
+  The page checks the mailbox on a schedule (one short Claude run each time)
+  or on demand, and lets you re-route anything it guessed wrong.
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want
@@ -247,6 +259,9 @@ This matters, so here it is plainly:
   - Intake with the **"research on the web"** box ticked: the text you pasted.
   - Log with the **Zoom / Gmail / Google Meet** source: your request, and the
     transcript or email thread Claude fetched on your behalf.
+  - Inbox: each mailbox check is a Claude run that searches Gmail for mail
+    delivered to your CRM address and returns those messages. The routing
+    and the drafting then happen on this Mac.
   - Prep's calendar/email check: the other person's name, company, role, the
     date you last spoke and your noted next step — never your profile notes or
     interaction log. Prep's web check: only their public name, role and

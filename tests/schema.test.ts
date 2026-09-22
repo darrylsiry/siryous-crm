@@ -23,6 +23,7 @@ const EXPECTED_TABLES = [
   "coach_sessions",
   "coach_messages",
   "coach_proposals",
+  "inbox_messages",
   "settings",
 ];
 

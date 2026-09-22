@@ -4,80 +4,21 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
-import { buildFetchPrompt, buildLogPrompt, extractJsonWithRepair, FETCH_NOT_FOUND, TOOLS, type LogAnalysis } from "./ai";
-import { applyLogHintFallback, COMPANY_TARGET, loadLogHint } from "./logHint";
-import { runWithProgress } from "./progress";
+import { COMPANY_TARGET } from "./logHint";
+import { insertLogDraft, processLogDraft } from "./drafts";
 import { parseDueDate } from "./dates.mjs";
-import { LogAnalysisSchema, validateModelJson } from "./schemas";
 
 export async function analyzeLog(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
   const source = String(formData.get("source") ?? "paste");
   if (raw.length < 10) return;
-  const db = getDb();
-  const hintPersonId = Number(formData.get("hint_person_id")) || null;
-  const hintCompanyId = Number(formData.get("hint_company_id")) || null;
-  const hint = loadLogHint(db, hintPersonId, hintCompanyId);
-  const draftId = Number(
-    db
-      .prepare(`INSERT INTO log_drafts (source, raw_text, status, hint_person_id, hint_company_id) VALUES (?,?,'analyzing',?,?)`)
-      .run(source, raw, hint?.kind === "person" ? hintPersonId : null, hint?.kind === "company" ? hintCompanyId : null).lastInsertRowid
-  );
-  const allowedTools =
-    source === "zoom"
-      ? TOOLS.zoomRead
-      : source === "meet"
-        ? TOOLS.driveRead
-        : source === "gmail"
-          ? TOOLS.gmailRead
-          : "";
-  after(async () => {
-    try {
-      // Step 1 (Claude + connector tools, only for Zoom/Meet/Gmail): fetch the content.
-      let content = raw;
-      if (allowedTools) {
-        const fetched = (await runWithProgress("log", draftId, buildFetchPrompt(raw, source), {
-          allowedTools,
-          timeoutMs: 420_000,
-        })).trim();
-        const nf = fetched.slice(0, 400).indexOf(FETCH_NOT_FOUND);
-        if (!fetched || nf !== -1) {
-          throw new Error(
-            `Couldn't retrieve the ${source} content: ${fetched.slice(nf + FETCH_NOT_FOUND.length).replace(/\*+/g, "").trim() || "nothing came back"}. ` +
-              "You can paste the transcript/thread directly instead."
-          );
-        }
-        content = fetched;
-        // Keep what was retrieved so the review page can show entries next to their source.
-        db.prepare(`UPDATE log_drafts SET fetched_text=? WHERE id=?`).run(fetched, draftId);
-      }
-      // Step 2 (local model): write the log entries.
-      const text = await runWithProgress("log", draftId, buildLogPrompt(content, source, allowedTools ? raw : null, hint), {
-        json: true,
-        timeoutMs: 420_000,
-      });
-      const analysis: LogAnalysis = applyLogHintFallback(
-        validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text),
-        hint,
-        content
-      );
-      if (!analysis?.entries?.length) {
-        throw new Error(
-          "No roster contacts were found to log against. " +
-            (analysis?.summary_md ? `Its summary: ${analysis.summary_md.slice(0, 300)}` : "")
-        );
-      }
-      db.prepare(`UPDATE log_drafts SET result_json=?, status='ready' WHERE id=?`).run(
-        JSON.stringify(analysis),
-        draftId
-      );
-    } catch (err) {
-      db.prepare(`UPDATE log_drafts SET status='error', error=? WHERE id=?`).run(
-        err instanceof Error ? err.message : String(err),
-        draftId
-      );
-    }
+  const draftId = insertLogDraft(getDb(), {
+    raw,
+    source,
+    hintPersonId: Number(formData.get("hint_person_id")) || null,
+    hintCompanyId: Number(formData.get("hint_company_id")) || null,
   });
+  after(() => processLogDraft(draftId));
   redirect(`/log/${draftId}`);
 }
 

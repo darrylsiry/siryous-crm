@@ -9,6 +9,7 @@ const nav = [
   { href: "/coach", label: "Coach", icon: "◎" },
   { href: "/intake", label: "Intake", icon: "✨" },
   { href: "/log", label: "Log", icon: "✎" },
+  { href: "/inbox", label: "Inbox", icon: "📥" },
   { href: "/prep", label: "Prep", icon: "🗓" },
   { href: "/actions", label: "Actions", icon: "☑" },
   { href: "/pipeline", label: "Pipeline", icon: "⚑" },

@@ -3,6 +3,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { getDb } = await import("./lib/db");
     const { startBackupLoop } = await import("./lib/backup.mjs");
+    const { startInboxLoop } = await import("./lib/inbox");
     const { authEnabled, signInUrl, tokenPath, wasJustCreated } = await import("./lib/auth.mjs");
     const db = getDb();
 
@@ -46,6 +47,8 @@ export async function register() {
     }
 
     startBackupLoop(db);
+    // Mail-in: checks the CRM address on a schedule when it is turned on (/inbox).
+    startInboxLoop();
   }
 }
 
