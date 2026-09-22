@@ -8,7 +8,7 @@ export default function MobileNav({
   nav,
   appName = "CRM",
 }: {
-  nav: { href: string; label: string; icon: string }[];
+  nav: { title: string | null; items: { href: string; label: string; icon: string }[] }[];
   appName?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -54,25 +54,31 @@ export default function MobileNav({
               className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm focus:border-indigo-400 focus:bg-white focus:outline-none"
             />
           </form>
-          <nav className="mt-3 grid grid-cols-2 gap-1">
-            {nav.map((n) => {
-              const active =
-                n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
-                    active
-                      ? "bg-stone-100 text-stone-900"
-                      : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
-                  }`}
-                >
-                  <span className="w-4 text-center text-stone-400">{n.icon}</span>
-                  {n.label}
-                </Link>
-              );
-            })}
+          <nav className="mt-3 space-y-3">
+            {nav.map((g, i) => (
+              <div key={g.title ?? i}>
+                {g.title ? (
+                  <div className="mb-1 px-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400">{g.title}</div>
+                ) : null}
+                <div className="grid grid-cols-2 gap-1">
+                  {g.items.map((n) => {
+                    const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+                    return (
+                      <Link
+                        key={n.href}
+                        href={n.href}
+                        className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
+                          active ? "bg-stone-100 text-stone-900" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+                        }`}
+                      >
+                        <span className="w-4 text-center text-stone-400">{n.icon}</span>
+                        {n.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
           <div className="mt-3 border-t border-stone-100 pt-3 text-[0.68rem] leading-relaxed text-stone-400">
             Status: 🌱 New · 🔍 Exploring · 🔥 Active · ⏸️ Hold · 🤝 Client · ✅ Won

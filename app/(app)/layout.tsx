@@ -4,22 +4,45 @@ import { loadOwner } from "@/lib/owner.mjs";
 
 const owner = loadOwner();
 
-const nav = [
-  { href: "/", label: "Dashboard", icon: "◧" },
-  { href: "/coach", label: "Coach", icon: "◎" },
-  { href: "/intake", label: "Intake", icon: "✨" },
-  { href: "/log", label: "Log", icon: "✎" },
-  { href: "/inbox", label: "Inbox", icon: "📥" },
-  { href: "/prep", label: "Prep", icon: "🗓" },
-  { href: "/actions", label: "Actions", icon: "☑" },
-  { href: "/pipeline", label: "Pipeline", icon: "⚑" },
-  { href: "/followups", label: "Keep Warm", icon: "♨" },
-  { href: "/people", label: "People", icon: "๛" },
-  { href: "/import", label: "Import", icon: "⇪" },
-  { href: "/companies", label: "Companies", icon: "▣" },
-  { href: "/map", label: "Map", icon: "❖" },
-  { href: "/outreach", label: "Outreach", icon: "✉" },
-  { href: "/settings", label: "Settings", icon: "⚙" },
+/**
+ * Sidebar groups. Dashboard stands alone at the top and Settings at the
+ * bottom; everything else sits under a small heading. MobileNav renders the
+ * same groups.
+ */
+type NavItem = { href: string; label: string; icon: string };
+type NavGroup = { title: string | null; items: NavItem[] };
+
+const nav: NavGroup[] = [
+  { title: null, items: [{ href: "/", label: "Dashboard", icon: "◧" }] },
+  {
+    title: "New Business",
+    items: [
+      { href: "/intake", label: "Intake", icon: "✨" },
+      { href: "/log", label: "Log", icon: "✎" },
+      { href: "/inbox", label: "Inbox", icon: "📥" },
+    ],
+  },
+  {
+    title: "Pipeline",
+    items: [
+      { href: "/actions", label: "Actions", icon: "☑" },
+      { href: "/pipeline", label: "Pipeline", icon: "⚑" },
+      { href: "/followups", label: "Keep Warm", icon: "♨" },
+      { href: "/outreach", label: "Outreach", icon: "✉" },
+      { href: "/prep", label: "Prep", icon: "🗓" },
+      { href: "/coach", label: "Coach", icon: "◎" },
+    ],
+  },
+  {
+    title: "Data",
+    items: [
+      { href: "/people", label: "People", icon: "๛" },
+      { href: "/companies", label: "Companies", icon: "▣" },
+      { href: "/map", label: "Map", icon: "❖" },
+      { href: "/import", label: "Import", icon: "⇪" },
+    ],
+  },
+  { title: null, items: [{ href: "/settings", label: "Settings", icon: "⚙" }] },
 ];
 
 /** "Siryous CRM" → "Siryous" + accented " CRM"; any other name is rendered as-is. */
@@ -60,16 +83,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs focus:border-indigo-400 focus:bg-white focus:outline-none"
             />
           </form>
-          <nav className="space-y-1">
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900"
-              >
-                <span className="text-stone-400 w-4 text-center">{n.icon}</span>
-                {n.label}
-              </Link>
+          <nav className="space-y-4">
+            {nav.map((g, i) => (
+              <div key={g.title ?? i}>
+                {g.title ? (
+                  <div className="mb-1 px-3 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400">{g.title}</div>
+                ) : null}
+                <div className="space-y-0.5">
+                  {g.items.map((n) => (
+                    <Link
+                      key={n.href}
+                      href={n.href}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+                    >
+                      <span className="text-stone-400 w-4 text-center">{n.icon}</span>
+                      {n.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
           <div className="mt-auto px-2 text-[0.68rem] leading-relaxed text-stone-400">

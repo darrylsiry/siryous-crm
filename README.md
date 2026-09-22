@@ -76,8 +76,6 @@ Terminal window opens and tells you what it is doing:
 - When it is ready it opens the CRM in your web browser, already signed in, at
   `http://127.0.0.1:3000`. You can close the Terminal window; the CRM keeps
   running until you double-click **Stop CRM.command** or restart the Mac.
-  After updating the CRM, double-click **Restart CRM.command** — it stops the
-  server, rebuilds, and starts it again in one go.
 
 **If macOS says the file "can't be opened because it is from an unidentified
 developer"** (or "Apple could not verify…"): right-click (or Control-click)
@@ -115,7 +113,10 @@ email from them and watch a profile appear for you to check and save.
 
 ## Using it
 
-The left-hand menu has everything. In rough order of how often you'll use it:
+The left-hand menu has everything, grouped into **New Business** (Intake,
+Log, Inbox), **Pipeline** (Actions, Pipeline, Keep Warm, Outreach, Prep,
+Coach) and **Data** (People, Companies, Map, Import), with the Dashboard at
+the top and Settings at the bottom. In rough order of how often you'll use it:
 
 - **Dashboard** — the home page: who is due a touch, what is overdue, deals
   that need attention, follow-ups with dates, things you are waiting on from
