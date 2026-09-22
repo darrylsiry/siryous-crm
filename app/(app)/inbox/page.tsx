@@ -16,6 +16,7 @@ const h2 = "text-base font-semibold text-stone-800";
 const label = "block text-sm font-medium text-stone-700";
 const input = "mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none";
 const smallBtn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50";
+const quietBtn = "underline decoration-dotted underline-offset-2 hover:text-indigo-700";
 
 /** Suggest "you+crm@…" from the owner's address when nothing is set yet. */
 function suggestedAddress(ownerEmail: string | null | undefined): string {
@@ -38,16 +39,41 @@ function draftStatus(kind: "log" | "intake", id: number): string {
   return "analyzing";
 }
 
-function StatusWord({ status }: { status: string }) {
-  const cls =
-    status === "error"
-      ? "text-red-600"
-      : status === "analyzing" || status.startsWith("queued")
-        ? "animate-pulse text-indigo-600"
-        : status === "ready"
-          ? "text-green-700"
-          : "text-stone-500";
-  return <span className={cls}>[{status}]</span>;
+/**
+ * The main action for a draft: a button-styled link to its review page.
+ * Green and "Review" once the model is done; muted with the queue position
+ * while it isn't; red "See error" when it failed (the page says what to do).
+ */
+function ReviewLink({ kind, id }: { kind: "log" | "intake"; id: number }) {
+  const status = draftStatus(kind, id);
+  const href = `/${kind}/${id}`;
+  const what = kind === "log" ? "Log" : "Intake";
+  if (status === "ready") {
+    return (
+      <Link href={href} className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700">
+        Review {what} draft →
+      </Link>
+    );
+  }
+  if (status === "error") {
+    return (
+      <Link href={href} className="rounded-md border border-red-300 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-100">
+        {what} draft failed — see why →
+      </Link>
+    );
+  }
+  if (status === "analyzing" || status.startsWith("queued")) {
+    return (
+      <Link href={href} className="rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+        <span className="animate-pulse">{what} draft: {status}…</span>
+      </Link>
+    );
+  }
+  return (
+    <Link href={href} className="rounded-md border border-stone-200 px-2.5 py-1 text-xs text-stone-500 hover:bg-stone-50">
+      {what} draft #{id} ({status})
+    </Link>
+  );
 }
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
@@ -137,21 +163,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     {r.status === "routed" ? (
                       <>
-                        {r.log_draft_id ? (
-                          <span>
-                            <Link href={`/log/${r.log_draft_id}`} className="font-medium text-indigo-700 hover:underline">
-                              Log draft #{r.log_draft_id}
-                            </Link>{" "}
-                            <StatusWord status={draftStatus("log", r.log_draft_id)} />
-                          </span>
-                        ) : null}
+                        {r.log_draft_id ? <ReviewLink kind="log" id={r.log_draft_id} /> : null}
                         {intakeIds.map((id) => (
-                          <span key={id}>
-                            <Link href={`/intake/${id}`} className="font-medium text-indigo-700 hover:underline">
-                              Intake draft #{id}
-                            </Link>{" "}
-                            <StatusWord status={draftStatus("intake", id)} />
-                          </span>
+                          <ReviewLink key={id} kind="intake" id={id} />
                         ))}
                         {r.note ? <span className="text-stone-500">{r.note}</span> : null}
                         {pending.length ? (
@@ -176,30 +190,35 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                     ) : (
                       <span className="text-stone-500">Waiting to be routed</span>
                     )}
-                    <span className="ml-auto flex items-center gap-1.5">
-                      <form action={rerouteInboxMessage}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="as" value="log" />
-                        <button className={smallBtn} title="Replace the drafts made for this email with a Log draft">
-                          → Log
-                        </button>
-                      </form>
-                      <form action={rerouteInboxMessage}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <input type="hidden" name="as" value="intake" />
-                        <button className={smallBtn} title="Replace the drafts made for this email with an Intake for the sender">
-                          → Intake
-                        </button>
-                      </form>
-                      {r.status !== "ignored" ? (
-                        <form action={ignoreInboxMessage}>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[0.7rem] text-stone-400">
+                    <span>{r.status === "routed" ? "Wrong guess? Redo this email" : "Route this email"}</span>
+                    <form action={rerouteInboxMessage} className="inline">
+                      <input type="hidden" name="id" value={r.id} />
+                      <input type="hidden" name="as" value="log" />
+                      <button className={quietBtn} title="Discard the drafts made for this email and draft it again as a Log entry (one more model run)">
+                        as Log
+                      </button>
+                    </form>
+                    <span>·</span>
+                    <form action={rerouteInboxMessage} className="inline">
+                      <input type="hidden" name="id" value={r.id} />
+                      <input type="hidden" name="as" value="intake" />
+                      <button className={quietBtn} title="Discard the drafts made for this email and draft it again as an Intake for the sender (one more model run)">
+                        as Intake
+                      </button>
+                    </form>
+                    {r.status !== "ignored" ? (
+                      <>
+                        <span>·</span>
+                        <form action={ignoreInboxMessage} className="inline">
                           <input type="hidden" name="id" value={r.id} />
-                          <button className={`${smallBtn} text-stone-400`} title="Leave this one out">
-                            ✕
+                          <button className={quietBtn} title="Leave this email out">
+                            ignore
                           </button>
                         </form>
-                      ) : null}
-                    </span>
+                      </>
+                    ) : null}
                   </div>
                 </li>
               );
@@ -276,8 +295,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         <p>
           To decide yourself, put <code>#log</code> or <code>#intake</code> in the subject. Anything you write above a
           forwarded message is passed to the AI as your note (&ldquo;log this on Sam, next step is the proposal&rdquo;).
-          A wrong guess can be re-sent with the → Log / → Intake buttons, which replace the drafts made so far for that
-          email.
+          When a draft is ready, <b>Review</b> opens the usual review screen — nothing is saved until you confirm
+          there. &ldquo;Wrong guess? Redo as Log / as Intake&rdquo; discards that email&apos;s drafts and runs the model
+          again the other way, so use it only when the routing was wrong.
         </p>
       </section>
 
