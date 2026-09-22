@@ -26,5 +26,5 @@
   inside `lib/vocab.mjs` (keep those class strings literal).
 - **Check before committing:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`,
   `npm test` and `node --check scripts/mcp-server.mjs`. The server binds to 127.0.0.1 only.
-- **Deploy locally:** `./Stop CRM.command && ./Start CRM.command` (rebuilds when source
+- **Deploy locally:** `./Restart\ CRM.command` (= Stop + Start; rebuilds when source
   changed) or `npm run build && npm start`.

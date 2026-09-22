@@ -76,6 +76,8 @@ Terminal window opens and tells you what it is doing:
 - When it is ready it opens the CRM in your web browser, already signed in, at
   `http://127.0.0.1:3000`. You can close the Terminal window; the CRM keeps
   running until you double-click **Stop CRM.command** or restart the Mac.
+  After updating the CRM, double-click **Restart CRM.command** — it stops the
+  server, rebuilds, and starts it again in one go.
 
 **If macOS says the file "can't be opened because it is from an unidentified
 developer"** (or "Apple could not verify…"): right-click (or Control-click)
