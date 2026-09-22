@@ -155,7 +155,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
               return (
                 <li key={r.id} className="py-3 text-sm">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="font-medium text-stone-800">{cleanSubject(r.subject ?? "") || "(no subject)"}</span>
+                    <Link href={`/inbox/${r.id}`} className="font-medium text-stone-800 hover:text-indigo-700 hover:underline" title="Open the original email">
+                      {cleanSubject(r.subject ?? "") || "(no subject)"}
+                    </Link>
                     <span className="text-xs text-stone-400">
                       {r.date ?? r.created_at.slice(0, 10)} · {r.sender}
                     </span>

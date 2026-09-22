@@ -31,6 +31,11 @@ export async function checkInboxNow() {
   redirect(`/inbox?${r.error ? "error" : "saved"}=${encodeURIComponent(msg)}`);
 }
 
+/** The queue, or the message's own page when the form said so (back="message"). */
+function backTo(formData: FormData, id: number): string {
+  return formData.get("back") === "message" && id ? `/inbox/${id}` : "/inbox";
+}
+
 /** Re-route one message by hand (a wrong guess, or an error after a retry). */
 export async function rerouteInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
@@ -39,12 +44,12 @@ export async function rerouteInboxMessage(formData: FormData) {
   if (id && who) routeMessage(getDb(), id, null, who);
   else if (id && (as === "log" || as === "intake")) routeMessage(getDb(), id, as);
   revalidatePath("/inbox");
-  redirect("/inbox");
+  redirect(backTo(formData, id));
 }
 
 export async function ignoreInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
   if (id) getDb().prepare(`UPDATE inbox_messages SET status='ignored' WHERE id=?`).run(id);
   revalidatePath("/inbox");
-  redirect("/inbox");
+  redirect(backTo(formData, id));
 }
