@@ -66,6 +66,19 @@ export function getAiSettings(): AiSettings {
 }
 
 /**
+ * How long Ollama keeps the model in memory after a request (its keep_alive).
+ * Ollama's own default is 5 minutes; a 27B model plus its context holds ~20 GB
+ * of unified memory that macOS cannot swap out, so release it sooner. One
+ * minute keeps it warm across the steps of a single intake. Override with the
+ * `ai.keep_alive` setting or LOCAL_LLM_KEEP_ALIVE ("0" unloads immediately,
+ * "-1" keeps it loaded indefinitely, or a duration like "30s" / "10m").
+ */
+export function getLocalKeepAlive(): string {
+  const raw = (getSetting("ai.keep_alive") ?? process.env.LOCAL_LLM_KEEP_ALIVE ?? "").trim();
+  return /^(-1|0|\d+(\.\d+)?(ms|s|m|h))$/.test(raw) ? raw : "1m";
+}
+
+/**
  * Accept only http(s) URLs, and only private/loopback hosts unless
  * LOCAL_LLM_ALLOW_REMOTE=1 — the prompt sent to this URL contains the whole
  * roster and dossiers, so it must never be pointable at the open internet

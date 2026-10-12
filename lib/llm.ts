@@ -16,7 +16,7 @@
  *   AI_FALLBACK        claude | none            default claude
  */
 import type { ProgressEvent } from "./ai";
-import { getAiSettings, type Provider } from "./settings";
+import { getAiSettings, getLocalKeepAlive, type Provider } from "./settings";
 
 export type { Provider };
 
@@ -232,6 +232,8 @@ async function runLocalStreamNow(
       body: JSON.stringify({
         model: LOCAL.model,
         stream: true,
+        // Free the model's memory soon after the last request (see getLocalKeepAlive).
+        keep_alive: getLocalKeepAlive(),
         // JSON extraction steps: no thinking (it competes with the answer for
         // the context window and confuses JSON mode on some models).
         ...(json ? { format: "json", think: false } : {}),
