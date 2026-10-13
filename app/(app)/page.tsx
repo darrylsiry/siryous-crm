@@ -266,7 +266,7 @@ export default function Dashboard() {
       <header>
         <h1 className="text-2xl font-bold tracking-tight">
           {greeting}
-          {owner.first ? `, ${owner.first}` : ""}
+          {owner.configured ? `, ${owner.first}` : ""}
         </h1>
         <figure className="mt-2 max-w-2xl border-l-2 border-indigo-200 pl-3">
           <blockquote className="font-serif text-[0.95rem] italic leading-snug text-stone-600">&ldquo;{quote.text}&rdquo;</blockquote>

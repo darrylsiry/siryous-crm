@@ -54,7 +54,7 @@ rem 3. Build the production bundle on first run, or when the source changed sinc
 set "NEED_BUILD=no"
 if not exist ".next\BUILD_ID" set "NEED_BUILD=yes"
 if "%NEED_BUILD%"=="no" (
-  for /f %%i in ('powershell -NoProfile -Command "$b=(Get-Item '.next\BUILD_ID').LastWriteTime; $n=(Get-ChildItem -Path app,lib,components,package.json,next.config.ts,tsconfig.json -Recurse -File -ErrorAction SilentlyContinue | Measure-Object LastWriteTime -Maximum).Maximum; if ($n -gt $b) { 'yes' } else { 'no' }"') do set "NEED_BUILD=%%i"
+  for /f %%i in ('powershell -NoProfile -Command "$b=(Get-Item '.next\BUILD_ID').LastWriteTime; $n=(Get-ChildItem -Path app,lib,components,package.json,package-lock.json,next.config.ts,tsconfig.json,proxy.ts,instrumentation.ts,postcss.config.mjs -Recurse -File -ErrorAction SilentlyContinue | Measure-Object LastWriteTime -Maximum).Maximum; if ($n -gt $b) { 'yes' } else { 'no' }"') do set "NEED_BUILD=%%i"
 )
 if "%NEED_BUILD%"=="yes" (
   echo Preparing the app ^(a few minutes -- only on first run or after an update^)...

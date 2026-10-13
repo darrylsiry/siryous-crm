@@ -11,5 +11,7 @@
   "_coachPersona": "Who the coach is. How hard it pushes (Friendly / Pushy / Hardcore) is chosen in the app under Settings → Coach, and overrides any style wording here.",
   "coachContextDir": "~/Documents/coach-context",
   "_coachContextDir": "Optional folder of your own notes for the coach. Settings → Coach can switch it off or point at a different folder without editing this file.",
+  "mcpServerName": "siryous-crm",
+  "_mcpServerName": "The name the MCP server reports to Claude Desktop. Keep the default unless you run two copies.",
   "coachContextGuidance": "These are Jane's own notes on strengths, pitfalls and what this phase of her career is for. Treat them as ground truth about how she works and hold her to her own definition of success."
 }

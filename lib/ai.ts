@@ -82,6 +82,56 @@ export const TOOLS = {
 };
 
 /**
+ * Connector tools that can change something outside the CRM (send, create,
+ * edit, share, delete). No CRM step ever needs them; they are blocked on every
+ * run so that even a tool the owner pre-approved elsewhere can't be used here.
+ */
+const CONNECTOR_WRITE_TOOLS: Record<string, string[]> = {
+  mcp__claude_ai_Gmail: [
+    "send_message", "reply", "forward", "create_draft", "update_draft", "delete_draft",
+    "trash_message", "trash_thread", "untrash_message", "untrash_thread",
+    "label_message", "label_thread", "unlabel_message", "unlabel_thread", "update_message_labels",
+    "create_label", "update_label", "delete_label",
+    "mark_message_spam", "mark_thread_spam", "unmark_message_spam", "unmark_thread_spam",
+    "apply_sensitive_message_label", "apply_sensitive_thread_label",
+  ],
+  mcp__claude_ai_Google_Calendar: ["create_event", "update_event", "delete_event", "respond_to_event"],
+  mcp__claude_ai_Google_Drive: ["create_file", "update_file", "copy_file", "share_file", "trash_file"],
+  mcp__claude_ai_Zoom_for_Claude: [
+    "meeting_create", "meeting_update", "meeting_delete", "in_meeting_control",
+    "create_new_file_with_markdown", "hub_create_file_from_content",
+    "canvas_add_file_collaborators", "canvas_modify_file_collaborator_role", "canvas_remove_file_collaborator",
+  ],
+};
+
+/**
+ * The CLI arguments for one headless run. The grant is enforced by the CLI
+ * itself, independent of the owner's own Claude Code configuration:
+ * - `--setting-sources project` loads no user-level settings (the run's working
+ *   directory is an empty temp folder, so there are no project settings
+ *   either) — a tool the owner allowed for their own sessions doesn't carry over;
+ * - `--permission-mode dontAsk` refuses anything not in `--allowedTools`
+ *   instead of waiting for an approval nobody can give;
+ * - `--disallowedTools` additionally blocks local shell/file tools, subagents,
+ *   every connector write tool, the web unless it is granted, and every
+ *   connector server this run wasn't granted.
+ */
+export function claudeArgs(model: string, allowedTools: string): string[] {
+  const granted = allowedTools.split(",").map((t) => t.trim()).filter(Boolean);
+  const deny = DISALLOWED_TOOLS.split(",");
+  if (!granted.some((t) => t === "WebSearch" || t === "WebFetch")) deny.push("WebSearch", "WebFetch");
+  for (const [server, tools] of Object.entries(CONNECTOR_WRITE_TOOLS)) {
+    if (granted.some((t) => t.startsWith(`${server}__`))) deny.push(...tools.map((t) => `${server}__${t}`));
+    else deny.push(server);
+  }
+  const args = ["-p", "--output-format", "stream-json", "--verbose", "--model", model];
+  args.push("--setting-sources", "project", "--permission-mode", "dontAsk");
+  args.push("--disallowedTools", deny.join(","));
+  if (granted.length) args.push("--allowedTools", granted.join(","));
+  return args;
+}
+
+/**
  * Turn the CLI's raw failure text into something actionable. The one that
  * recurs in practice is an expired Claude login: the headless CLI can't open
  * a browser to re-authenticate, so the person has to do it once in Terminal.
@@ -172,9 +222,7 @@ export function runClaudeStream(
     const env = { ...process.env };
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
-    const args = ["-p", "--output-format", "stream-json", "--verbose", "--model", model];
-    args.push("--disallowedTools", DISALLOWED_TOOLS);
-    if (allowedTools) args.push("--allowedTools", allowedTools);
+    const args = claudeArgs(model, allowedTools);
 
     const bin = claudeBin();
     if (!bin) {
@@ -584,7 +632,7 @@ export function buildFetchPrompt(request: string, source: string): string {
 
   return `TODAY: ${today}
 
-You are a retrieval assistant. ${O.First} describes below which ${source === "gmail" ? "Gmail thread(s)" : source === "meet" ? "Google Meet meeting" : "Zoom meeting"} he wants logged in his CRM. Find it and return its content — a separate step will write the CRM entries, so your job is faithful retrieval, not summarizing.
+You are a retrieval assistant. ${O.First} describes below which ${source === "gmail" ? "Gmail thread(s)" : source === "meet" ? "Google Meet meeting" : "Zoom meeting"} to log in ${O.possessive} CRM. Find it and return its content — a separate step will write the CRM entries, so your job is faithful retrieval, not summarizing.
 
 ${how}
 
@@ -891,7 +939,7 @@ export function buildPrepPrompt(personId: number, focus: string, research: PrepR
 ${research.whats_changed_md || "- nothing found"}${research.confidence_flags?.filter(Boolean).length ? `\nResearch caveats: ${research.confidence_flags.filter(Boolean).join("; ")}` : ""}`
     : `WHAT'S NEW SINCE THE CRM LOG: not checked — ${researchNote ?? "external research was unavailable for this run"}. Say so plainly in the "What's changed" section and work from the dossier alone.`;
 
-  return `You are preparing ${O.ownerName} (${O.practiceIntro}) for an upcoming meeting. Produce a sharp, opinionated prep brief he can skim in 3 minutes.
+  return `You are preparing ${O.ownerName} (${O.practiceIntro}) for an upcoming meeting. Produce a sharp, opinionated prep brief ${O.first} can skim in 3 minutes.
 
 TODAY: ${today}
 ${focus ? `${O.First.toUpperCase()}'S FOCUS FOR THIS MEETING: ${focus}\n` : ""}

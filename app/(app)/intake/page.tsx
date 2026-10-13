@@ -60,7 +60,7 @@ export default async function IntakePage({ searchParams }: { searchParams: Promi
             Look them up on the web first (sends what you pasted to Claude)
           </label>
         ) : (
-          <p className="text-xs text-stone-400">Web look-up needs the Claude app — see &ldquo;If you use Claude&rdquo; in the README. Without it, the analysis works from the pasted text only.</p>
+          <p className="text-xs text-stone-400">Web look-up needs Claude Code — see &ldquo;If you use Claude&rdquo; in the README. Without it, the analysis works from the pasted text only.</p>
         )}
         <AnalyzeButton disabled={!ai.aiUsable} />
       </form>

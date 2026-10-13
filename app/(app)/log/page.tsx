@@ -117,7 +117,7 @@ export default async function LogPage({
             </>
           ) : (
             <p className="text-xs text-stone-400">
-              Fetching from Zoom, Google Meet or Gmail needs the Claude app (see &ldquo;If you use Claude&rdquo; in the README). It isn&apos;t installed on this Mac, so paste the content instead.
+              Fetching from Zoom, Google Meet or Gmail needs Claude Code (see &ldquo;If you use Claude&rdquo; in the README). It isn&apos;t installed on this Mac, so paste the content instead.
             </p>
           )}
         </fieldset>

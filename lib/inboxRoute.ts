@@ -52,7 +52,7 @@ function normEmail(e: string): string {
   return e.trim().toLowerCase();
 }
 
-/** "you+crm@example.com" → "you@example.com" so any plus-tag of an owner address counts as the owner. */
+/** "jane+crm@example.com" → "jane@example.com" so any plus-tag of an owner address counts as the owner. */
 export function stripPlusTag(e: string): string {
   const m = normEmail(e).match(/^([^+@]+)(\+[^@]*)?@(.+)$/);
   return m ? `${m[1]}@${m[3]}` : normEmail(e);

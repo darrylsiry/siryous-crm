@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { getDb } from "../lib/db";
 import { cleanItems, chunk, headlineKey, sinceFor, urlKey, buildNewsPrompt, type NewsSubject } from "../lib/newsCore";
-import { dueSubjects, newsFeed, newsSubjects, storeNewsItems } from "../lib/news";
+import { dueSubjects, getNewsSettings, newsFeed, newsSubjects, storeNewsItems } from "../lib/news";
+import { setSetting } from "../lib/settings";
 
 const subj = (ref: string, checkedAt: string | null = null): NewsSubject => ({
   ref,
@@ -96,7 +97,7 @@ describe("news store", () => {
       storeNewsItems(db, [{ ...base, headline: "Acme Insurance Names Jane Doe Chief Executive", url: "https://b.example/9", about: ["c:acme"] }]),
       0
     );
-    assert.equal(storeNewsItems(db, [{ ...base, headline: "Acme opens Savannah office", url: "https://a.example/2", published: "2026-10-11", about: ["c:acme"] }]), 1);
+    assert.equal(storeNewsItems(db, [{ ...base, headline: "Acme opens Denver office", url: "https://a.example/2", published: "2026-10-11", about: ["c:acme"] }]), 1);
     const feed = newsFeed();
     assert.deepEqual(feed.map((f) => f.url), ["https://a.example/2", "https://a.example/1"]);
     assert.deepEqual(feed[1].about.map((a) => a.name).sort(), ["Acme Insurance", "Jane Doe"]);
@@ -106,7 +107,22 @@ describe("news store", () => {
     db.prepare(`UPDATE news_items SET dismissed_at=datetime('now') WHERE url='https://a.example/2'`).run();
     assert.equal(newsFeed().length, 1);
     assert.equal(newsFeed({ dismissed: true }).length, 1);
-    assert.equal(storeNewsItems(db, [{ headline: "Acme opens Savannah office", url: "https://a.example/2", source: null, summary: "", published: "2026-10-11", about: ["c:acme"] }]), 0);
+    assert.equal(storeNewsItems(db, [{ headline: "Acme opens Denver office", url: "https://a.example/2", source: null, summary: "", published: "2026-10-11", about: ["c:acme"] }]), 0);
     assert.equal(newsFeed().length, 1);
+  });
+});
+
+describe("news opt-in", () => {
+  test("off on a fresh install, on for installs that already ran it, explicit choice wins", () => {
+    setSetting("news.enabled", null);
+    setSetting("news.last_run_at", null);
+    assert.equal(getNewsSettings().enabled, false);
+    setSetting("news.last_run_at", "2026-10-12T10:00:00.000Z");
+    assert.equal(getNewsSettings().enabled, true);
+    setSetting("news.enabled", "off");
+    assert.equal(getNewsSettings().enabled, false);
+    setSetting("news.last_run_at", null);
+    setSetting("news.enabled", "on");
+    assert.equal(getNewsSettings().enabled, true);
   });
 });

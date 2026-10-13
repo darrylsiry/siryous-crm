@@ -8,7 +8,7 @@ must be read, what to run before committing).
 
 ## Requirements
 
-- **Node 20–26** (`.nvmrc` says 22; `engines` in `package.json` enforces the
+- **Node 22–26** (`.nvmrc` says 22; `engines` in `package.json` enforces the
   range). `better-sqlite3` ships prebuilt binaries for common platforms
   (macOS arm64/x64, Linux x64, Windows x64 on current Node); anywhere else it
   compiles from source and needs a C++ toolchain — Xcode Command Line Tools on
@@ -57,7 +57,7 @@ non-technical users, so keep it boring and idempotent. In order it:
 1. exits early (just opening the browser) if something already answers on
    `http://127.0.0.1:3000/`;
 2. checks `node` and `npm` are on PATH (it prepends `/usr/local/bin`,
-   `/opt/homebrew/bin` and `~/.local/bin`) and that Node is ≥ 20, with a
+   `/opt/homebrew/bin` and `~/.local/bin`) and that Node is ≥ 22, with a
    nodejs.org pointer if not;
 3. runs `npm install --no-audit --no-fund` when `node_modules` is missing or
    `package-lock.json` is newer than `node_modules/.package-lock.json`;
@@ -84,6 +84,12 @@ Copy `.env.example` to `.env.local` (gitignored) to change defaults. Everything
 is optional, and the AI and backup settings are normally changed on the
 Settings page, which stores them in the database and overrides the environment.
 
+`.env.local` is read only by the Next.js app. The scripts — the MCP server,
+`import-csv`, `export`, `merge-people` — don't load it, so if you move the
+database with `CRM_DB_PATH`, give them the same value (for the MCP server, an
+`"env": { "CRM_DB_PATH": "…" }` entry in Claude Desktop's config), or they will
+create and use a separate, empty `data/crm.db`.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `CRM_AUTH` | `on` | `off` disables the access token (see below). |
@@ -97,7 +103,11 @@ Settings page, which stores them in the database and overrides the environment.
 | `AI_PROVIDER` | `local` | `local` or `claude` for the tool-less write steps. |
 | `AI_FALLBACK` | `claude` | `claude` or `none`: what to do when Ollama is unavailable. |
 | `CLAUDE_BIN` | unset | Path to the Claude Code CLI if it isn't on PATH, in `~/.local/bin` or `/opt/homebrew/bin`. |
-| `PORT` | `3000` | Only affects the sign-in link printed at startup; the launchers assume 3000. |
+| `LOCAL_LLM_KEEP_ALIVE` | `1m` | How long Ollama keeps the model loaded after a request (`0` unloads at once); the `ai.keep_alive` setting wins. |
+| `OWNER_CONFIG` | `config/owner.json` | Alternative path to the owner profile. |
+| `VOCAB_CONFIG` | `config/vocab.json` | Alternative path to the vocabulary overrides. |
+| `CRM_NO_OPEN` | unset | `1` stops the server opening the sign-in link in a browser on first run (the launchers set it because they open it themselves). |
+| `PORT` | `3000` | Leave unset. `next start`/`next dev` listen on it, but the launchers, the sign-in cookie and the docs all assume 3000. |
 | `NEXT_TELEMETRY_DISABLED` | unset | The launchers and CI set it to `1`. |
 
 ## Access token
@@ -144,14 +154,31 @@ tool grant and streams a live activity feed to the UI.
 | Log     | paste: none · Zoom / Gmail / Meet-via-Drive: retrieve the transcript or thread | write the interaction-log entries |
 | Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
+| Inbox   | Gmail search/read: messages delivered to the CRM address since the last check (on a schedule, or "Check now") | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
+| News Feed | web search/fetch only, ~10 contacts per run, daily once turned on (opt-in; `news.enabled`) | none — Claude returns the stories as JSON; `lib/newsCore.ts` validates and de-duplicates them |
 
 If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
 continue from local data and say so in the result; Log needs the content, so it
 asks you to paste it instead. JSON repair also runs locally first.
 
+Every Claude run is started by `claudeArgs()` in `lib/ai.ts`, which makes the
+grant independent of the owner's own Claude Code configuration:
+`--setting-sources project` (the run's working directory is an empty temp
+folder, so no user, project or local settings load — a tool the owner
+pre-approved for their own sessions, or a `bypassPermissions` default mode,
+doesn't carry over), `--permission-mode dontAsk` (anything outside
+`--allowedTools` is refused rather than waiting for an approval), and a
+per-run `--disallowedTools` list: local shell/file tools, subagents, every
+connector tool that sends, creates, edits, shares or deletes
+(`CONNECTOR_WRITE_TOOLS`), the web unless granted, and every connector server
+the run wasn't granted. `tests/claudeArgs.test.ts` pins this down. One side
+effect: user-level Claude Code settings such as an `apiKeyHelper` or `env`
+block don't apply to the CRM's runs.
+
 Claude steps run with an explicit, **read-only** tool grant (`TOOLS` in
 `lib/ai.ts`: `web`, `gmailRead`, `calendarRead`, `zoomRead`, `driveRead` —
-one kind per run) and are blocked from spawning subagents and from any local
+one kind per run, except Prep's private step, which gets Calendar and Gmail
+together and no web) and are blocked from spawning subagents and from any local
 shell/file tools (`DISALLOWED_TOOLS`). Subagents are excluded because the
 claude.ai connector tools don't exist inside them, so delegated research
 silently comes back empty; shell/file tools because a CRM analysis has no
@@ -169,13 +196,21 @@ on (expired login, CLI missing).
   prompts and the results never leave the box.
 - **To Anthropic (via your Claude login):** the pasted text when Intake's
   "research on the web" box is ticked; your request plus the retrieved
-  transcript/thread for Log's Zoom/Meet/Gmail sources; the counterparty's name,
-  company, role, last-touch date and next action for Prep's Calendar/Gmail
-  step, and their public name/role/company for its web step (never the dossier
-  or interaction log); and — only if Ollama is unavailable and the Claude
-  fallback is enabled in Settings — the entire prompt of a write step, which
-  includes the contact roster. Turn the fallback off in Settings if that isn't
-  acceptable.
+  transcript/thread for Log's Zoom/Meet/Gmail sources; for the Inbox, the CRM
+  address and the messages Claude finds there; the counterparty's name,
+  company, role, last-touch date, next action and your typed focus for Prep's
+  Calendar/Gmail step — plus, in auto mode (no person chosen), the roster's
+  slugs, names, roles, companies, statuses and tags so it can match calendar
+  events — and their public name/role/company for its web step (never the
+  dossier or interaction log); for the News Feed, once turned on, each
+  person's name, role, employer and location and each company's name,
+  industry, HQ, website and up to three roster contacts there; the owner's
+  name and practice description from `config/owner.json` in the prompts that
+  describe the owner; and the entire prompt of a write step when Claude is the
+  chosen provider (Settings → Where the AI runs, or the coach's own AI — which
+  then includes the coach notes folder) or when Ollama is unavailable and the
+  Claude fallback is enabled — that prompt includes the contact roster. Turn
+  the fallback off in Settings if that isn't acceptable.
 - **To wherever backups point:** a daily copy of the whole database goes to the
   backup folder (default `data/backups`; a synced cloud folder only if you set
   one).
@@ -189,9 +224,12 @@ the Ollama URL (point it at another machine to run models there), the provider
 (local vs. Claude for everything), whether to fall back to Claude, and the
 backup folder, plus the coach's tone and notes folder. Values are stored in
 the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
-`ai.num_ctx`, `ai.temperature`, `ai.provider`, `ai.fallback`, `backup.dir`,
-`coach.tone`, `coach.use_profile`, `coach.context_dir`, `coach.provider`,
-`coach.model`) and apply to the next run; the defaults come from the
+`ai.num_ctx`, `ai.temperature`, `ai.provider`, `ai.fallback`, `ai.keep_alive`,
+`backup.dir`, `coach.tone`, `coach.use_profile`, `coach.context_dir`,
+`coach.provider`, `coach.model`; the Inbox and News Feed pages store
+`inbox.address`, `inbox.enabled`, `inbox.poll_minutes`,
+`inbox.extra_owner_emails`, `news.enabled`, and their `*.last_poll_at` /
+`*.last_run_at` / `*.last_error` status keys) and apply to the next run; the defaults come from the
 environment. `coach.provider`/`coach.model` let the coach run on a different
 model (or on Claude) than the rest of the app: `getCoachSettings().route` is
 spread into the coach's `runModel`/`runWithProgress` calls, which accept
@@ -257,15 +295,24 @@ the MCP server. Everything reads and writes the one database:
   (`scripts/mcp-server.mjs`, also `npm run mcp`) — 16 tools for conversational
   CRM work: search, full profiles, agenda ("what's overdue?"), pipeline, logging
   interactions, building/updating profiles with arbitrary markdown, action
-  items, and deals. There are deliberately no delete tools. Register it in
-  Claude Desktop's config with the absolute path to this folder:
+  items, and deals. There are deliberately no delete tools. Run Start CRM
+  once first so `node_modules` exists (the web app doesn't need to be running
+  for the MCP server to work). Register it in Claude Desktop's config with
+  absolute paths — Claude Desktop doesn't see your shell's PATH, so use the
+  output of `which node` (e.g. `/usr/local/bin/node` or
+  `/opt/homebrew/bin/node`) rather than plain `node`, and the same Node that
+  installed `node_modules`, or `better-sqlite3` fails to load:
 
   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
   ```json
-  { "mcpServers": { "siryous-crm": { "command": "node", "args": ["/absolute/path/to/siryous-crm/scripts/mcp-server.mjs"] } } }
+  { "mcpServers": { "siryous-crm": { "command": "/usr/local/bin/node", "args": ["/absolute/path/to/siryous-crm/scripts/mcp-server.mjs"] } } }
   ```
+
+  On Windows, write the paths with doubled backslashes
+  (`"C:\\Users\\you\\siryous-crm\\scripts\\mcp-server.mjs"`). Restart Claude
+  Desktop after editing the file.
 
   The server creates the database and schema itself if the web app hasn't run
   yet, and honours `CRM_DB_PATH`;
@@ -285,8 +332,10 @@ may be running.
   disables). Snapshots use SQLite's online-backup API, are named
   `crm-YYYY-MM-DD.db`, and the newest 30 are kept. A backup happens on any day
   the data can change — because only those two processes change it.
-  `scripts/backup.sh` does the same manually (uses `sqlite3` if present,
-  otherwise `better-sqlite3`).
+  `scripts/backup.sh` takes a manual snapshot of `data/crm.db` into
+  `$CRM_BACKUP_DIR` or `data/backups` (macOS/Linux; uses `sqlite3` if present,
+  otherwise `better-sqlite3`). Unlike the automatic backup it ignores the
+  Settings backup folder and `CRM_DB_PATH`.
 - **Readable archive on demand:** `npm run export` regenerates a full markdown
   folder (profiles, index, pipeline) into `exports/` — gitignored, write-only,
   snapshot-in-time; the folder is wiped and rewritten each run.
@@ -326,9 +375,9 @@ may be running.
   / role / company / location / phone are filled from the file; filled fields
   and the narrative sections are never touched. Rows without a name, or with an
   unknown status or a non-numeric cadence, are reported and skipped while the
-  rest go in. `--dry-run` runs everything and rolls it back. The web page is
-  best for files under about 1 MB (a server-action body limit); use the CLI for
-  anything bigger. The importer only inserts/updates rows — it never wipes
+  rest go in. `--dry-run` runs everything and rolls it back. The web page takes
+  files up to 8 MB (`MAX_BYTES` in `lib/importActions.ts`; the server-action
+  body limit in `next.config.ts` is 10 MB); use the CLI for anything bigger. The importer only inserts/updates rows — it never wipes
   tables.
 - **One at a time.** The **Intake** page: paste a LinkedIn profile, an email
   thread, or your notes about someone, review what the model extracted, and
@@ -362,8 +411,9 @@ node --check scripts/mcp-server.mjs
 The suite lives in `tests/` and uses Node's built-in test runner. It covers
 date parsing (`lib/dates.mjs`), slugs, the model-output schemas, the Ollama URL
 guard and settings storage, the schema bootstrap and its date-normalisation
-migration, the effective-bucket / keep-warm queries, markdown sanitisation, and
-the access-token proxy. Every suite that touches disk points `CRM_DB_PATH` at a
+migration, the effective-bucket / keep-warm queries, markdown sanitisation,
+the access-token proxy, vocabulary loading, coach tones, the Log hint, Inbox
+routing, and the News Feed's parsing, de-duplication and storage. Every suite that touches disk points `CRM_DB_PATH` at a
 temp directory first (`tests/helpers/tempdb.ts`), so `data/crm.db` and
 `data/auth-token` are never opened; each test file runs in its own process and
 cleans up after itself. The GitHub Actions workflow in

@@ -5,7 +5,7 @@
   "description": "Local-first personal CRM with AI intake, meeting logging, prep briefs and coaching — runs on your own machine with a local model.",
   "license": "MIT",
   "engines": {
-    "node": ">=20 <27"
+    "node": ">=22 <27"
   },
   "scripts": {
     "dev": "next dev --turbopack -H 127.0.0.1",

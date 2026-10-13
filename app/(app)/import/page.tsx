@@ -21,8 +21,8 @@ export default function ImportPage() {
       <ImportForm />
 
       <p className="text-xs text-stone-400">
-        Nothing leaves your computer — the file is read on this Mac and saved straight into the CRM. Files over 1 MB: split
-        the spreadsheet in two and import each half (developers: <code>npm run import-csv</code>). For one person at a time, use{" "}
+        Nothing leaves your computer — the file is read on this Mac and saved straight into the CRM. Files up to 8 MB work
+        here; for anything bigger, split the spreadsheet or use <code>npm run import-csv</code>. For one person at a time, use{" "}
         <Link href="/intake" className="underline">Intake</Link> (which also writes the profile) or the{" "}
         <Link href="/people" className="underline">People</Link> page.
       </p>

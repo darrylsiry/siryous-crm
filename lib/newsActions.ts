@@ -27,7 +27,7 @@ export async function restoreNewsItem(formData: FormData) {
 }
 
 export async function setNewsEnabled(formData: FormData) {
-  setSetting("news.enabled", formData.get("enabled") === "on" ? null : "off");
+  setSetting("news.enabled", formData.get("enabled") === "on" ? "on" : "off");
   revalidatePath("/news");
   redirect("/news");
 }

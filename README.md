@@ -12,13 +12,15 @@ professionals. Free and open source (MIT licence).
 
 ## What you need
 
-- A **Mac with Apple silicon** (M1 or later) and **16 GB of memory**. 32 GB is
-  recommended if you want the default AI model; 16 GB works with a smaller one.
+- A **Mac with Apple silicon** (M1 or later). For the AI features, **16 GB of
+  memory** at least; 32 GB is recommended for the default AI model. Without AI
+  any recent Mac will do.
 - About **20 GB of free disk space** (most of it for the optional AI model).
 - **Half an hour** for the setup below. No technical knowledge needed — every
   step is spelled out.
-- It also runs on Windows and Linux (there is a `Start CRM.bat` for Windows) —
-  see [docs/DEVELOPING.md](docs/DEVELOPING.md).
+- It also runs on Windows and Linux (there is a `Start CRM.bat` for Windows,
+  less tested than the Mac launchers) — see
+  [docs/DEVELOPING.md](docs/DEVELOPING.md).
 
 Three things to know before you start:
 
@@ -28,9 +30,9 @@ Three things to know before you start:
    your Mac. With it you get Intake (paste anything, get a profile), Log (turn a
    meeting into notes), Prep (a briefing before a meeting) and Coach (a weekly
    review). Everything stays on your computer.
-3. **The email, calendar and web features additionally need Claude** — the
-   Claude app or command-line tool from Anthropic, signed in to a paid Claude
-   subscription. That is what lets Prep read your calendar and Gmail, Log fetch a
+3. **The email, calendar and web features additionally need Claude** —
+   Anthropic's Claude Code command-line tool (see "If you use Claude" below),
+   signed in to a paid Claude subscription. That is what lets Prep read your calendar and Gmail, Log fetch a
    Zoom transcript, Intake look someone up on the web, and the News Feed find
    news about your contacts. Optional, and the only part that sends anything off
    your computer.
@@ -60,9 +62,12 @@ Node is the engine the CRM runs on.
    **Download ZIP**.
 2. Double-click the ZIP in your Downloads folder to unzip it. You get a folder
    called something like `siryous-crm-main`.
-3. Move that folder somewhere it can live permanently — your **Documents**
-   folder is a good choice. (Your data will be stored inside this folder, so
-   don't leave it in Downloads.) You can rename it to `Siryous CRM` if you like.
+3. Move that folder somewhere it can live permanently — your **home folder**
+   (the one with the house icon and your name) is a good choice. Your data is
+   stored inside this folder, so don't leave it in Downloads, and avoid
+   **Documents** or **Desktop** if those sync to iCloud: syncing a live
+   database can damage it. You can rename the folder to `Siryous CRM` if you
+   like.
 
 If you know `git`, `git clone` works just as well.
 
@@ -76,13 +81,20 @@ Terminal window opens and tells you what it is doing:
   seconds.
 - When it is ready it opens the CRM in your web browser, already signed in, at
   `http://127.0.0.1:3000`. You can close the Terminal window; the CRM keeps
-  running until you double-click **Stop CRM.command** or restart the Mac.
+  running until you double-click **Stop CRM.command** or restart the Mac. It
+  doesn't start by itself after a restart — double-click **Start CRM.command**
+  again (it is quick after the first time). **Restart CRM.command** stops and
+  starts it in one go, which is what to use after changing a configuration
+  file.
 
-**If macOS says the file "can't be opened because it is from an unidentified
-developer"** (or "Apple could not verify…"): right-click (or Control-click)
-**Start CRM.command**, choose **Open**, and click **Open** again in the dialog.
-macOS asks this once for any program that didn't come from the App Store; after
-that a normal double-click works.
+**If macOS says "Apple could not verify 'Start CRM.command'…"** (or that it
+"can't be opened because it is from an unidentified developer"): click **Done**,
+open **System Settings** → **Privacy & Security**, scroll down to the message
+about **Start CRM.command**, click **Open Anyway** and confirm with your
+password. (On macOS 14 Sonoma or earlier you can instead right-click the file,
+choose **Open**, and click **Open** again.) macOS asks this once for any
+program that didn't come from the App Store; do the same for **Stop CRM.command**
+and **Restart CRM.command** the first time you use them.
 
 **If Terminal says the file "could not be executed because you do not have
 appropriate access privileges"**: unzipping sometimes loses the permission that
@@ -93,7 +105,7 @@ then double-click the file again.
 
 ### 5. Download an AI model (if you installed Ollama)
 
-Open **Settings** in the CRM's left-hand menu. The **Ollama status** box tells
+Open **Settings** in the CRM's left-hand menu. The **AI on this Mac** box tells
 you whether Ollama is running and whether the AI model has been downloaded.
 Today the download is one command in Terminal (a later version will offer it
 inside the app):
@@ -107,10 +119,18 @@ inside the app):
      (about 5 GB). Smaller and faster, slightly less polished writing.
 3. Wait for it to finish (a few minutes to an hour depending on your
    connection), then go back to Settings, choose the model you downloaded in the
-   **Model** list, and click **Save settings**.
+   **AI model** list, and click **Save settings**.
 
 That's it. Try **Intake**: paste the text of someone's LinkedIn profile or an
 email from them and watch a profile appear for you to check and save.
+
+### 6. Tell the AI who you are (optional, recommended)
+
+The AI writes for you — your name, your practice, what you sell. Copy
+`config/owner.example.json` to `config/owner.json` in the CRM folder, open it
+with TextEdit, fill in the fields (all optional), save, and double-click
+**Restart CRM.command**. Without it the AI calls you "the owner". The file stays
+on your Mac and is never part of an update.
 
 ## Using it
 
@@ -185,15 +205,21 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   on Sam — next step is the proposal"). The page checks the mailbox on a
   schedule (one short Claude run each time) or on demand, shows where each
   draft is in the model's queue, and lets you re-route anything it guessed
-  wrong (which replaces that email's drafts rather than adding more).
+  wrong (which replaces that email's drafts rather than adding more). To set it
+  up, open **Inbox**, enter the address under **Your CRM address**, tick
+  **Check automatically** and click **Save** — nothing is checked until you do.
 - **📰 News Feed (AI, needs Claude)** — once a day, Claude searches the web
   for news about every person and company in the CRM, about ten at a time,
   and keeps only stories clearly about them (for a big organisation, only
   stories that name one of your contacts there or touch the business you know
   them for). Each item has the headline linked to the source, a short summary
   and the contacts it concerns; the feed stays in date order until you dismiss
-  an item, and a dismissed story never comes back. "Check now" searches
-  everyone immediately; "Pause daily search" stops the daily run.
+  an item, and a dismissed story never comes back. It is **off until you turn
+  it on** with **Turn daily search on** on the News Feed page, because each
+  daily run sends your contacts' names, roles and employers to Anthropic (see
+  "What leaves your computer"); with a large contact list it is also many
+  Claude runs a day. "Check now" searches everyone once without turning on
+  the daily run; "Pause daily search" turns it off again.
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want
@@ -231,9 +257,10 @@ The fastest way to fill the CRM is your LinkedIn connections list.
    **Request archive**. LinkedIn emails you a download link within about ten
    minutes.
 3. Download and unzip it; inside is a file called **Connections.csv**.
-4. In the CRM, open **Import**, choose that file, and look at the preview: it
-   shows how each column was understood and the first ten people as they will
-   be saved. Click **Import** to bring them in.
+4. In the CRM, open **Import**, choose that file and click **Preview**: it
+   shows how each column was understood and the first people as they will be
+   saved — nothing is written yet. Click **Import** to bring them in. Files up
+   to 8 MB work here (a LinkedIn export is far smaller).
 
 Names, LinkedIn links, current role and company come across, and the
 "Connected On" date becomes the last-touch date. Anyone already in the CRM is
@@ -245,12 +272,14 @@ tags, notes and a few other columns are recognised automatically.
 ## If you use Claude (optional)
 
 Claude is Anthropic's AI assistant. If you have a paid Claude subscription
-(Pro or Max), the CRM can use it for the parts a local model can't do: read
+(any paid plan), the CRM can use it for the parts a local model can't do: read
 your Google Calendar and Gmail to prepare a briefing, fetch a Zoom or Google
 Meet transcript to log a meeting, look people up on the web during Intake, and
 search the web for news about your contacts.
 It also serves as a stand-in when Ollama isn't running. No API key or separate
-billing — it uses the same subscription as the Claude app.
+billing — it uses the same subscription as the Claude app. The CRM talks to the
+**Claude Code command-line tool** below; having only the Claude app installed
+isn't enough.
 
 ### Set it up once
 
@@ -269,10 +298,14 @@ billing — it uses the same subscription as the Claude app.
    weeks.
 3. **Turn on the connectors.** Go to <https://claude.ai>, open **Settings** →
    **Connectors**, and connect **Gmail**, **Google Calendar**, **Google Drive**
-   and **Zoom** (whichever you use). These are Anthropic's read-only
-   integrations; the CRM never sees your passwords.
+   and **Zoom** (whichever you use). The connectors themselves can do more than
+   read, but the CRM only ever lets Claude use their search and read tools, and
+   it never sees your passwords.
 
-The **Intake** page tells you if the Claude tool can't be found. If a Claude
+Once Claude is installed, Intake's **Look them up on the web first** box is
+ticked by default — untick it for anything you'd rather not send (see below).
+The News Feed stays off until you turn it on. The **Intake** page tells you if
+the Claude tool can't be found. If a Claude
 step fails mid-run, the CRM carries on with what it has locally and says so in
 the result.
 
@@ -285,33 +318,44 @@ This matters, so here it is plainly:
   database, the prompts and the results never leave the Mac.
 - **To Anthropic (through your own Claude login), only when you use a Claude
   step:**
-  - Intake with the **"research on the web"** box ticked: the text you pasted.
+  - Intake with the **Look them up on the web first** box ticked (it is ticked
+    by default once Claude is installed): the text you pasted.
   - Log with the **Zoom / Gmail / Google Meet** source: your request, and the
     transcript or email thread Claude fetched on your behalf.
   - Inbox: each mailbox check is a Claude run that searches Gmail for mail
     delivered to your CRM address and returns those messages. The routing
     and the drafting then happen on this Mac.
-  - News Feed (daily while Claude is installed, unless you pause it on the
-    News Feed page): for each person, their name, role, employer and location;
+  - News Feed (only once you turn it on, then daily, or when you click "Check
+    now"): for each person, their name, role, employer and location;
     for each company, its name, industry, headquarters, website and the names
     of up to three of your contacts there, plus your first name. Never your
     notes, interaction log or deals. This run can only search and read the web.
   - Prep's calendar/email check: the other person's name, company, role, the
-    date you last spoke and your noted next step — never your profile notes or
-    interaction log. Prep's web check: only their public name, role and
+    date you last spoke, your noted next step and any focus you typed — never
+    your profile notes or interaction log. If you let Prep pick the meeting
+    from your calendar (no person chosen), it also gets your contact list —
+    names, roles, companies, statuses and tags — so it can match calendar
+    events to people. Prep's web check: only their public name, role and
     company. These are two separate, walled-off requests so that a session
     that reads your email never also has a way to send anything out.
-  - **If Ollama isn't running** and the "Fall back to Claude automatically"
-    box in Settings is ticked (it is by default): the whole request for that
-    step, which includes your list of contacts. Untick that box if that isn't
-    acceptable to you — runs will then wait for Ollama instead.
+  - **If Ollama isn't running** and the "If the AI on this Mac isn't
+    available, use Claude instead" box in Settings is ticked (it is by
+    default): the whole request for that step, which includes your list of
+    contacts. Untick that box if that isn't acceptable to you — runs will then
+    wait for Ollama instead.
+  - **If you choose Claude** under Settings → **Where the AI runs**, or as the
+    AI the Coach uses: the whole request for every such step — including your
+    contacts' notes and, for the Coach, the files in your notes folder.
+  - Requests that describe you (Intake, Inbox, Prep, Coach) also include the
+    name and practice description from `config/owner.json`.
 - **To wherever you point backups:** a daily copy of the whole database goes
   into the backup folder (see below). That is only a cloud folder if you chose
   one.
 
 Claude runs with a fixed, read-only set of tools: it can search and read, and
 it cannot send email, change your calendar, run anything on your Mac, or read
-your files. Nothing any AI produces is saved into the CRM until you have
+your files. The CRM enforces this itself on every run, whatever you may have
+allowed Claude Code to do in your own settings. Nothing any AI produces is saved into the CRM until you have
 reviewed it.
 
 ## Where your data lives, and backups
@@ -326,11 +370,33 @@ reviewed it.
   iCloud Drive, Dropbox or Google Drive folder. From then on the daily copy
   goes there. Note that it is a plain, unencrypted copy of everything in the
   CRM.
-- **Moving to a new Mac:** copy the whole CRM folder across, install Node (and
-  Ollama) on the new machine, and double-click **Start CRM.command**. Your
-  data, settings and sign-in come with the folder.
-- **Restoring a backup:** stop the CRM, replace `data/crm.db` with the backup
-  file you want (rename it to `crm.db`), and start it again.
+- **Moving to a new Mac:** stop the CRM, copy the whole CRM folder across,
+  install Node (and Ollama) on the new machine, delete the `node_modules` and
+  `.next` folders inside the copied CRM folder (they are rebuilt for the new
+  Mac), and double-click **Start CRM.command**. Your data, settings and
+  sign-in come with the folder.
+- **Restoring a backup:** stop the CRM, delete `crm.db-wal` and `crm.db-shm`
+  from the `data` folder if they are there, replace `data/crm.db` with the
+  backup file you want (rename it to `crm.db`), and start it again.
+
+## Updating to a new version
+
+1. Double-click **Stop CRM.command**.
+2. Download the new ZIP and unzip it (or `git pull` if you cloned).
+3. Copy these from your old CRM folder into the new one: the **`data`** folder
+   (your CRM and its backups), and if you created them, **`config/owner.json`**,
+   **`config/vocab.json`** and **`.env.local`**.
+4. Double-click **Start CRM.command** in the new folder. It notices the new
+   version, refreshes its components and rebuilds (a few minutes), then opens
+   as usual. Once you're happy, delete the old folder.
+
+## Uninstalling
+
+Stop the CRM and delete its folder — that deletes your data too, so keep a
+backup if you might want it back. Ollama and its models (in `.ollama` in your
+home folder) and Claude Code are separate programs: remove them only if
+nothing else uses them. If you connected Claude Desktop, remove the
+`siryous-crm` entry from its configuration (see docs/DEVELOPING.md).
 
 ## Signing in
 
@@ -357,34 +423,36 @@ to remember:
 
 Look for the message you are seeing:
 
-- **"Ollama isn't running" / "Not reachable at http://127.0.0.1:11434"** —
+- **"AI features are off — Ollama isn't running" / "The AI on this Mac isn't
+  running"** —
   the Ollama app isn't open. Open **Ollama** from Applications; the llama icon
   should appear in the menu bar. Then try again. If you never installed it, see
   step 2 of the setup.
-- **"…isn't downloaded yet" / "model … is not pulled (run: ollama pull …)"** — Ollama
+- **"The AI model … hasn't been downloaded yet"** — Ollama
   is running but the model chosen in Settings hasn't been downloaded. Follow
   step 5 of the setup, then pick the model in Settings and save.
-- **"The local model ran out of room…" / "too much text"** — you gave the AI
+- **"That's too much text for the AI to read at once"** — you gave the AI
   more text than the model can hold at once (a long transcript, or a very busy
-  Coach week). Either paste less, or open Settings and raise the **Context
-  window** number (32768 by default; doubling it is fine if you have the
-  memory).
-- **"…timed out"** — the model took too long, which usually means the Mac is
+  Coach week). Either paste less, or open Settings and raise **How much text
+  the AI can read at once** (32768 by default; doubling it is fine if you have
+  the memory).
+- **"The AI didn't finish in …" / "Claude timed out after …"** — the model took too long, which usually means the Mac is
   short of memory for the model you chose. Close other heavy apps, or switch to
   a smaller model (step 5), and try again.
 - **"Your Claude Code login has expired"** — Claude needs you to sign in
   again. Open Terminal, type `claude`, then `/login`, finish in the browser,
   type `/exit`, and try again in the CRM.
-- **"The Claude Code CLI isn't installed"** — you tried a step that needs
-  Claude (calendar, email, Zoom, Drive or web) but the Claude tool isn't set up.
-  Either follow "If you use Claude" above, or untick the web-research box /
-  paste the content instead — everything else works without it.
+- **"This needs Claude Code, which isn't installed on this Mac"** — you tried
+  a step that needs Claude (calendar, email, Zoom, Drive or web) but the Claude
+  tool isn't set up. Either follow "If you use Claude" above, or untick
+  **Look them up on the web first** / paste the content instead — everything
+  else works without it.
 - **"Interrupted by a server restart — start it again"** — the CRM was stopped
   while the AI was working on something. Nothing is lost; open that item and
   use its "Try again" link (or start the run once more).
 - **"Build failed — see above"** in the Start CRM window — the one-time
   preparation didn't finish. The most common causes are no internet connection
-  during the first start, or a Node older than version 20 (the window says which
+  during the first start, or a Node older than version 22 (the window says which
   version it found). Fix that and double-click **Start CRM.command** again. If
   it still fails, copy the text in the window and open an issue on GitHub.
 - **Terminal says `command not found: npm` or `command not found: node`** —
@@ -394,9 +462,19 @@ Look for the message you are seeing:
 - **The browser says it can't connect to 127.0.0.1:3000** — the CRM isn't
   running. Double-click **Start CRM.command**. If that window shows an error,
   the details are also in `data/server.log` inside the CRM folder.
+- **Installing fails with messages about `gyp`, `xcrun` or "Command Line
+  Tools"** — the database component had to be built from source, which needs
+  Apple's developer tools. Open Terminal, run `xcode-select --install`, accept
+  the dialog, wait for it to finish, then double-click **Start CRM.command**
+  again.
+- **"was compiled against a different Node.js version" / `NODE_MODULE_VERSION`**
+  — Node was updated (or the folder came from another Mac). Stop the CRM,
+  delete the `node_modules` and `.next` folders inside the CRM folder, and
+  double-click **Start CRM.command**.
 - **You updated the CRM (downloaded a new ZIP) and it looks the same** — Start
   CRM notices changed files and rebuilds automatically; if you replaced the
-  folder, make sure you copied your old `data` folder into the new one first.
+  folder, make sure you copied your old `data` folder (and `config/owner.json`)
+  into the new one first — see "Updating to a new version".
 
 ## For developers
 

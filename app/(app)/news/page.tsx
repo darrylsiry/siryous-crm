@@ -69,14 +69,19 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
             <span className="text-indigo-700">
               <span className="animate-pulse">●</span> {s.progress ?? "Searching…"} — this page refreshes itself.
             </span>
+          ) : !ai.claude.ok ? (
+            <>Daily search needs Claude (see above).</>
           ) : s.enabled ? (
             <>
               Daily search is on
-              {s.lastRunAt ? <> · last run {new Date(s.lastRunAt).toLocaleString()}</> : <> · first run starts shortly</>}
+              {s.lastRunAt ? <> · last run {new Date(s.lastRunAt).toLocaleString()}</> : <> · first run starts within 15 minutes</>}
               {checked < subjects.length ? <> · {subjects.length - checked} not searched yet</> : null}.
             </>
           ) : (
-            <>Daily search is paused — &ldquo;Check now&rdquo; still works.</>
+            <>
+              Daily search is off. Turning it on sends your contacts&apos; names, roles and employers to Claude once a
+              day to look for news; &ldquo;Check now&rdquo; does it once.
+            </>
           )}
           {s.lastError && !running ? <span className="block text-red-700">Last run had a problem: {s.lastError}</span> : null}
         </span>
@@ -107,8 +112,12 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         <p className="rounded-xl border border-stone-200 bg-white p-5 text-sm italic text-stone-400">
           {showDismissed
             ? "Nothing dismissed."
-            : running || !s.lastRunAt
-              ? "No news yet — the first search is working through your contacts."
+            : !ai.claude.ok
+              ? "No news yet — searching the web needs Claude."
+              : running
+                ? "No news yet — the first search is working through your contacts."
+                : !s.lastRunAt
+                  ? "No news yet — turn on the daily search above, or click “Check now”."
               : "No news about your contacts right now."}
         </p>
       ) : (

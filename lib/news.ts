@@ -21,7 +21,8 @@ import {
  * every person and company in the roster, a batch at a time. Items are kept
  * until dismissed; a dismissed URL is remembered so it never comes back.
  *
- * Settings: news.enabled ("off" pauses the daily run; on by default),
+ * Settings: news.enabled ("on" / "off"; off until the owner turns it on, except
+ * on installs that already ran it before it became opt-in),
  * news.last_run_at, news.last_error, news.progress (while a scan runs).
  */
 
@@ -37,9 +38,21 @@ export interface NewsSettings {
   progress: string | null;
 }
 
+/**
+ * The daily run sends every contact's name, role and employer to Claude, so it
+ * is opt-in. Installs that already ran it while it was on by default (a
+ * last-run stamp and no explicit choice) keep running.
+ */
+function newsEnabled(): boolean {
+  const v = getSetting("news.enabled");
+  if (v === "on") return true;
+  if (v === "off") return false;
+  return getSetting("news.last_run_at") !== null;
+}
+
 export function getNewsSettings(): NewsSettings {
   return {
-    enabled: getSetting("news.enabled") !== "off",
+    enabled: newsEnabled(),
     lastRunAt: getSetting("news.last_run_at"),
     lastError: getSetting("news.last_error"),
     progress: getSetting("news.progress"),

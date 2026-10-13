@@ -48,8 +48,8 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 "Download it from https://nodejs.org (click the big LTS button), open the .pkg and click Continue until it says Done."
 fi
 NODE_MAJOR=$(node -v | sed 's/^v//' | cut -d. -f1)
-if [ "$NODE_MAJOR" -lt 20 ] 2>/dev/null; then
-  fail "Your Node.js is too old ($(node -v)); the CRM needs version 20 or newer." \
+if [ "$NODE_MAJOR" -lt 22 ] 2>/dev/null; then
+  fail "Your Node.js is too old ($(node -v)); the CRM needs version 22 or newer." \
 "Download the current LTS version from https://nodejs.org and install it over the old one."
 fi
 
@@ -65,12 +65,22 @@ if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.j
 "Usually this means no internet connection. Connect and try again."
 fi
 
+# 2b. Node was updated, or the folder came from another Mac: the database
+#     component is compiled for one Node version, so rebuild it to match.
+NODE_STAMP="node_modules/.crm-node-version"
+if [ -f "$NODE_STAMP" ] && [ "$(cat "$NODE_STAMP")" != "$(node -v)" ]; then
+  echo "Node.js changed ($(cat "$NODE_STAMP") → $(node -v)) — rebuilding the database component…"
+  npm rebuild better-sqlite3 || fail "Rebuilding failed — see the messages above." \
+"Delete the node_modules and .next folders inside the CRM folder and try again."
+fi
+node -v > "$NODE_STAMP"
+
 # 3. Build the production bundle on first run, or whenever the source has
 #    changed since the last build (so an update actually takes effect).
 if [ ! -f .next/BUILD_ID ]; then
   echo "Preparing the app for first use (a few minutes — this only happens once)…"
   npm run build || fail "Build failed — see above."
-elif [ -n "$(find app lib components package.json next.config.ts tsconfig.json -newer .next/BUILD_ID -print -quit 2>/dev/null)" ]; then
+elif [ -n "$(find app lib components package.json package-lock.json next.config.ts tsconfig.json proxy.ts instrumentation.ts postcss.config.mjs -newer .next/BUILD_ID -print -quit 2>/dev/null)" ]; then
   echo "The CRM was updated — rebuilding (a few minutes)…"
   npm run build || fail "Build failed — see above."
 fi
