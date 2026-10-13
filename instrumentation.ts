@@ -4,6 +4,7 @@ export async function register() {
     const { getDb } = await import("./lib/db");
     const { startBackupLoop } = await import("./lib/backup.mjs");
     const { startInboxLoop } = await import("./lib/inbox");
+    const { startNewsLoop } = await import("./lib/news");
     const { authEnabled, signInUrl, tokenPath, wasJustCreated } = await import("./lib/auth.mjs");
     const db = getDb();
 
@@ -49,6 +50,8 @@ export async function register() {
     startBackupLoop(db);
     // Mail-in: checks the CRM address on a schedule when it is turned on (/inbox).
     startInboxLoop();
+    // News Feed: a daily web search for news about roster people and companies (/news).
+    startNewsLoop();
   }
 }
 

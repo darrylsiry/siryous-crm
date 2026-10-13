@@ -30,6 +30,7 @@ const nav: NavGroup[] = [
       { href: "/followups", label: "Keep Warm", icon: "♨" },
       { href: "/outreach", label: "Outreach", icon: "✉" },
       { href: "/prep", label: "Prep", icon: "🗓" },
+      { href: "/news", label: "News Feed", icon: "📰" },
       { href: "/coach", label: "Coach", icon: "◎" },
     ],
   },
