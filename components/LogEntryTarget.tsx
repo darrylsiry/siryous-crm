@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import SearchSelect from "@/components/SearchSelect";
 
 /**
  * "Log on <person>" header for one draft log entry. When the model's slug is
@@ -40,32 +41,23 @@ export default function LogEntryTarget({
           onChange={(e) => setChecked(e.target.checked)}
         />
         <span>Log on</span>
-        <select
-          name={`entry_slug_${index}`}
-          value={slug}
-          onChange={(e) => {
-            const v = e.target.value;
-            setSlug(v);
-            setChecked(v !== "");
-          }}
-          className={`rounded-lg border px-2 py-1 text-sm font-medium ${untargeted ? "border-amber-300 bg-amber-50 text-amber-900" : "border-stone-300 bg-white"}`}
-        >
-          {!valid ? <option value="">{modelSlug} (not in your CRM)</option> : null}
-          {people.map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.name}
-            </option>
-          ))}
-          {companies.length ? (
-            <optgroup label="A company (no specific person)">
-              {companies.map((c) => (
-                <option key={c.slug} value={`company:${c.slug}`}>
-                  {c.name}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-        </select>
+        <span className="min-w-56 flex-1 font-medium">
+          <SearchSelect
+            name={`entry_slug_${index}`}
+            value={slug}
+            onChange={(v) => {
+              setSlug(v);
+              setChecked(v !== "");
+            }}
+            options={[
+              ...people.map((p) => ({ value: p.slug, label: p.name })),
+              ...companies.map((c) => ({ value: `company:${c.slug}`, label: c.name, group: "A company (no specific person)" })),
+            ]}
+            allowEmpty={!valid}
+            emptyLabel={`${modelSlug} (not in your CRM)`}
+            className={`rounded-lg border px-2 py-1 text-sm ${untargeted ? "border-amber-300 bg-amber-50 text-amber-900" : "border-stone-300 bg-white"}`}
+          />
+        </span>
       </label>
       {untargeted ? (
         <p className="text-xs text-amber-800">

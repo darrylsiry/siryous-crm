@@ -3,6 +3,7 @@ import { doneActionItems, openActionItems, allPeople, allCompanies } from "@/lib
 import { ActionRow } from "@/components/ActionList";
 import { addActionItem } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
+import SearchSelect from "@/components/SearchSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -50,21 +51,11 @@ export default function ActionsPage() {
           </label>
           <label className="text-xs font-medium text-stone-600">
             Person
-            <select name="person_id" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm">
-              <option value="">—</option>
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <SearchSelect name="person_id" options={people.map((p) => ({ value: String(p.id), label: p.name, hint: p.company_name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs font-medium text-stone-600">
             Company
-            <select name="company_id" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm">
-              <option value="">—</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <SearchSelect name="company_id" options={companies.map((c) => ({ value: String(c.id), label: c.name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
           </label>
           <div className="sm:col-span-2">
             <PendingButton label="Add" pendingLabel="Adding…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />

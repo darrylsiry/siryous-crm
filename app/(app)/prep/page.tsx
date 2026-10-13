@@ -5,6 +5,7 @@ import { generatePrep } from "@/lib/prep";
 import PendingButton from "@/components/PendingButton";
 import AiStatusBanner from "@/components/AiStatusBanner";
 import { getAiStatus } from "@/lib/aiStatus";
+import SearchSelect from "@/components/SearchSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +34,12 @@ export default async function PrepPage() {
       <form action={generatePrep} className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
         <label className="block text-xs font-medium text-stone-600">
           Who's the meeting with?
-          <select name="person_id" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm">
-            <option value="">✨ Auto — check my calendar for the next meeting with someone in the CRM</option>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}{p.company_name ? ` — ${p.company_name}` : ""}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            name="person_id"
+            options={people.map((p) => ({ value: String(p.id), label: p.name, hint: p.company_name }))}
+            emptyLabel="✨ Auto — check my calendar for the next meeting with someone in the CRM"
+            className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm"
+          />
         </label>
         <label className="block text-xs font-medium text-stone-600">
           Focus / context for this meeting (optional)

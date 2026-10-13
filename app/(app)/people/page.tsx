@@ -4,6 +4,7 @@ import StatusPicker from "@/components/StatusPicker";
 import { createPerson } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
 import PendingButton from "@/components/PendingButton";
+import SearchSelect from "@/components/SearchSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -182,12 +183,7 @@ export default async function PeoplePage({
           </label>
           <label className="text-xs font-medium text-stone-600">
             Company
-            <select name="company_id" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm">
-              <option value="">— none —</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <SearchSelect name="company_id" options={companies.map((c) => ({ value: String(c.id), label: c.name }))} emptyLabel="— none —" className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs font-medium text-stone-600">
             Status

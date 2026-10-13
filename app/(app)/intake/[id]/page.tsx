@@ -8,6 +8,7 @@ import Markdown from "@/components/Markdown";
 import PendingButton from "@/components/PendingButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import FeedRecap from "@/components/FeedRecap";
+import SearchSelect from "@/components/SearchSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -164,10 +165,7 @@ export default async function IntakeReviewPage({
             <label className="flex items-center gap-2">
               <input type="radio" name="company_mode" value="existing" defaultChecked={!!existingCompany} />
               Link to existing:
-              <select name="existing_company_id" defaultValue={existingCompany?.id ?? ""} className="rounded-lg border border-stone-300 px-2 py-1 text-sm">
-                <option value="">—</option>
-                {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <span className="min-w-56 flex-1"><SearchSelect name="existing_company_id" defaultValue={existingCompany?.id ?? ""} options={companies.map((c) => ({ value: String(c.id), label: c.name }))} className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-sm" /></span>
             </label>
             <label className="flex items-center gap-2">
               <input type="radio" name="company_mode" value="new" defaultChecked={!existingCompany && !!p.new_company} />
