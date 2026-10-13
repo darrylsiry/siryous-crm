@@ -32,7 +32,12 @@ export const STRENGTHS: readonly string[] = VOCAB.strengths;
 
 export const STAGES: Record<string, { label: string; icon: string; color: string; order: number; open: boolean }> = VOCAB.stages;
 
-export const KINDS: Record<string, { label: string; badge: string }> = VOCAB.kinds;
+export const KINDS: Record<string, { label: string; badge: string; separate: boolean; card: string | null }> = VOCAB.kinds;
+
+/** Stable sort that moves opportunities of a "separate" kind (job opportunities) after the rest. */
+export function separateKindsLast<T extends { kind: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => Number(KINDS[a.kind]?.separate ?? false) - Number(KINDS[b.kind]?.separate ?? false));
+}
 
 /** Default keep-warm cadence (days) by pipeline status; null = no cadence. Every status has an entry. */
 export const DEFAULT_CADENCE: Record<string, number | null> = Object.fromEntries(

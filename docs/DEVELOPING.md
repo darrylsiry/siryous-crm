@@ -228,6 +228,10 @@ it. An entry whose key matches a built-in one replaces just the fields you give
 or colour), a new key adds an entry, and a `"remove": ["venture"]` list drops
 built-in ones. Colours are palette names (`emerald`, `sky`, `rose`, …; the
 example file lists them all) mapped to Tailwind classes inside `lib/vocab.mjs`.
+An opportunity kind with `"separate": true` (the built-in `job`, "Job
+opportunity") is listed after the other kinds in each pipeline column, on a
+card tinted in its colour, so a job search stays apart from business
+development.
 The app (`lib/db.ts` re-exports `STATUS`/`BUCKETS`/`STAGES`/`KINDS`/
 `STRENGTHS`/`DEFAULT_CADENCE`), the MCP server's tool descriptions
 (`loadVocab(ROOT)`) and every AI prompt (`bucketList(VOCAB)` and friends) are

@@ -11,7 +11,7 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
   return (
     <div
       id={`opp-${o.id}`}
-      className="scroll-mt-4 rounded-lg border border-stone-200 bg-white p-3 shadow-xs target:ring-2 target:ring-indigo-400"
+      className={`scroll-mt-4 rounded-lg border p-3 shadow-xs target:ring-2 target:ring-indigo-400 ${kind.card ?? "border-stone-200 bg-white"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="text-[0.82rem] font-semibold leading-snug text-stone-900">

@@ -29,13 +29,19 @@ describe("defaults", () => {
     assert.deepEqual(Object.keys(v.status), ["new", "exploring", "active", "on_hold", "client", "won", "lost", "dormant"]);
     assert.deepEqual(Object.keys(v.buckets), ["overdue", "log_gap", "this_week", "awaiting", "high_potential", "keep_warm", "venture", "data_gap"]);
     assert.deepEqual(Object.keys(v.stages), ["identified", "discussing", "scoping", "negotiating", "engaged", "won", "lost", "on_hold"]);
-    assert.deepEqual(Object.keys(v.kinds), ["engagement", "partnership", "venture", "referral"]);
+    assert.deepEqual(Object.keys(v.kinds), ["engagement", "partnership", "venture", "referral", "job"]);
     assert.deepEqual([...v.strengths], ["Cold", "Acquaintance", "Warm", "Trusted"]);
     assert.deepEqual(v.status.new, { emoji: "🌱", label: "New", color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" });
     assert.deepEqual(v.buckets.this_week, { label: "Dated — this week & upcoming", icon: "🟡", order: 2 });
     assert.deepEqual(v.stages.scoping, { label: "Scoping / proposal", icon: "📐", color: "border-t-amber-400", order: 2, open: true });
     assert.equal(v.stages.won.open, false);
-    assert.deepEqual(v.kinds.referral, { label: "Referral", badge: "bg-teal-50 text-teal-700 ring-teal-600/20" });
+    assert.deepEqual(v.kinds.referral, { label: "Referral", badge: "bg-teal-50 text-teal-700 ring-teal-600/20", separate: false, card: null });
+    assert.deepEqual(v.kinds.job, {
+      label: "Job opportunity",
+      badge: "bg-sky-50 text-sky-700 ring-sky-600/20",
+      separate: true,
+      card: "border-sky-200 bg-sky-50/70",
+    });
   });
 
   test("every status has a cadence entry; lost is null", () => {
@@ -91,7 +97,7 @@ describe("override file", () => {
     assert.equal("dormant" in v.status, false);
     assert.deepEqual(Object.keys(v.buckets).slice(0, 3), ["overdue", "log_gap", "content"]);
     assert.equal("venture" in v.kinds, false);
-    assert.deepEqual(v.kinds.speaking, { label: "Speaking", badge: "bg-rose-50 text-rose-700 ring-rose-600/20" });
+    assert.deepEqual(v.kinds.speaking, { label: "Speaking", badge: "bg-rose-50 text-rose-700 ring-rose-600/20", separate: false, card: null });
   });
 
   test("unknown palette renders as stone", () => {

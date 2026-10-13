@@ -3,6 +3,8 @@ export interface PaletteClasses {
   badge: string;
   /** Top-border classes for a pipeline column. */
   stage: string;
+  /** Border + background tint for a card of a "separate" opportunity kind. */
+  card: string;
 }
 export const PALETTES: Record<string, PaletteClasses>;
 export function palette(name: unknown): PaletteClasses;
@@ -30,6 +32,10 @@ export interface KindEntry {
   label: string;
   /** Resolved Tailwind classes. */
   badge: string;
+  /** Listed after the other kinds on the pipeline board (e.g. job opportunities vs. business development). */
+  separate: boolean;
+  /** Card tint classes when separate, else null. */
+  card: string | null;
 }
 
 export interface Vocab {

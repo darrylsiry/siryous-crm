@@ -5,7 +5,7 @@
  * replies you're waiting on, recent activity). Quote of the day up top.
  */
 import Link from "next/link";
-import { getDb, STAGES } from "@/lib/db";
+import { getDb, KINDS, STAGES } from "@/lib/db";
 import { allOpportunities, allPeople, openActionItems, opportunityHref, recentInteractions } from "@/lib/queries";
 import { quoteOfTheDay } from "@/lib/quotes";
 import { openInboxItems } from "@/lib/inbox";
@@ -201,7 +201,11 @@ export default function Dashboard() {
     })
     .sort(
       (a, b) =>
-        (STAGES[b.stage]?.order ?? 0) - (STAGES[a.stage]?.order ?? 0) || a.priority - b.priority || a.name.localeCompare(b.name)
+        (STAGES[b.stage]?.order ?? 0) - (STAGES[a.stage]?.order ?? 0) ||
+        // job opportunities (a "separate" kind) after business development within a stage
+        Number(KINDS[a.kind]?.separate ?? false) - Number(KINDS[b.kind]?.separate ?? false) ||
+        a.priority - b.priority ||
+        a.name.localeCompare(b.name)
     );
   const goingQuiet = deals.filter((d) => d.quiet == null || d.quiet > COLD_DAYS).length;
 
@@ -348,26 +352,34 @@ export default function Dashboard() {
               {deals.map((o, i) => {
                 const s = STAGES[o.stage];
                 const header = i === 0 || deals[i - 1].stage !== o.stage;
+                const kind = KINDS[o.kind];
                 const tone =
                   o.quiet == null || o.quiet > COLD_DAYS ? "text-red-700" : o.quiet > QUIET_DAYS ? "text-amber-700" : "text-stone-400";
                 return (
-                  <li key={o.id} className="py-2.5">
+                  <li key={o.id} className={kind?.card ? "border-b-0 py-1.5" : "py-2.5"}>
                     {header ? (
                       <h3 className="-mt-0.5 mb-2 text-[0.7rem] font-semibold uppercase tracking-wide text-stone-500">
                         {s?.icon} {s?.label} · {deals.filter((d) => d.stage === o.stage).length}
                       </h3>
                     ) : null}
+                    <div className={kind?.card ? `-mx-2 rounded-md border px-2 py-1.5 ${kind.card}` : ""}>
                     <div className="flex items-baseline justify-between gap-3">
-                      <Link href={opportunityHref(o)} className="min-w-0 truncate text-sm font-medium text-stone-800 hover:text-indigo-700">
-                        {o.priority === 1 ? <span className="text-red-600">★ </span> : null}
-                        {o.name}
-                      </Link>
+                      <span className="flex min-w-0 items-baseline gap-2">
+                        <Link href={opportunityHref(o)} className="min-w-0 truncate text-sm font-medium text-stone-800 hover:text-indigo-700">
+                          {o.priority === 1 ? <span className="text-red-600">★ </span> : null}
+                          {o.name}
+                        </Link>
+                        {kind?.separate ? (
+                          <span className={`shrink-0 rounded-full px-1.5 text-[0.65rem] font-medium ring-1 ring-inset ${kind.badge}`}>{kind.label}</span>
+                        ) : null}
+                      </span>
                       <span className={`shrink-0 text-xs tabular-nums ${tone}`}>
                         {o.quiet == null ? "no contact logged" : o.quiet === 0 ? "talked today" : `${o.quiet}d since contact`}
                       </span>
                     </div>
                     <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-stone-500">
                       {o.next_step ? <span className="line-clamp-1">→ {o.next_step}</span> : <span className="italic text-stone-400">no next step set</span>}
+                    </div>
                     </div>
                   </li>
                 );

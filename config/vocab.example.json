@@ -8,6 +8,7 @@
     "keep the keys of anything rows already use. The app falls back to new / this_week / identified / engagement, so keep those.",
     "\"color\" is a palette name, one of: emerald, sky, orange, slate, violet, green, red, zinc, amber, stone, indigo,",
     "fuchsia, teal, blue, rose, yellow (anything else renders as stone). \"order\" sorts entries; omitted = appended.",
+    "A kind with \"separate\": true (built-in: job) is listed after the others on the pipeline board, on a card tinted in its colour.",
     "Restart the app and the MCP server after changing this file."
   ],
   "status": {

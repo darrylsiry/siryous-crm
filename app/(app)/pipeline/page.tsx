@@ -1,4 +1,4 @@
-import { KINDS, STAGES } from "@/lib/db";
+import { KINDS, STAGES, separateKindsLast } from "@/lib/db";
 import { allCompanies, allOpportunities, allPeople } from "@/lib/queries";
 import { createOpportunity } from "@/lib/actions";
 import OpportunityCard from "@/components/OpportunityCard";
@@ -22,7 +22,7 @@ export default async function PipelinePage({
     .filter(([, s]) => s.open)
     .sort((a, b) => a[1].order - b[1].order);
   const closedStages = Object.entries(STAGES).filter(([, s]) => !s.open);
-  const closed = opps.filter((o) => !STAGES[o.stage]?.open);
+  const closed = separateKindsLast(opps.filter((o) => !STAGES[o.stage]?.open));
 
   return (
     <div className="space-y-6">
@@ -38,7 +38,7 @@ export default async function PipelinePage({
 
       <div className="full-bleed -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-2 sm:snap-none sm:px-2">
         {openStages.map(([key, s]) => {
-          const items = opps.filter((o) => o.stage === key);
+          const items = separateKindsLast(opps.filter((o) => o.stage === key));
           return (
             <div
               key={key}
