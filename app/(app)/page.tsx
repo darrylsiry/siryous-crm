@@ -4,14 +4,22 @@ import {
   allOpportunities,
   allPeople,
   dashboardStats,
-  dueForTouch,
   openActionItems,
   recentInteractions,
 } from "@/lib/queries";
 import { ActionRow } from "@/components/ActionList";
 import AiStatusBanner from "@/components/AiStatusBanner";
+import { openInboxItems, type OpenInboxItem } from "@/lib/inbox";
+import { cleanSubject } from "@/lib/inboxRoute";
 
 export const dynamic = "force-dynamic";
+
+const INBOX_STATE: Record<OpenInboxItem["state"], { label: string; cls: string }> = {
+  ready: { label: "Review", cls: "bg-green-600 text-white" },
+  working: { label: "Drafting…", cls: "bg-indigo-50 text-indigo-700" },
+  error: { label: "Failed", cls: "bg-red-50 text-red-700" },
+  unrouted: { label: "Not routed", cls: "bg-stone-100 text-stone-600" },
+};
 
 export default function Dashboard() {
   const stats = dashboardStats();
@@ -24,9 +32,8 @@ export default function Dashboard() {
   const awaiting = actions.filter((a) => a.bucket === "awaiting");
   const logGaps = actions.filter((a) => a.bucket === "log_gap");
 
-  const hot = people.filter((p) => p.status_key === "active");
   const opps = allOpportunities().filter((o) => STAGES[o.stage]?.open);
-  const touches = dueForTouch(6);
+  const inbox = openInboxItems();
 
   return (
     <div className="space-y-8">
@@ -76,73 +83,82 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Pipeline strip */}
-      <section className="rounded-xl border border-stone-200 bg-white p-5">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-            ⚑ Pipeline — {opps.length} open
-          </h2>
-          <Link href="/pipeline" className="text-xs font-medium text-indigo-600 hover:underline">
-            Full board →
-          </Link>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
-          {Object.entries(STAGES)
-            .filter(([, s]) => s.open)
-            .sort((a, b) => a[1].order - b[1].order)
-            .map(([key, s]) => {
-              const n = opps.filter((o) => o.stage === key).length;
-              return (
-                <span key={key} className={n ? "text-stone-700" : "text-stone-300"}>
-                  {s.icon} {s.label}: <span className="font-bold">{n}</span>
-                </span>
-              );
-            })}
-        </div>
-        <ul className="mt-3 space-y-1.5 border-t border-stone-100 pt-3">
-          {opps
-            .filter((o) => o.priority === 1)
-            .map((o) => (
-              <li key={o.id} className="text-sm">
-                <span className="font-bold text-red-600">★</span>{" "}
-                <span className="font-medium text-stone-800">{o.name}</span>
-                {o.next_step ? (
-                  <span className="text-xs text-stone-500"> — {o.next_step}</span>
-                ) : null}
-              </li>
-            ))}
-        </ul>
-      </section>
-
-      {/* Due for a touch */}
-      {touches.length > 0 && (
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Pipeline strip */}
         <section className="rounded-xl border border-stone-200 bg-white p-5">
           <div className="flex items-baseline justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-              ♨ Due for a touch
+              ⚑ Pipeline — {opps.length} open
             </h2>
-            <Link href="/followups" className="text-xs font-medium text-indigo-600 hover:underline">
-              Keep Warm →
+            <Link href="/pipeline" className="text-xs font-medium text-indigo-600 hover:underline">
+              Full board →
             </Link>
           </div>
-          <ul className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
-            {touches.map((f) => (
-              <li key={f.id} className="flex items-baseline justify-between gap-2 text-sm">
-                <Link href={`/people/${f.slug}`} className="font-medium hover:text-indigo-700">
-                  {f.name}
-                </Link>
-                <span className="text-xs text-red-600">
-                  {f.days_over != null && f.days_over >= 9999
-                    ? f.last_touch_note
-                      ? `no dated touch (${f.last_touch_note})`
-                      : "no touch logged"
-                    : `${f.days_over}d over cadence`}
-                </span>
-              </li>
-            ))}
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            {Object.entries(STAGES)
+              .filter(([, s]) => s.open)
+              .sort((a, b) => a[1].order - b[1].order)
+              .map(([key, s]) => {
+                const n = opps.filter((o) => o.stage === key).length;
+                return (
+                  <span key={key} className={n ? "text-stone-700" : "text-stone-300"}>
+                    {s.icon} {s.label}: <span className="font-bold">{n}</span>
+                  </span>
+                );
+              })}
+          </div>
+          <ul className="mt-3 space-y-1.5 border-t border-stone-100 pt-3">
+            {opps
+              .filter((o) => o.priority === 1)
+              .map((o) => (
+                <li key={o.id} className="text-sm">
+                  <span className="font-bold text-red-600">★</span>{" "}
+                  <span className="font-medium text-stone-800">{o.name}</span>
+                  {o.next_step ? (
+                    <span className="text-xs text-stone-500"> — {o.next_step}</span>
+                  ) : null}
+                </li>
+              ))}
           </ul>
         </section>
-      )}
+
+        {/* Inbox — emails still needing a review or a fix */}
+        <section className="rounded-xl border border-stone-200 bg-white p-5">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
+              📥 Inbox — {inbox.length} open
+            </h2>
+            <Link href="/inbox" className="text-xs font-medium text-indigo-600 hover:underline">
+              Inbox →
+            </Link>
+          </div>
+          {inbox.length ? (
+            <ul className="mt-3 max-h-64 divide-y divide-stone-100 overflow-y-auto">
+              {inbox.map((m) => {
+                const st = INBOX_STATE[m.state];
+                return (
+                  <li key={m.id} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
+                    <span className="min-w-0 truncate">
+                      <Link href={`/inbox/${m.id}`} className="font-medium text-stone-800 hover:text-indigo-700">
+                        {cleanSubject(m.subject ?? "") || "(no subject)"}
+                      </Link>
+                      <span className="text-xs text-stone-400"> · {m.date}</span>
+                    </span>
+                    <Link
+                      href={m.href}
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium hover:opacity-80 ${st.cls}`}
+                    >
+                      {st.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm italic text-stone-400">Nothing waiting — all emails are dealt with.</p>
+          )}
+        </section>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Overdue */}
@@ -217,51 +233,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-
-      {/* Hot relationships */}
-      <section>
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold">🔥 Active relationships</h2>
-          <Link href="/people" className="text-xs font-medium text-indigo-600 hover:underline">
-            All people →
-          </Link>
-        </div>
-        {!hot.length ? (
-          <p className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">
-            No one is marked 🔥 Active yet — set a person&apos;s status from their profile and they show up here.
-          </p>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {hot.map((p) => (
-            <Link
-              key={p.id}
-              href={`/people/${p.slug}`}
-              className="rounded-xl border border-stone-200 bg-white p-4 hover:border-indigo-300 hover:shadow-sm"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-sm">{p.name}</span>
-                {p.relationship_strength ? (
-                  <span className="text-[0.65rem] font-medium uppercase tracking-wide text-stone-400">
-                    {p.relationship_strength}
-                  </span>
-                ) : null}
-              </div>
-              <div className="mt-0.5 text-xs text-stone-500 truncate">
-                {p.company_name ?? p.company_note ?? "—"}
-              </div>
-              {p.status_note ? (
-                <div className="mt-1 text-xs text-orange-700">{p.status_note}</div>
-              ) : null}
-              {p.next_action ? (
-                <div className="mt-2 border-t border-stone-100 pt-2 text-xs text-stone-600 line-clamp-2">
-                  <span className="font-medium text-stone-400">Next: </span>
-                  {p.next_action}
-                </div>
-              ) : null}
-            </Link>
-          ))}
-        </div>
-      </section>
 
       {/* Recent activity */}
       <section>

@@ -364,3 +364,58 @@ export function startInboxLoop(): void {
   // First check shortly after boot rather than a full interval later.
   setTimeout(tick, 15_000).unref();
 }
+
+const OPEN_DRAFT = new Set(["pending", "analyzing", "ready", "error"]);
+
+export interface OpenInboxItem {
+  id: number;
+  subject: string | null;
+  sender: string | null;
+  date: string;
+  /** ready = a draft awaits review; working = the model is still on it; error = a draft or the routing failed; unrouted = not routed yet. */
+  state: "ready" | "working" | "error" | "unrouted";
+  /** Where a click should go: the first ready draft's review page, else the email. */
+  href: string;
+}
+
+/**
+ * Emails still needing the owner (Dashboard): not ignored, and either not
+ * routed yet, failed to route, or with a draft that hasn't been confirmed
+ * or discarded. Newest first.
+ */
+export function openInboxItems(limit = 100): OpenInboxItem[] {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT * FROM inbox_messages WHERE status <> 'ignored' ORDER BY id DESC LIMIT ?`)
+    .all(limit) as InboxRow[];
+  const logStatus = db.prepare(`SELECT status FROM log_drafts WHERE id=?`);
+  const intakeStatus = db.prepare(`SELECT status FROM intake_drafts WHERE id=?`);
+  const out: OpenInboxItem[] = [];
+  for (const r of rows) {
+    const base = { id: r.id, subject: r.subject, sender: r.sender, date: r.date ?? r.created_at.slice(0, 10) };
+    if (r.status === "error") {
+      out.push({ ...base, state: "error", href: `/inbox/${r.id}` });
+      continue;
+    }
+    if (r.status !== "routed") {
+      out.push({ ...base, state: "unrouted", href: `/inbox/${r.id}` });
+      continue;
+    }
+    const drafts: { kind: "log" | "intake"; id: number; status: string }[] = [];
+    if (r.log_draft_id) {
+      const s = logStatus.get(r.log_draft_id) as { status: string } | undefined;
+      if (s) drafts.push({ kind: "log", id: r.log_draft_id, status: s.status });
+    }
+    for (const id of parseIds(r.intake_draft_ids)) {
+      const s = intakeStatus.get(id) as { status: string } | undefined;
+      if (s) drafts.push({ kind: "intake", id, status: s.status });
+    }
+    const open = drafts.filter((d) => OPEN_DRAFT.has(d.status));
+    if (!open.length) continue;
+    const ready = open.find((d) => d.status === "ready");
+    if (ready) out.push({ ...base, state: "ready", href: `/${ready.kind}/${ready.id}` });
+    else if (open.some((d) => d.status === "error")) out.push({ ...base, state: "error", href: `/inbox/${r.id}` });
+    else out.push({ ...base, state: "working", href: `/${open[0].kind}/${open[0].id}` });
+  }
+  return out;
+}
