@@ -51,7 +51,7 @@ function joinContext(parts: (string | null | undefined)[]): string {
     .map((p) => (p ?? "").replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .join(", ")
-    .slice(0, 200);
+    .slice(0, 260);
 }
 
 /** Every roster person and company, with when each was last searched. */
@@ -70,13 +70,28 @@ export function newsSubjects(db: Database.Database = getDb()): NewsSubject[] {
   const companies = db
     .prepare(`SELECT id, slug, name, industry, hq, website FROM companies ORDER BY name`)
     .all() as { id: number; slug: string; name: string; industry: string | null; hq: string | null; website: string | null }[];
+  // Contacts at each company, so a story about a big organisation can be tied to someone you know there.
+  const contactsAt = new Map<number, string[]>();
+  for (const r of db.prepare(`SELECT company_id, name FROM people WHERE company_id IS NOT NULL ORDER BY name`).all() as {
+    company_id: number;
+    name: string;
+  }[]) {
+    const list = contactsAt.get(r.company_id) ?? [];
+    if (list.length < 3) list.push(r.name);
+    contactsAt.set(r.company_id, list);
+  }
   return [
     ...companies.map((c) => ({
       ref: `c:${c.slug}`,
       kind: "company" as const,
       id: c.id,
       name: c.name,
-      context: joinContext([c.industry, c.hq, c.website?.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")]),
+      context: joinContext([
+        c.industry,
+        c.hq,
+        c.website?.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, ""),
+        contactsAt.has(c.id) ? `contacts: ${contactsAt.get(c.id)!.join(" / ")}` : null,
+      ]),
       checkedAt: checks.get(`c:${c.id}`) ?? null,
     })),
     ...people.map((p) => ({
