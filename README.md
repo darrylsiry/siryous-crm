@@ -31,8 +31,9 @@ Three things to know before you start:
 3. **The email, calendar and web features additionally need Claude** — the
    Claude app or command-line tool from Anthropic, signed in to a paid Claude
    subscription. That is what lets Prep read your calendar and Gmail, Log fetch a
-   Zoom transcript, and Intake look someone up on the web. Optional, and the
-   only part that sends anything off your computer.
+   Zoom transcript, Intake look someone up on the web, and the News Feed find
+   news about your contacts. Optional, and the only part that sends anything off
+   your computer.
 
 ## Set up in 5 steps (Mac)
 
@@ -115,12 +116,22 @@ email from them and watch a profile appear for you to check and save.
 
 The left-hand menu has everything, grouped into **New Business** (Intake,
 Log, Inbox), **Pipeline** (Actions, Pipeline, Keep Warm, Outreach, Prep,
-Coach) and **Data** (People, Companies, Map, Import), with the Dashboard at
+News Feed, Coach) and **Data** (People, Companies, Map, Import), with the Dashboard at
 the top and Settings at the bottom. In rough order of how often you'll use it:
 
-- **Dashboard** — the home page: who is due a touch, what is overdue, deals
-  that need attention, follow-ups with dates, things you are waiting on from
-  other people, and recent activity.
+- **Dashboard** — the home page, built around what needs you right now. It
+  opens with a greeting and a quote of the day, then:
+  - **Your move** — to-dos that are late (up to two weeks) or due in the next
+    seven days, each with the person, their company, the open deal it belongs
+    to and when you last spoke. Tick one off right there. Anything more than
+    two weeks late folds into a collapsed list to do, re-date or drop.
+  - **Deals in motion** — open opportunities grouped by stage, furthest along
+    first, with the next step and the days since you last logged contact
+    (amber after two weeks, red after a month). Job opportunities sit at the
+    bottom of each stage on a tinted row.
+  - Down the side: emails in the **Inbox** waiting for review, **In the news**
+    (stories about your contacts, deal-related ones first, dismissable), what
+    you are **waiting on** from other people, and **recent activity**.
 - **People** and **Companies** — the profiles. Each one has contact details, a
   status (New → Exploring → Active → Client …), how strong the relationship is,
   a narrative in four sections (Relationship, Business context, Strategy,
@@ -135,10 +146,12 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   Dormant 180 — adjustable per person). Logging an interaction resets the
   clock.
 - **Pipeline** — a board of the work you are chasing (engagements,
-  partnerships, referrals, ventures) across the stages a consultant actually
-  goes through: Identified → In conversation → Scoping/proposal → Negotiating →
-  Engaged. Change a deal's stage right on its card; ★ marks the important
-  ones.
+  partnerships, referrals, ventures — and job opportunities) across the stages
+  a consultant actually goes through: Identified → In conversation →
+  Scoping/proposal → Negotiating → Engaged. Change a deal's stage right on its
+  card; ★ marks the important ones. Job opportunities are listed after
+  everything else in each column, on a tinted card, so a job search stays
+  apart from business development at a glance.
 - **Actions** — everything you have promised or are waiting for, grouped by
   urgency (overdue, this week, awaiting the other party, high potential, keep
   warm, data gaps). Items carry a real due date — type one or write "Fri 7/25"
@@ -173,6 +186,14 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   schedule (one short Claude run each time) or on demand, shows where each
   draft is in the model's queue, and lets you re-route anything it guessed
   wrong (which replaces that email's drafts rather than adding more).
+- **📰 News Feed (AI, needs Claude)** — once a day, Claude searches the web
+  for news about every person and company in the CRM, about ten at a time,
+  and keeps only stories clearly about them (for a big organisation, only
+  stories that name one of your contacts there or touch the business you know
+  them for). Each item has the headline linked to the source, a short summary
+  and the contacts it concerns; the feed stays in date order until you dismiss
+  an item, and a dismissed story never comes back. "Check now" searches
+  everyone immediately; "Pause daily search" stops the daily run.
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want
@@ -226,7 +247,8 @@ tags, notes and a few other columns are recognised automatically.
 Claude is Anthropic's AI assistant. If you have a paid Claude subscription
 (Pro or Max), the CRM can use it for the parts a local model can't do: read
 your Google Calendar and Gmail to prepare a briefing, fetch a Zoom or Google
-Meet transcript to log a meeting, and look people up on the web during Intake.
+Meet transcript to log a meeting, look people up on the web during Intake, and
+search the web for news about your contacts.
 It also serves as a stand-in when Ollama isn't running. No API key or separate
 billing — it uses the same subscription as the Claude app.
 
@@ -269,6 +291,11 @@ This matters, so here it is plainly:
   - Inbox: each mailbox check is a Claude run that searches Gmail for mail
     delivered to your CRM address and returns those messages. The routing
     and the drafting then happen on this Mac.
+  - News Feed (daily while Claude is installed, unless you pause it on the
+    News Feed page): for each person, their name, role, employer and location;
+    for each company, its name, industry, headquarters, website and the names
+    of up to three of your contacts there, plus your first name. Never your
+    notes, interaction log or deals. This run can only search and read the web.
   - Prep's calendar/email check: the other person's name, company, role, the
     date you last spoke and your noted next step — never your profile notes or
     interaction log. Prep's web check: only their public name, role and
