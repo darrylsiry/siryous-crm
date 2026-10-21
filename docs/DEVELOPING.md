@@ -151,7 +151,7 @@ tool grant and streams a live activity feed to the UI.
 | Feature | Fetch step (Claude, read-only tools) | Write step (local model) |
 |---------|--------------------------------------|--------------------------|
 | Intake  | optional web-research digest (checkbox on the form; skipped gracefully if Claude fails) | extract the profile, connections, actions, log entry |
-| Log     | paste: none · Zoom / Gmail / Meet-via-Drive: retrieve the transcript or thread | write the interaction-log entries |
+| Log     | paste: none · Zoom / Gmail / Meet (Calendar to identify the meeting, then Drive for its notes doc): retrieve the transcript or thread | write the interaction-log entries |
 | Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
 | Inbox   | Gmail search/read: messages delivered to the CRM address since the last check (on a schedule, or "Check now") | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
