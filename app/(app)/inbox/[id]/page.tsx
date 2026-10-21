@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { emailOf, loadInboxRow, parseIds, parsePeople } from "@/lib/inbox";
+import { emailOf, loadInboxRow, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE } from "@/lib/inbox";
 import { cleanSubject } from "@/lib/inboxRoute";
 import { ignoreInboxMessage, rerouteInboxMessage } from "@/lib/inboxActions";
 
@@ -102,7 +102,11 @@ export default async function InboxMessagePage({ params }: { params: Promise<{ i
         ) : row.status === "error" ? (
           <p className="text-red-700">Couldn&apos;t route: {row.error}</p>
         ) : row.status === "ignored" ? (
-          <p className="text-stone-500">Ignored.</p>
+          <p className="text-stone-500">
+            {row.route === UNKNOWN_SENDER_ROUTE
+              ? "Ignored — not sent from one of your addresses, so it wasn't passed to the AI. Add the sender under “Your other email addresses” on the Inbox page to accept mail from it, or route this one by hand below."
+              : "Ignored."}
+          </p>
         ) : (
           <p className="text-stone-500">Waiting to be routed.</p>
         )}

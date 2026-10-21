@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "./db";
 import { buildInboxFetchPrompt, claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS, type InboxFetchedMessage } from "./ai";
 import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
-import { intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
+import { intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
 
@@ -16,12 +16,19 @@ import { getSetting, setSetting } from "./settings";
  * aren't), or both. Nothing is written to the roster until the owner
  * confirms the drafts, exactly as with a paste.
  *
+ * Only email whose From is one of the owner's addresses (owner.json's, the
+ * CRM address, inbox.extra_owner_emails) is routed; anything else is stored
+ * as ignored with route 'unknown sender' and never reaches the model unless
+ * the owner routes it by hand.
+ *
  * Settings (key/value, edited on /inbox): inbox.address, inbox.enabled,
  * inbox.poll_minutes, inbox.extra_owner_emails, and the status pair
  * inbox.last_poll_at / inbox.last_error.
  */
 
 export const INBOX_MAX_PER_POLL = 20;
+/** inbox_messages.route for mail that wasn't sent from one of the owner's addresses. */
+export const UNKNOWN_SENDER_ROUTE = "unknown sender";
 const MIN_POLL_MINUTES = 10;
 const DEFAULT_POLL_MINUTES = 30;
 /** How far back a poll looks: from the last successful poll, less this margin (Gmail's after: is day-granular). */
@@ -89,6 +96,8 @@ export interface PollResult {
   fetched: number;
   routed: number;
   skipped: number;
+  /** Not sent from one of the owner's addresses — stored, not routed. */
+  ignored: number;
   error: string | null;
 }
 
@@ -116,7 +125,7 @@ function gmailDate(d: Date): string {
 async function pollInboxInner(): Promise<PollResult> {
   const db = getDb();
   const s = getInboxSettings();
-  const result: PollResult = { fetched: 0, routed: 0, skipped: 0, error: null };
+  const result: PollResult = { fetched: 0, routed: 0, skipped: 0, ignored: 0, error: null };
   if (!s.address) {
     result.error = "No CRM address is set.";
     return result;
@@ -150,10 +159,16 @@ async function pollInboxInner(): Promise<PollResult> {
       body: m.body ?? "",
     }));
     result.fetched = messages.length;
+    const owners = inboxOwnerEmails(s);
     for (const m of messages) {
       const stored = storeMessage(db, m);
       if (!stored) {
         result.skipped++;
+        continue;
+      }
+      if (!sentByOwner(m, owners)) {
+        db.prepare(`UPDATE inbox_messages SET status='ignored', route=? WHERE id=?`).run(UNKNOWN_SENDER_ROUTE, stored);
+        result.ignored++;
         continue;
       }
       routeMessage(db, stored);

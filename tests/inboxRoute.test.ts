@@ -7,6 +7,7 @@ import {
   participantsOf,
   primaryParticipant,
   routeEmail,
+  sentByOwner,
   stripPlusTag,
   subjectTag,
   type InboxEmail,
@@ -161,3 +162,25 @@ describe("primaryParticipant", () => {
     assert.equal(primaryParticipant(none, []), null);
   });
 });
+
+describe("sentByOwner", () => {
+  test("accepts the owner's addresses, any plus-tag, any case, with or without a display name", () => {
+    assert.equal(sentByOwner({ from: "Owner <owner@example.com>" }, OWNER), true);
+    assert.equal(sentByOwner({ from: "owner+anything@Example.com" }, OWNER), true);
+    assert.equal(sentByOwner({ from: "\"Owner at Firm\" <OWNER@firm.example>" }, OWNER), true);
+  });
+  test("rejects anyone else, including a stranger writing to the CRM address", () => {
+    assert.equal(sentByOwner({ from: "Jane Doe <jane@acme.example>" }, OWNER), false);
+    assert.equal(sentByOwner({ from: "owner@example.com.evil.example" }, OWNER), false);
+    assert.equal(sentByOwner({ from: "notowner@example.com" }, OWNER), false);
+  });
+  test("judges only the real sender, not a name or address that merely looks like the owner's", () => {
+    assert.equal(sentByOwner({ from: "owner@example.com <jane@acme.example>" }, OWNER), false);
+  });
+  test("rejects an empty or unparseable From, and accepts nobody when no owner address is known", () => {
+    assert.equal(sentByOwner({ from: "" }, OWNER), false);
+    assert.equal(sentByOwner({ from: "Owner" }, OWNER), false);
+    assert.equal(sentByOwner({ from: "owner@example.com" }, ["", "  "]), false);
+  });
+});
+

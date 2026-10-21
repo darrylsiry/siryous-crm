@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDb } from "@/lib/db";
 import { getAiStatus } from "@/lib/aiStatus";
-import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, type InboxRow } from "@/lib/inbox";
+import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE, type InboxRow } from "@/lib/inbox";
 import { localQueueDepth } from "@/lib/llm";
 import { readProgress } from "@/lib/progress";
 import { cleanSubject } from "@/lib/inboxRoute";
@@ -188,7 +188,11 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                     ) : r.status === "error" ? (
                       <span className="text-red-700">Couldn&apos;t route: {r.error}</span>
                     ) : r.status === "ignored" ? (
-                      <span className="text-stone-400">Ignored</span>
+                      <span className="text-stone-400">
+                        {r.route === UNKNOWN_SENDER_ROUTE
+                          ? "Ignored — not sent from one of your addresses (add it under “Your other email addresses” to accept it, or route it by hand below)"
+                          : "Ignored"}
+                      </span>
                     ) : (
                       <span className="text-stone-500">Waiting to be routed</span>
                     )}
@@ -270,7 +274,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
               className={input}
             />
             <span className="mt-1 block text-xs text-stone-400">
-              So they&apos;re never mistaken for a contact when you forward from them. Your address from{" "}
+              Only email sent from your own addresses is acted on — anything else at the CRM address is listed as
+              ignored. List here every address you forward or copy from, so mail from it is accepted and never
+              mistaken for a contact. Your address from{" "}
               <code>config/owner.json</code>
               {owner.ownerEmail ? (
                 <>

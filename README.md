@@ -205,7 +205,11 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   on Sam — next step is the proposal"). The page checks the mailbox on a
   schedule (one short Claude run each time) or on demand, shows where each
   draft is in the model's queue, and lets you re-route anything it guessed
-  wrong (which replaces that email's drafts rather than adding more). To set it
+  wrong (which replaces that email's drafts rather than adding more). Only
+  email sent from your own addresses (the one in `config/owner.json`, plus any
+  you list under **Your other email addresses**) is acted on: anyone can write
+  to a plus-address, so mail from anyone else is listed as ignored and never
+  reaches the AI unless you route it by hand. To set it
   up, open **Inbox**, enter the address under **Your CRM address**, tick
   **Check automatically** and click **Save** — nothing is checked until you do.
 - **📰 News Feed (AI, needs Claude)** — once a day, Claude searches the web

@@ -219,3 +219,15 @@ export function ownerAddresses(ownerEmail: string | null | undefined, inboxAddre
 }
 
 export { EMAIL_RE };
+
+/**
+ * True when the email's own sender (its From header — not a forwarded block
+ * in the body) is one of the owner's addresses, plus-tags ignored. Mail-in
+ * only acts on email the owner sent: anyone can write to a plus-address like
+ * you+crm@gmail.com, and an email's body is passed to the model.
+ */
+export function sentByOwner(email: Pick<InboxEmail, "from">, ownerEmails: string[]): boolean {
+  const owners = new Set(ownerEmails.map((e) => e.trim()).filter(Boolean).map(stripPlusTag));
+  const sender = parseAddresses(email.from)[0];
+  return !!sender && owners.has(stripPlusTag(sender.email));
+}
