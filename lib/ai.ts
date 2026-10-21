@@ -619,18 +619,19 @@ export const FETCH_NOT_FOUND = "NOT_FOUND:";
 export function buildFetchPrompt(request: string, source: string): string {
   const today = new Date().toLocaleDateString("sv-SE");
   const O = loadOwner();
-  const driveOwner = O.ownerEmail ? ` Meet transcripts are Google Docs auto-created in the ${O.ownerEmail} Drive and shared into this connected Drive.` : " Meet transcripts are Google Docs auto-created by Google Meet in Drive.";
   const how =
     source === "zoom"
       ? `Use your Zoom tools (search_meetings, get_meeting_assets, recordings_list, get_file_content) to find the meeting and retrieve its transcript (preferred) or AI summary.`
       : source === "meet"
-        ? `${driveOwner.trim()} Find them with your Google Drive tools:
-- search_files with queries like: title contains 'Notes by Gemini', title contains 'Transcript', or title contains '<participant/meeting name>' — combine with modifiedTime >/< 'YYYY-MM-DDT00:00:00Z' to narrow by date${O.ownerEmail ? `, or owner = '${O.ownerEmail}'` : ""}. String values in single quotes. list_recent_files also works for "my latest meeting".
-- Titles typically look like "<Meeting title> (<Guest name>) - YYYY/MM/DD HH:MM TZ - Notes by Gemini" or "<Meeting title> - Transcript".
-- read_file_content on the matching doc. A "Notes by Gemini" doc usually contains BOTH a Gemini summary AND the full verbatim transcript — return the transcript (ground truth); include the summary after it if present.`
+        ? `Google Meet saves "Notes by Gemini" docs (and plain transcripts) as Google Docs in Drive, usually 5–20 minutes after the meeting ends — and only for meetings where Gemini note-taking was turned on.
+1. Identify the meeting with your Google Calendar tools first (search_events, list_events): match the people, company, topic and date in the request to an event. The event title often contains none of the names in the request (e.g. "Intro to <owner> (<company>)"), so match on attendees and date too. Note the event's exact title, start/end time and attendees. If no event matches, go to step 2 with the request's own words.
+2. Find the doc with your Google Drive tools: search_files with title contains '<distinctive words from the event title>', and/or title contains 'Notes by Gemini' or 'Transcript' with createdTime >= '<event start, RFC 3339>'. String values in single quotes. Titles look like "<Event title> - YYYY/MM/DD HH:MM TZ - Notes by Gemini" or "<Event title> - Transcript". list_recent_files also works for "my latest meeting". Don't filter by owner — the doc can live in any of ${O.possessive} Google accounts and be shared into this one.
+3. read_file_content on the matching doc. A "Notes by Gemini" doc usually contains BOTH a Gemini summary AND the full verbatim transcript — return the transcript (ground truth); include the summary after it if present.
+If the meeting is on the calendar but no doc exists, your ${FETCH_NOT_FOUND} line must name the event (title, date, time) and say which case it is: it ended less than about 30 minutes before NOW → the notes are probably still being generated, try again in a few minutes; otherwise → no Gemini notes or transcript were created for that meeting (note-taking was probably not turned on).`
         : `Use your Gmail tools (search_threads, get_thread, get_message) to retrieve the actual thread content — every message, in order.`;
 
   return `TODAY: ${today}
+NOW: ${new Date().toString()}
 
 You are a retrieval assistant. ${O.First} describes below which ${source === "gmail" ? "Gmail thread(s)" : source === "meet" ? "Google Meet meeting" : "Zoom meeting"} to log in ${O.possessive} CRM. Find it and return its content — a separate step will write the CRM entries, so your job is faithful retrieval, not summarizing.
 

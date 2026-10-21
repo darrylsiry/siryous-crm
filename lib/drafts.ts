@@ -78,7 +78,14 @@ export function insertLogDraft(db: Database.Database, input: LogDraftInput): num
 
 /** Which connector a fetch-from source needs; "" for content that is already in hand. */
 export function logFetchTools(source: string): string {
-  return source === "zoom" ? TOOLS.zoomRead : source === "meet" ? TOOLS.driveRead : source === "gmail" ? TOOLS.gmailRead : "";
+  // Meet reads the Calendar to identify the meeting, then Drive for its notes doc — both read-only, no web.
+  return source === "zoom"
+    ? TOOLS.zoomRead
+    : source === "meet"
+      ? [TOOLS.calendarRead, TOOLS.driveRead].join(",")
+      : source === "gmail"
+        ? TOOLS.gmailRead
+        : "";
 }
 
 export async function processLogDraft(draftId: number): Promise<void> {
@@ -105,7 +112,7 @@ export async function processLogDraft(draftId: number): Promise<void> {
       if (!fetched || nf !== -1) {
         throw new Error(
           `Couldn't retrieve the ${row.source} content: ${fetched.slice(nf + FETCH_NOT_FOUND.length).replace(/\*+/g, "").trim() || "nothing came back"}. ` +
-            "You can paste the transcript/thread directly instead."
+            "Or paste the transcript/thread directly instead."
         );
       }
       content = fetched;

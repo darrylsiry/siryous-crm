@@ -325,7 +325,10 @@ This matters, so here it is plainly:
   - Intake with the **Look them up on the web first** box ticked (it is ticked
     by default once Claude is installed): the text you pasted.
   - Log with the **Zoom / Gmail / Google Meet** source: your request, and the
-    transcript or email thread Claude fetched on your behalf.
+    transcript or email thread Claude fetched on your behalf (for Google Meet,
+    Claude first looks the meeting up on your Google Calendar, then finds its
+    "Notes by Gemini" doc in Google Drive — so Gemini note-taking has to have
+    been on for that meeting).
   - Inbox: each mailbox check is a Claude run that searches Gmail for mail
     delivered to your CRM address and returns those messages. The routing
     and the drafting then happen on this Mac.
