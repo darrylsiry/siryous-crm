@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAiStatus } from "@/lib/aiStatus";
 import { getNewsSettings, newsCounts, newsFeed, newsScanRunning, newsSubjects } from "@/lib/news";
+import { markNewsSeen } from "@/lib/navCounts";
 import { checkNewsNow, dismissNewsItem, restoreNewsItem, setNewsEnabled } from "@/lib/newsActions";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
@@ -23,6 +24,8 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
   const s = getNewsSettings();
   const running = newsScanRunning();
   const items = newsFeed({ dismissed: showDismissed });
+  // Opening the feed clears its "new since last visit" sidebar badge.
+  markNewsSeen();
   const counts = newsCounts();
   const subjects = newsSubjects();
   const checked = subjects.filter((x) => x.checkedAt).length;
