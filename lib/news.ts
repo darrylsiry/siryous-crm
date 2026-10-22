@@ -43,7 +43,7 @@ export interface NewsSettings {
  * is opt-in. Installs that already ran it while it was on by default (a
  * last-run stamp and no explicit choice) keep running.
  */
-function newsEnabled(): boolean {
+export function newsEnabled(): boolean {
   const v = getSetting("news.enabled");
   if (v === "on") return true;
   if (v === "off") return false;

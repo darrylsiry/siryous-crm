@@ -1,6 +1,8 @@
 import Link from "next/link";
 import MobileNav from "@/components/MobileNav";
+import NavBadge from "@/components/NavBadge";
 import { loadOwner } from "@/lib/owner.mjs";
+import { navCounts, type NavCounts } from "@/lib/navCounts";
 
 const owner = loadOwner();
 
@@ -63,9 +65,15 @@ function AppName({ name }: { name: string }) {
  * page except sign-in, which lives in the (bare) group with no navigation.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  let counts: NavCounts = {};
+  try {
+    counts = navCounts();
+  } catch {
+    /* never let the badges take the app chrome down */
+  }
   return (
     <>
-      <MobileNav nav={nav} appName={owner.appName} />
+      <MobileNav nav={nav} appName={owner.appName} counts={counts} />
       <div className="flex min-h-screen">
         <aside className="fixed inset-y-0 hidden w-52 overflow-y-auto border-r border-stone-200 bg-white px-4 py-6 md:flex md:flex-col">
           <Link href="/" className="mb-8 block px-2">
@@ -99,6 +107,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     >
                       <span className="text-stone-400 w-4 text-center">{n.icon}</span>
                       {n.label}
+                      <NavBadge href={n.href} initial={counts} />
                     </Link>
                   ))}
                 </div>

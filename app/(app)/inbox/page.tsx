@@ -5,7 +5,8 @@ import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, UNKNOWN_SEND
 import { localQueueDepth } from "@/lib/llm";
 import { readProgress } from "@/lib/progress";
 import { cleanSubject } from "@/lib/inboxRoute";
-import { checkInboxNow, ignoreInboxMessage, rerouteInboxMessage, saveInboxSettings } from "@/lib/inboxActions";
+import { checkInboxNow, ignoreInboxMessage, markAllInboxRead, rerouteInboxMessage, saveInboxSettings } from "@/lib/inboxActions";
+import { INBOX_UNREAD_COND } from "@/lib/navCounts";
 import { loadOwner } from "@/lib/owner.mjs";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
@@ -84,8 +85,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   const running = inboxPollRunning();
   const queued = localQueueDepth();
   const rows = getDb()
-    .prepare(`SELECT * FROM inbox_messages ORDER BY id DESC LIMIT 40`)
-    .all() as InboxRow[];
+    .prepare(`SELECT m.*, (${INBOX_UNREAD_COND}) AS unread FROM inbox_messages m ORDER BY m.id DESC LIMIT 40`)
+    .all() as (InboxRow & { unread: number })[];
+  const unreadCount = rows.filter((r) => r.unread).length;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -114,7 +116,18 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
       <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className={h2}>Queue</h2>
+          <h2 className={h2}>
+            Queue
+            {unreadCount > 0 ? <span className="ml-2 text-xs font-medium text-red-700">{unreadCount} unread</span> : null}
+          </h2>
+          <div className="flex items-center gap-2">
+          {unreadCount > 0 ? (
+            <form action={markAllInboxRead}>
+              <button className={smallBtn} title="Clear the unread badge without opening each email">
+                Mark all read
+              </button>
+            </form>
+          ) : null}
           <form action={checkInboxNow}>
             <PendingButton
               label={running ? "Checking…" : "Check now"}
@@ -125,6 +138,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
               disabledLabel={!s.address ? "Set an address below first" : "Check now"}
             />
           </form>
+          </div>
         </div>
         <p className="text-xs text-stone-400">
           {s.enabled && s.address ? (
@@ -155,7 +169,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
               return (
                 <li key={r.id} className="py-3 text-sm">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <Link href={`/inbox/${r.id}`} className="font-medium text-stone-800 hover:text-indigo-700 hover:underline" title="Open the original email">
+                    {r.unread ? <span className="h-2 w-2 shrink-0 self-center rounded-full bg-red-600" title="Unread" /> : null}
+                    <Link href={`/inbox/${r.id}`} className={`${r.unread ? "font-semibold text-stone-900" : "font-medium text-stone-800"} hover:text-indigo-700 hover:underline`} title="Open the original email">
                       {cleanSubject(r.subject ?? "") || "(no subject)"}
                     </Link>
                     <span className="text-xs text-stone-400">

@@ -215,7 +215,13 @@ export interface InboxRow {
   pending_people: string | null;
   note: string | null;
   error: string | null;
+  read_at: string | null;
   created_at: string;
+}
+
+/** Opening an email (or acting on it) clears it from the Inbox unread badge. */
+export function markInboxRead(id: number, db: Database.Database = getDb()): void {
+  db.prepare(`UPDATE inbox_messages SET read_at = datetime('now') WHERE id=? AND read_at IS NULL`).run(id);
 }
 
 export function loadInboxRow(db: Database.Database, id: number): InboxRow | undefined {

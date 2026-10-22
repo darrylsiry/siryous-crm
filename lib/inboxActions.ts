@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb } from "./db";
-import { pollInbox, routeMessage, validateInboxAddress } from "./inbox";
+import { markInboxRead, pollInbox, routeMessage, validateInboxAddress } from "./inbox";
 import { setSetting } from "./settings";
 
 export async function saveInboxSettings(formData: FormData) {
@@ -43,6 +43,7 @@ export async function rerouteInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
   const as = String(formData.get("as") ?? "");
   const who = String(formData.get("who") ?? "").trim() || null;
+  if (id) markInboxRead(id);
   if (id && who) routeMessage(getDb(), id, null, who);
   else if (id && (as === "log" || as === "intake")) routeMessage(getDb(), id, as);
   revalidatePath("/inbox");
@@ -51,7 +52,13 @@ export async function rerouteInboxMessage(formData: FormData) {
 
 export async function ignoreInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
-  if (id) getDb().prepare(`UPDATE inbox_messages SET status='ignored' WHERE id=?`).run(id);
+  if (id) getDb().prepare(`UPDATE inbox_messages SET status='ignored', read_at=COALESCE(read_at, datetime('now')) WHERE id=?`).run(id);
   revalidatePath("/inbox");
   redirect(backTo(formData, id));
+}
+
+export async function markAllInboxRead() {
+  getDb().prepare(`UPDATE inbox_messages SET read_at = datetime('now') WHERE read_at IS NULL`).run();
+  revalidatePath("/inbox");
+  redirect("/inbox");
 }

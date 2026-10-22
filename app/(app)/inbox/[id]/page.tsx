@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { emailOf, loadInboxRow, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE } from "@/lib/inbox";
+import { emailOf, loadInboxRow, markInboxRead, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE } from "@/lib/inbox";
 import { cleanSubject } from "@/lib/inboxRoute";
 import { ignoreInboxMessage, rerouteInboxMessage } from "@/lib/inboxActions";
 
@@ -15,6 +15,7 @@ export default async function InboxMessagePage({ params }: { params: Promise<{ i
   const db = getDb();
   const row = loadInboxRow(db, Number(id));
   if (!row) notFound();
+  markInboxRead(row.id, db);
   const email = emailOf(row);
   const intakeIds = parseIds(row.intake_draft_ids);
   const pending = parsePeople(row.pending_people);
