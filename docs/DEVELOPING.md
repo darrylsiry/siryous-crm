@@ -154,7 +154,7 @@ tool grant and streams a live activity feed to the UI.
 | Log     | paste: none · Zoom / Gmail / Meet (Calendar to identify the meeting, then Drive for its notes doc): retrieve the transcript or thread | write the interaction-log entries |
 | Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
-| Inbox   | Gmail search/read: messages delivered to the CRM address since the last check (on a schedule, or "Check now") | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
+| Inbox   | Gmail search/read: messages delivered to the CRM address since the last check (on a schedule, or "Check now"), on Haiku. A check must actually reach Gmail to count, and `inboxCheckDue()` in `lib/inboxRoute.ts` sets the pace: `inbox.poll_minutes` while the owner is using the app, every four hours otherwise | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
 | News Feed | web search/fetch only, ~10 contacts per run, daily once turned on (opt-in; `news.enabled`) | none — Claude returns the stories as JSON; `lib/newsCore.ts` validates and de-duplicates them |
 
 If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
@@ -167,12 +167,19 @@ grant independent of the owner's own Claude Code configuration:
 folder, so no user, project or local settings load — a tool the owner
 pre-approved for their own sessions, or a `bypassPermissions` default mode,
 doesn't carry over), `--permission-mode dontAsk` (anything outside
-`--allowedTools` is refused rather than waiting for an approval), and a
-per-run `--disallowedTools` list: local shell/file tools, subagents, every
-connector tool that sends, creates, edits, shares or deletes
+`--allowedTools` is refused rather than waiting for an approval),
+`--no-session-persistence` (no transcript of the run is kept under
+`~/.claude/projects`), and a per-run `--disallowedTools` list: local shell/file
+tools, subagents, every other built-in that needs no approval and so would slip
+past `dontAsk` (scheduling, remote triggers, messaging other sessions,
+workflows), every connector tool that sends, creates, edits, shares or deletes
 (`CONNECTOR_WRITE_TOOLS`), the web unless granted, and every connector server
-the run wasn't granted. `tests/claudeArgs.test.ts` pins this down. One side
-effect: user-level Claude Code settings such as an `apiKeyHelper` or `env`
+the run wasn't granted. `tests/claudeArgs.test.ts` pins this down. It's a deny
+list because `--tools` removes the claude.ai connectors too, so check a new CLI
+version's `init` tool list for anything to add. `CronList` stays available on
+purpose: the CLI offers `ToolSearch` only while another tool is deferred, and
+connector tools can only be reached through it, which is also why
+`connectorPreamble()` tells the model to load them first. One side effect: user-level Claude Code settings such as an `apiKeyHelper` or `env`
 block don't apply to the CRM's runs.
 
 Claude steps run with an explicit, **read-only** tool grant (`TOOLS` in
@@ -229,7 +236,8 @@ the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
 `coach.provider`, `coach.model`; the Inbox and News Feed pages store
 `inbox.address`, `inbox.enabled`, `inbox.poll_minutes`,
 `inbox.extra_owner_emails`, `news.enabled`, and their `*.last_poll_at` /
-`*.last_run_at` / `*.last_error` status keys) and apply to the next run; the defaults come from the
+`inbox.last_attempt_at` / `*.last_run_at` / `*.last_error` status keys, and the
+sidebar's `app.last_active_at`) and apply to the next run; the defaults come from the
 environment. `coach.provider`/`coach.model` let the coach run on a different
 model (or on Claude) than the rest of the app: `getCoachSettings().route` is
 spread into the coach's `runModel`/`runWithProgress` calls, which accept

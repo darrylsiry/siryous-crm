@@ -4,7 +4,7 @@ import { getAiStatus } from "@/lib/aiStatus";
 import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE, type InboxRow } from "@/lib/inbox";
 import { localQueueDepth } from "@/lib/llm";
 import { readProgress } from "@/lib/progress";
-import { cleanSubject } from "@/lib/inboxRoute";
+import { cleanSubject, INBOX_AWAY_POLL_MINUTES } from "@/lib/inboxRoute";
 import { checkInboxNow, ignoreInboxMessage, markAllInboxRead, rerouteInboxMessage, saveInboxSettings } from "@/lib/inboxActions";
 import { INBOX_UNREAD_COND } from "@/lib/navCounts";
 import { loadOwner } from "@/lib/owner.mjs";
@@ -143,7 +143,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         <p className="text-xs text-stone-400">
           {s.enabled && s.address ? (
             <>
-              Checking <code>{s.address}</code> every {s.pollMinutes} minutes
+              Checking <code>{s.address}</code> every {s.pollMinutes} minutes while you&rsquo;re using the CRM, every{" "}
+              {Math.max(s.pollMinutes, INBOX_AWAY_POLL_MINUTES) / 60} hours otherwise
               {s.lastPollAt ? <> · last check {new Date(s.lastPollAt).toLocaleString()}</> : <> · not checked yet</>}.
             </>
           ) : s.address ? (
@@ -272,12 +273,13 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
             <span>
               Check automatically
               <span className="block text-xs text-stone-400">
-                Each check is one short Claude run with Gmail read access. Off, &ldquo;Check now&rdquo; still works.
+                Each check is one Claude run with Gmail read access, so it checks less often while you&rsquo;re away. Off,
+                &ldquo;Check now&rdquo; still works.
               </span>
             </span>
           </label>
           <label className={label}>
-            Minutes between checks
+            Minutes between checks while you&rsquo;re using the CRM
             <input name="poll_minutes" type="number" min={10} step={5} defaultValue={s.pollMinutes} className={`${input} max-w-[8rem]`} />
           </label>
           <label className={label}>

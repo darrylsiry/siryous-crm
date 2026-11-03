@@ -231,3 +231,37 @@ export function sentByOwner(email: Pick<InboxEmail, "from">, ownerEmails: string
   const sender = parseAddresses(email.from)[0];
   return !!sender && owners.has(stripPlusTag(sender.email));
 }
+
+// ---------------------------------------------------------------------------
+// When to check the mailbox
+// ---------------------------------------------------------------------------
+
+/** After the owner's last click, how long they still count as using the app. */
+export const INBOX_ACTIVE_WINDOW_MINUTES = 30;
+/** The slowest cadence, while nobody is using the app. Mail waits safely: each check looks back two days. */
+export const INBOX_AWAY_POLL_MINUTES = 240;
+
+/**
+ * Every check is a Claude run, and drafts wait for the owner to review them
+ * anyway, so check at the owner's chosen pace only while they're using the
+ * app. The clock runs from the last attempt, not the last success: a check
+ * that keeps failing (an expired login, say) must not retry every minute.
+ */
+export function inboxCheckDue({
+  now,
+  lastAttemptAt,
+  lastActiveAt,
+  pollMinutes,
+}: {
+  now: number;
+  lastAttemptAt: string | null;
+  lastActiveAt: string | null;
+  pollMinutes: number;
+}): boolean {
+  const attempted = Date.parse(lastAttemptAt ?? "");
+  if (!Number.isFinite(attempted)) return true;
+  const active = Date.parse(lastActiveAt ?? "");
+  const inUse = Number.isFinite(active) && now - active <= INBOX_ACTIVE_WINDOW_MINUTES * 60_000;
+  const minutes = inUse ? pollMinutes : Math.max(pollMinutes, INBOX_AWAY_POLL_MINUTES);
+  return now - attempted >= minutes * 60_000 - 5_000;
+}

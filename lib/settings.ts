@@ -49,6 +49,16 @@ export function setSetting(key: string, value: string | null) {
     ).run(key, value);
 }
 
+/** How often app.last_active_at may be rewritten: the signal is coarse, so don't write on every click. */
+const ACTIVITY_WRITE_MS = 5 * 60_000;
+
+/** Record that the owner is using the app. The Inbox checks more often while they are. */
+export function noteAppActivity(now = Date.now()) {
+  const last = Date.parse(getSetting("app.last_active_at") ?? "");
+  if (Number.isFinite(last) && now - last < ACTIVITY_WRITE_MS) return;
+  setSetting("app.last_active_at", new Date(now).toISOString());
+}
+
 export function getAiSettings(): AiSettings {
   const d = AI_DEFAULTS;
   const provider = getSetting("ai.provider");

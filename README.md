@@ -202,8 +202,10 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   listed with an "add" button, because every draft is a full run of the local
   model. `#log` or `#intake` in the subject decides for you; a note you type
   above a forwarded message is passed to the AI as your instruction ("log this
-  on Sam — next step is the proposal"). The page checks the mailbox on a
-  schedule (one short Claude run each time) or on demand, shows where each
+  on Sam — next step is the proposal"). The CRM checks the mailbox on a
+  schedule, or on demand, with one Claude run each time: at the pace you set
+  while you're using the app, and every four hours while you're away (mail
+  that arrives meanwhile isn't lost). The page shows where each
   draft is in the model's queue, and lets you re-route anything it guessed
   wrong (which replaces that email's drafts rather than adding more). Only
   email sent from your own addresses (the one in `config/owner.json`, plus any

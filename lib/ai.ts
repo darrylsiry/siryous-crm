@@ -56,10 +56,20 @@ export function claudeAvailable(): boolean {
 /**
  * Tools the headless CLI must never use: subagents (claude.ai connector tools
  * don't exist inside them, so delegated Gmail/Calendar research silently comes
- * back empty) and local shell/file access (a CRM analysis has no business
- * running commands or reading files on this machine).
+ * back empty), local shell/file access (a CRM analysis has no business
+ * running commands or reading files on this machine), and everything else the
+ * CLI offers by default, because tools that need no approval slip past
+ * `--permission-mode dontAsk`: scheduling, remote triggers, messaging other
+ * sessions, workflows.
+ *
+ * CronList stays on purpose. It only reads, and the CLI offers ToolSearch only
+ * while another tool is deferred; connector tools finish connecting after the
+ * run starts, so ToolSearch is the only way to reach them. `--tools` can't
+ * replace this list for the same reason: it removes the connectors too.
  */
-const DISALLOWED_TOOLS = "Agent,Task,Bash,Glob,Grep,Read,Write,Edit,MultiEdit,NotebookEdit,BashOutput,KillShell";
+const DISALLOWED_TOOLS =
+  "Agent,Task,Bash,Glob,Grep,Read,Write,Edit,MultiEdit,NotebookEdit,BashOutput,KillShell," +
+  "CronCreate,CronDelete,DesignSync,EnterWorktree,ExitWorktree,ListAgents,PushNotification,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,Workflow";
 
 /**
  * Read-only tool grants for features that fetch external context. Grant one
@@ -114,7 +124,9 @@ const CONNECTOR_WRITE_TOOLS: Record<string, string[]> = {
  *   instead of waiting for an approval nobody can give;
  * - `--disallowedTools` additionally blocks local shell/file tools, subagents,
  *   every connector write tool, the web unless it is granted, and every
- *   connector server this run wasn't granted.
+ *   connector server this run wasn't granted;
+ * - `--no-session-persistence` keeps the run's transcript, which can hold email
+ *   bodies, from piling up under ~/.claude/projects.
  */
 export function claudeArgs(model: string, allowedTools: string): string[] {
   const granted = allowedTools.split(",").map((t) => t.trim()).filter(Boolean);
@@ -126,9 +138,23 @@ export function claudeArgs(model: string, allowedTools: string): string[] {
   }
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--model", model];
   args.push("--setting-sources", "project", "--permission-mode", "dontAsk");
+  args.push("--disable-slash-commands", "--no-session-persistence");
   args.push("--disallowedTools", deny.join(","));
   if (granted.length) args.push("--allowedTools", granted.join(","));
   return args;
+}
+
+/**
+ * With nothing else deferred, the model can't tell that connector tools exist
+ * until it has loaded them, so a run that holds any says so up front.
+ */
+export function connectorPreamble(allowedTools: string): string {
+  const connector = allowedTools
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.startsWith("mcp__"));
+  if (!connector.length) return "";
+  return `The tools for this task load on demand. Before anything else, call ToolSearch with the query "select:${connector.join(",")}".\n\n`;
 }
 
 /**
@@ -320,7 +346,7 @@ export function runClaudeStream(
     child.stdin.on("error", (err) =>
       finish(() => reject(new Error(explainClaudeError(`Claude CLI closed its input early: ${err.message}`))))
     );
-    child.stdin.write(prompt);
+    child.stdin.write(connectorPreamble(allowedTools) + prompt);
     child.stdin.end();
   });
 }
@@ -675,9 +701,8 @@ export function buildInboxFetchPrompt(address: string, afterDate: string, seenId
   return `You are a retrieval assistant for ${O.possessive} CRM. Emails that ${O.first} forwards or copies to ${address} are meant to be recorded in the CRM. Your only job is to fetch the new ones and return them verbatim as JSON.
 
 STEPS:
-1. Use search_threads with the query: deliveredto:${address} after:${afterDate}
-   (if it returns nothing, also try: to:${address} after:${afterDate})
-2. For every thread found, call get_thread and pick out the individual messages whose To/Cc/Delivered-To includes ${address}. Skip messages with these ids, they are already recorded: ${seenIds.length ? seenIds.join(", ") : "(none)"}
+1. Use search_threads once, with the query: {deliveredto:${address} to:${address} cc:${address}} after:${afterDate}
+2. For every thread found, always call get_thread, even if its thread id appears in the list below (thread ids are not message ids), and pick out the individual messages whose To/Cc/Delivered-To includes ${address}. Skip messages with these ids, they are already recorded: ${seenIds.length ? seenIds.join(", ") : "(none)"}
 3. Return at most ${maxMessages} messages, oldest first.
 
 OUTPUT: ONLY a JSON object, no prose, no code fence, with one entry per message:

@@ -8,7 +8,8 @@ import type { NavCounts } from "@/lib/navCounts";
  * Sidebar badge counts, shared by the desktop sidebar and MobileNav. The
  * layout renders the first values on the server; after that one client-side
  * store refreshes them on navigation, after any form submit (server actions),
- * when the window regains focus, and once a minute.
+ * when the window regains focus, and once a minute. All but the timer also tell
+ * the server the owner is here, so a tab left open doesn't count as being here.
  */
 const POLL_MS = 60_000;
 
@@ -22,11 +23,11 @@ function emit() {
   for (const l of listeners) l();
 }
 
-async function refresh() {
+async function refresh(active = true) {
   if (inflight) return;
   inflight = true;
   try {
-    const res = await fetch("/api/nav-counts", { cache: "no-store" });
+    const res = await fetch(active ? "/api/nav-counts?active=1" : "/api/nav-counts", { cache: "no-store" });
     if (res.ok) {
       counts = (await res.json()) as NavCounts;
       emit();
@@ -42,7 +43,7 @@ function start() {
   if (started || typeof window === "undefined") return;
   started = true;
   window.setInterval(() => {
-    if (document.visibilityState === "visible") void refresh();
+    if (document.visibilityState === "visible") void refresh(false);
   }, POLL_MS);
   window.addEventListener("focus", () => void refresh());
   // Server actions run on form submit; recount once they've likely landed.

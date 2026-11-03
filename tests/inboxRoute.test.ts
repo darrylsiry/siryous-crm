@@ -2,6 +2,9 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cleanSubject,
+  INBOX_ACTIVE_WINDOW_MINUTES,
+  INBOX_AWAY_POLL_MINUTES,
+  inboxCheckDue,
   intakeInputFor,
   logInputFor,
   participantsOf,
@@ -184,3 +187,51 @@ describe("sentByOwner", () => {
   });
 });
 
+
+describe("inboxCheckDue", () => {
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+  const due = (lastAttempt: number | null, lastActive: number | null, pollMinutes = 30) =>
+    inboxCheckDue({
+      now,
+      lastAttemptAt: lastAttempt === null ? null : ago(lastAttempt),
+      lastActiveAt: lastActive === null ? null : ago(lastActive),
+      pollMinutes,
+    });
+
+  test("the first check runs straight away", () => {
+    assert.equal(due(null, null), true);
+  });
+
+  test("while the owner is using the app, it keeps their chosen pace", () => {
+    assert.equal(due(29, 1), false);
+    assert.equal(due(30, 1), true);
+    assert.equal(due(10, 1, 10), true);
+  });
+
+  test("while they're away, it slows to the away pace", () => {
+    const away = INBOX_ACTIVE_WINDOW_MINUTES + 1;
+    assert.equal(due(30, away), false);
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES - 1, away), false);
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES, away), true);
+  });
+
+  test("with no activity on record, it counts as away", () => {
+    assert.equal(due(30, null), false);
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES, null), true);
+  });
+
+  test("coming back after a while triggers a check right away", () => {
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES - 60, 0), true);
+  });
+
+  test("a chosen pace slower than the away pace is honoured both ways", () => {
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES, 1, 600), false);
+    assert.equal(due(INBOX_AWAY_POLL_MINUTES, null, 600), false);
+    assert.equal(due(600, null, 600), true);
+  });
+
+  test("an unreadable timestamp doesn't stop the checks", () => {
+    assert.equal(inboxCheckDue({ now, lastAttemptAt: "garbage", lastActiveAt: "garbage", pollMinutes: 30 }), true);
+  });
+});

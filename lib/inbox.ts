@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "./db";
 import { buildInboxFetchPrompt, claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS, type InboxFetchedMessage } from "./ai";
 import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
-import { intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
+import { inboxCheckDue, intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
 
@@ -22,11 +22,13 @@ import { getSetting, setSetting } from "./settings";
  * the owner routes it by hand.
  *
  * Settings (key/value, edited on /inbox): inbox.address, inbox.enabled,
- * inbox.poll_minutes, inbox.extra_owner_emails, and the status pair
- * inbox.last_poll_at / inbox.last_error.
+ * inbox.poll_minutes, inbox.extra_owner_emails, and the status keys
+ * inbox.last_poll_at (last success), inbox.last_attempt_at, inbox.last_error.
  */
 
 export const INBOX_MAX_PER_POLL = 20;
+/** A poll only fetches and copies text; a side-by-side run returned the same mail as Sonnet at a fraction of the cost. */
+const INBOX_MODEL = "haiku";
 /** inbox_messages.route for mail that wasn't sent from one of the owner's addresses. */
 export const UNKNOWN_SENDER_ROUTE = "unknown sender";
 const MIN_POLL_MINUTES = 10;
@@ -41,6 +43,7 @@ export interface InboxSettings {
   pollMinutes: number;
   extraOwnerEmails: string[];
   lastPollAt: string | null;
+  lastAttemptAt: string | null;
   lastError: string | null;
 }
 
@@ -55,6 +58,8 @@ export function getInboxSettings(): InboxSettings {
       .map((e) => e.trim())
       .filter(Boolean),
     lastPollAt: getSetting("inbox.last_poll_at"),
+    // Installs from before this key existed fall back to the last success.
+    lastAttemptAt: getSetting("inbox.last_attempt_at") ?? getSetting("inbox.last_poll_at"),
     lastError: getSetting("inbox.last_error"),
   };
 }
@@ -135,6 +140,7 @@ async function pollInboxInner(): Promise<PollResult> {
     setSetting("inbox.last_error", result.error);
     return result;
   }
+  setSetting("inbox.last_attempt_at", new Date().toISOString());
   try {
     const since = new Date();
     if (s.lastPollAt) since.setTime(new Date(s.lastPollAt).getTime() - LOOKBACK_DAYS * 86_400_000);
@@ -142,10 +148,18 @@ async function pollInboxInner(): Promise<PollResult> {
     const seen = (db.prepare(`SELECT gmail_id FROM inbox_messages ORDER BY id DESC LIMIT 60`).all() as { gmail_id: string }[]).map(
       (r) => r.gmail_id
     );
+    let reachedGmail = false;
     const text = await runClaudeStream(buildInboxFetchPrompt(s.address, gmailDate(since), seen, INBOX_MAX_PER_POLL), {
+      model: INBOX_MODEL,
       allowedTools: TOOLS.gmailRead,
       timeoutMs: 300_000,
+      onEvent: (e) => {
+        if (e.t === "gmail") reachedGmail = true;
+      },
     });
+    // Without this, a model that couldn't reach Gmail can look like an empty
+    // mailbox: its explanation may quote {"messages": []}, which parses fine.
+    if (!reachedGmail) throw new Error("The check never reached Gmail, so nothing was fetched. Is the Gmail connector still connected in Claude?");
     const parsed = FetchedSchema.safeParse(await extractJsonWithRepair(text));
     if (!parsed.success) throw new Error(`Couldn't read the mailbox listing: ${parsed.error.issues[0]?.message ?? "bad JSON"}`);
     const messages: InboxFetchedMessage[] = parsed.data.messages.map((m) => ({
@@ -361,8 +375,9 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
 let loopTimer: NodeJS.Timeout | null = null;
 
 /**
- * Check the mailbox on a schedule while mail-in is on. The interval is read
- * from settings on every tick, so changes on /inbox apply without a restart.
+ * Check the mailbox on a schedule while mail-in is on (see inboxCheckDue). The
+ * interval is read from settings on every tick, so changes on /inbox apply
+ * without a restart.
  */
 export function startInboxLoop(): void {
   if (loopTimer) return;
@@ -370,8 +385,13 @@ export function startInboxLoop(): void {
     try {
       const s = getInboxSettings();
       if (s.enabled && s.address && claudeBin()) {
-        const last = s.lastPollAt ? new Date(s.lastPollAt).getTime() : 0;
-        if (Date.now() - last >= s.pollMinutes * 60_000 - 5_000) {
+        const due = inboxCheckDue({
+          now: Date.now(),
+          lastAttemptAt: s.lastAttemptAt,
+          lastActiveAt: getSetting("app.last_active_at"),
+          pollMinutes: s.pollMinutes,
+        });
+        if (due) {
           const r = await pollInbox();
           if (r.fetched || r.error) console.log(`[inbox] fetched ${r.fetched}, routed ${r.routed}${r.error ? ` — ${r.error}` : ""}`);
         }
