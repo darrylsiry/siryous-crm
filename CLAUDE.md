@@ -28,3 +28,8 @@
   `npm test` and `node --check scripts/mcp-server.mjs`. The server binds to 127.0.0.1 only.
 - **Deploy locally:** `./Restart\ CRM.command` (= Stop + Start; rebuilds when source
   changed) or `npm run build && npm start`.
+- **Review agents** (`docs/REVIEW_AGENTS.md`): `code-auditor`, `security-reviewer` and `ux-reviewer` each work
+  alone, through `scripts/review-run.sh`. Never pass one agent's findings, a session's conclusions or anyone's
+  memory into an agent's definition or snapshot. Reports stay in the gitignored `data/agent-reports/`, because
+  they can describe open weaknesses and this repository is public: never commit them. Don't fix findings unless
+  asked; they are for the owner to triage.

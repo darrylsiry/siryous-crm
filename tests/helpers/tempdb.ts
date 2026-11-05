@@ -14,3 +14,5 @@ process.env.CRM_DB_PATH = dbPath;
 // Prompts must read the same on every machine: ignore any config/owner.json
 // (and vocab) the developer has, unless a test sets these itself.
 process.env.OWNER_CONFIG ??= path.join(tmp.dir, "no-owner.json");
+// Nor the real review reports: they hold a developer's own findings.
+process.env.AGENT_REPORTS_DIR ??= path.join(tmp.dir, "agent-reports");

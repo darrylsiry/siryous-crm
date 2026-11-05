@@ -408,6 +408,13 @@ connector grants) and fallback · `@modelcontextprotocol/sdk` for the MCP
 server. No client-side state libraries; forms are plain HTML `<details>`
 disclosures posting to server actions.
 
+## Review agents
+
+Three independent agents review the code, security and usability, and the **App Tests** page
+(`/app-tests`, in the sidebar once a report exists) shows the latest findings and their history.
+See [REVIEW_AGENTS.md](REVIEW_AGENTS.md). `AGENT_REPORTS_DIR` moves their reports from
+`data/agent-reports`.
+
 ## Tests and CI
 
 ```bash

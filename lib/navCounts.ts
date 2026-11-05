@@ -2,6 +2,7 @@ import { getDb, STAGES } from "./db";
 import { EFFECTIVE_BUCKET, followUps } from "./queries";
 import { getSetting, setSetting } from "./settings";
 import { newsEnabled } from "./news";
+import { urgentFindingCount } from "./agentActivity";
 
 /**
  * Sidebar badges. Each entry is keyed by nav href. `tone` picks the colour:
@@ -113,6 +114,8 @@ export function navCounts(): NavCounts {
   safe(() => put("/news", newsUnseen(), "alert", "New since you last looked"));
 
   safe(() => put("/coach", n(`SELECT COUNT(*) n FROM coach_proposals WHERE status='pending'`), "warn", "Coach proposals to review"));
+
+  safe(() => put("/app-tests", urgentFindingCount(), "warn", "Open findings at the top two severities"));
 
   return out;
 }

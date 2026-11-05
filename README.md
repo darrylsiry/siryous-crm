@@ -493,7 +493,9 @@ sends where, configuration files for your own vocabulary and owner profile,
 the Claude Desktop MCP server, backups, the export and merge scripts, the CSV
 importer's command-line form, tests and CI — is in
 [docs/DEVELOPING.md](docs/DEVELOPING.md). [CLAUDE.md](CLAUDE.md) has the
-ground rules for AI coding sessions in this repository. Contributions welcome.
+ground rules for AI coding sessions in this repository, and
+[docs/REVIEW_AGENTS.md](docs/REVIEW_AGENTS.md) covers the optional code,
+security and UX review agents behind the App Tests page. Contributions welcome.
 
 ## License
 

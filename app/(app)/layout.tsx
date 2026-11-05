@@ -3,6 +3,7 @@ import MobileNav from "@/components/MobileNav";
 import NavBadge from "@/components/NavBadge";
 import { loadOwner } from "@/lib/owner.mjs";
 import { navCounts, type NavCounts } from "@/lib/navCounts";
+import { hasReports } from "@/lib/agentActivity";
 
 const owner = loadOwner();
 
@@ -48,6 +49,16 @@ const nav: NavGroup[] = [
   { title: null, items: [{ href: "/settings", label: "Settings", icon: "⚙" }] },
 ];
 
+/** App Tests shows only once a review agent has written a report; most installs never run them. */
+function navWithTests(): NavGroup[] {
+  try {
+    if (!hasReports()) return nav;
+  } catch {
+    return nav;
+  }
+  return nav.map((g) => (g.items.some((i) => i.href === "/settings") ? { ...g, items: [{ href: "/app-tests", label: "App Tests", icon: "✓" }, ...g.items] } : g));
+}
+
 /** "Siryous CRM" → "Siryous" + accented " CRM"; any other name is rendered as-is. */
 function AppName({ name }: { name: string }) {
   const m = name.match(/^(.*?)(\s+CRM)$/i);
@@ -65,6 +76,7 @@ function AppName({ name }: { name: string }) {
  * page except sign-in, which lives in the (bare) group with no navigation.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const groups = navWithTests();
   let counts: NavCounts = {};
   try {
     counts = navCounts();
@@ -73,7 +85,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
   return (
     <>
-      <MobileNav nav={nav} appName={owner.appName} counts={counts} />
+      <MobileNav nav={groups} appName={owner.appName} counts={counts} />
       <div className="flex min-h-screen">
         <aside className="fixed inset-y-0 hidden w-52 overflow-y-auto border-r border-stone-200 bg-white px-4 py-6 md:flex md:flex-col">
           <Link href="/" className="mb-8 block px-2">
@@ -93,7 +105,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             />
           </form>
           <nav className="space-y-4">
-            {nav.map((g, i) => (
+            {groups.map((g, i) => (
               <div key={g.title ?? i}>
                 {g.title ? (
                   <div className="mb-1 px-3 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400">{g.title}</div>
