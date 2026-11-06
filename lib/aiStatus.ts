@@ -90,6 +90,16 @@ function probeOllama(url: string): Promise<Probe> {
   return probe;
 }
 
+/**
+ * Can a step routed to `route` (Settings → Coach can send the coach somewhere
+ * else than everything else) run right now?
+ */
+export function routeUsable(status: AiStatus, route: { provider: Provider; model: string }): boolean {
+  if (route.provider === "claude") return status.claude.ok;
+  const modelOk = status.ollama.ok && modelListed(status.model.available.map((m) => m.name), route.model);
+  return modelOk || (status.fallbackToClaude && status.claude.ok);
+}
+
 export async function getAiStatus(): Promise<AiStatus> {
   const s = getAiSettings();
   const probe = await probeOllama(s.ollamaUrl);

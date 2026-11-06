@@ -5,19 +5,20 @@ import { createPerson } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
 import PendingButton from "@/components/PendingButton";
 import SearchSelect from "@/components/SearchSelect";
+import { first, type Param } from "@/lib/params";
+import { profilePath } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
 export default async function PeoplePage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string | string[]; q?: string | string[]; duplicate?: string }>;
+  searchParams: Promise<{ status?: Param; q?: Param; duplicate?: Param }>;
 }) {
   const sp = await searchParams;
-  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const status = first(sp.status);
   const q = first(sp.q);
-  const duplicate = sp.duplicate;
+  const duplicate = first(sp.duplicate);
   let people = allPeople();
   if (status) people = people.filter((p) => p.status_key === status);
   if (q) {
@@ -35,7 +36,7 @@ export default async function PeoplePage({
     <div className="space-y-6">
       {duplicate ? (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Not created — <Link href={`/people/${duplicate}`} className="font-semibold underline">a profile with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
+          Not created — <Link href={profilePath("people", duplicate)} className="font-semibold underline">a profile with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
         </p>
       ) : null}
       <header className="flex flex-wrap items-end justify-between gap-3">

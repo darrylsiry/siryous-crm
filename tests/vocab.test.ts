@@ -1,13 +1,24 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import Database from "better-sqlite3";
 // Must come first: the prompt builders below pull in lib/db.ts, which opens CRM_DB_PATH on first use.
 import { tmp } from "./helpers/tempdb";
 
 // Then this: it writes an override file and points VOCAB_CONFIG at it before lib/db.ts loads.
 import { overrideFile } from "./helpers/vocab-override";
 
-import { DEFAULT_VOCAB, PALETTES, cadenceSentence, loadVocab, mergeVocab, palette } from "../lib/vocab.mjs";
+import {
+  DEFAULT_VOCAB,
+  PALETTES,
+  cadenceLine,
+  cadenceSentence,
+  keepWarmSql,
+  loadVocab,
+  mergeVocab,
+  palette,
+  statusRankSql,
+} from "../lib/vocab.mjs";
 import { BUCKETS, DEFAULT_CADENCE, KINDS, STAGES, STATUS, STRENGTHS } from "../lib/db";
 import { buildIntakePrompt, buildLogPrompt } from "../lib/ai";
 import { buildCoachReplyPrompt } from "../lib/coachai";
@@ -31,7 +42,15 @@ describe("defaults", () => {
     assert.deepEqual(Object.keys(v.stages), ["identified", "discussing", "scoping", "negotiating", "engaged", "won", "lost", "on_hold"]);
     assert.deepEqual(Object.keys(v.kinds), ["engagement", "partnership", "venture", "referral", "job"]);
     assert.deepEqual([...v.strengths], ["Cold", "Acquaintance", "Warm", "Trusted"]);
-    assert.deepEqual(v.status.new, { emoji: "🌱", label: "New", color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" });
+    assert.deepEqual(v.status.new, {
+      emoji: "🌱",
+      label: "New",
+      color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+      dot: "#10b981",
+      rank: 3,
+      keepWarm: true,
+    });
+    assert.equal(v.status.lost.keepWarm, false);
     assert.deepEqual(v.buckets.this_week, { label: "Dated — this week & upcoming", icon: "🟡", order: 2 });
     assert.deepEqual(v.stages.scoping, { label: "Scoping / proposal", icon: "📐", color: "border-t-amber-400", order: 2, open: true });
     assert.equal(v.stages.won.open, false);
@@ -54,6 +73,7 @@ describe("defaults", () => {
     for (const name of Object.keys(PALETTES)) {
       assert.match(palette(name).badge, new RegExp(`\\b${name}-`));
       assert.match(palette(name).stage, /^border-t-/);
+      assert.match(palette(name).dot, /^#[0-9a-f]{6}$/);
     }
     assert.equal(palette("neon"), PALETTES.stone);
     assert.equal(palette(undefined), PALETTES.stone);
@@ -86,13 +106,28 @@ describe("override file", () => {
   });
 
   test("renaming a label keeps the rest of the entry", () => {
-    assert.deepEqual(v.status.new, { emoji: "🌱", label: "Prospect", color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" });
+    assert.deepEqual(v.status.new, {
+      emoji: "🌱",
+      label: "Prospect",
+      color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+      dot: "#10b981",
+      rank: 3,
+      keepWarm: true,
+    });
     assert.equal(v.buckets.keep_warm.icon, "🟣");
     assert.equal(v.buckets.keep_warm.label, "Keep-warm / longer horizon");
   });
 
   test("new entries are added, ordered by `order`, and removed keys disappear", () => {
-    assert.deepEqual(v.status.advisor, { emoji: "🧭", label: "Advisor", color: "bg-blue-50 text-blue-700 ring-blue-600/20" });
+    // No rank given: listed after the built-in statuses.
+    assert.deepEqual(v.status.advisor, {
+      emoji: "🧭",
+      label: "Advisor",
+      color: "bg-blue-50 text-blue-700 ring-blue-600/20",
+      dot: "#3b82f6",
+      rank: 107,
+      keepWarm: true,
+    });
     assert.equal(Object.keys(v.status).at(-1), "advisor");
     assert.equal("dormant" in v.status, false);
     assert.deepEqual(Object.keys(v.buckets).slice(0, 3), ["overdue", "log_gap", "content"]);
@@ -160,5 +195,46 @@ describe("lib/db exports and prompts follow the config", () => {
     }
     assert.match(intake, /status_suggestion one of: new, exploring, active, on_hold, client, won, lost, dormant/);
     assert.match(intake, /cadence_days by status: new 21, exploring 45, active 30, on_hold 60, client 14, won 90, dormant 180; lost none/);
+  });
+});
+
+describe("lists the app builds from the vocabulary", () => {
+  const custom = mergeVocab({
+    status: {
+      advisor: { label: "Advisor", emoji: "🧭", color: "blue", rank: 0.5 },
+      archived: { label: "Archived", keepWarm: false },
+      remove: ["dormant"],
+    },
+    cadence: { advisor: 30 },
+    strengths: ["Unknown", "Close"],
+  });
+  const db = new Database(":memory:");
+  db.exec(`CREATE TABLE t (status_key TEXT); INSERT INTO t VALUES ('new'), ('advisor'), ('active'), ('archived'), ('lost'), ('gone')`);
+  const keys = (sql: string) => (db.prepare(sql).all() as { status_key: string }[]).map((r) => r.status_key);
+
+  test("list order follows each status's rank; one without a rank or unknown to the vocabulary goes last", () => {
+    assert.deepEqual(keys(`SELECT status_key FROM t ORDER BY ${statusRankSql(custom)}`), ["active", "advisor", "new", "lost", "archived", "gone"]);
+  });
+
+  test("Keep Warm leaves out the statuses marked keepWarm: false", () => {
+    assert.deepEqual(keys(`SELECT status_key FROM t WHERE ${keepWarmSql(custom)} ORDER BY rowid`), ["new", "advisor", "active", "gone"]);
+    // With nothing left out, every row stays.
+    const all = mergeVocab({ status: { lost: { keepWarm: true } } });
+    assert.equal(keys(`SELECT status_key FROM t WHERE ${keepWarmSql(all)}`).length, 6);
+  });
+
+  test("a quote in a configured key can't break the SQL", () => {
+    const odd = mergeVocab({ status: { "o'brien": { label: "Odd" } } });
+    assert.doesNotThrow(() => db.prepare(`SELECT status_key FROM t ORDER BY ${statusRankSql(odd)}`).all());
+  });
+
+  test("the Keep Warm footer names the configured cadences", () => {
+    assert.match(cadenceLine(custom), /Advisor 30d/);
+    assert.doesNotMatch(cadenceLine(custom), /Dormant/);
+    assert.equal(cadenceLine(mergeVocab({})), "New 21d · Exploring 45d · Active 30d · On hold 60d · Client 14d · Won 90d · Dormant 180d");
+  });
+
+  test("custom strengths are what the MCP server's enum is built from", () => {
+    assert.deepEqual([...custom.strengths], ["Unknown", "Close"]);
   });
 });

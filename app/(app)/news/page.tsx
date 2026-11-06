@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { getAiStatus } from "@/lib/aiStatus";
 import { getNewsSettings, newsCounts, newsFeed, newsScanRunning, newsSubjects } from "@/lib/news";
+import { hostOf } from "@/lib/newsCore";
 import { markNewsSeen } from "@/lib/navCounts";
-import { checkNewsNow, dismissNewsItem, restoreNewsItem, setNewsEnabled } from "@/lib/newsActions";
+import { checkNewsNow, dismissNewsItem, restoreNewsItem, setNewsEnabled, stopNewsScan } from "@/lib/newsActions";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
 import AutoRefresh from "@/components/AutoRefresh";
@@ -88,6 +89,11 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
           )}
           {s.lastError && !running ? <span className="block text-red-700">Last run had a problem: {s.lastError}</span> : null}
         </span>
+        {running ? (
+          <form action={stopNewsScan}>
+            <button className="underline decoration-dotted underline-offset-2 hover:text-indigo-700">Stop after this batch</button>
+          </form>
+        ) : null}
         <form action={setNewsEnabled} className="flex items-center gap-2">
           <input type="hidden" name="enabled" value={s.enabled ? "off" : "on"} />
           <button className="underline decoration-dotted underline-offset-2 hover:text-indigo-700">
@@ -152,7 +158,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
                 </form>
               </div>
               <div className="mt-0.5 text-xs text-stone-400">
-                {n.source ?? new URL(n.url).hostname.replace(/^www\./, "")}
+                {n.source ?? (hostOf(n.url) || "source")}
                 {n.published ? <> · {fmtDate(n.published)}</> : null}
               </div>
               {n.summary ? <p className="mt-2 text-sm leading-relaxed text-stone-700">{n.summary}</p> : null}

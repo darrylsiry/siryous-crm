@@ -4,8 +4,13 @@ import NavBadge from "@/components/NavBadge";
 import { loadOwner } from "@/lib/owner.mjs";
 import { navCounts, type NavCounts } from "@/lib/navCounts";
 import { hasReports } from "@/lib/agentActivity";
+import { STATUS } from "@/lib/db";
 
 const owner = loadOwner();
+/** "🌱 New · 🔍 Exploring · …", from the vocabulary. */
+const statusLegend = Object.values(STATUS)
+  .map((s) => `${s.emoji} ${s.label}`.trim())
+  .join(" · ");
 
 /**
  * Sidebar groups. Dashboard stands alone at the top and Settings at the
@@ -85,7 +90,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
   return (
     <>
-      <MobileNav nav={groups} appName={owner.appName} counts={counts} />
+      <MobileNav nav={groups} appName={owner.appName} counts={counts} statusLegend={statusLegend} />
       <div className="flex min-h-screen">
         <aside className="fixed inset-y-0 hidden w-52 overflow-y-auto border-r border-stone-200 bg-white px-4 py-6 md:flex md:flex-col">
           <Link href="/" className="mb-8 block px-2">
@@ -127,8 +132,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <div className="mt-auto px-2 text-[0.68rem] leading-relaxed text-stone-400">
-            Status: 🌱 New · 🔍 Exploring · 🔥 Active · ⏸️ Hold · 🤝 Client · ✅ Won
-            · ❌ Lost · 😴 Dormant
+            Status: {statusLegend}
           </div>
         </aside>
         <main className="min-w-0 w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 md:ml-52 md:px-8 md:py-8 [&:has(.full-bleed)]:max-w-none">

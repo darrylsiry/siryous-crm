@@ -3,6 +3,8 @@ import path from "path";
 import { execFileSync } from "child_process";
 import { getDb, VOCAB } from "./db";
 import { rosterBlock } from "./ai";
+import { followUps } from "./queries";
+import { effectiveBucketSql } from "./rules.mjs";
 import { loadOwner } from "./owner.mjs";
 import { bucketList } from "./vocab.mjs";
 import { getCoachSettings } from "./settings";
@@ -49,6 +51,9 @@ export interface CoachMessage {
   created_at: string;
 }
 
+/** How many overdue keep-warm contacts the snapshot names; the rest are a count. */
+const OVERDUE_LISTED = 25;
+
 /** Everything the coach needs to see: this week's activity + full book of business. */
 export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): string {
   const db = getDb();
@@ -86,7 +91,7 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
   const openActions = db
     .prepare(
       `SELECT a.id,
-              CASE WHEN a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END AS bucket,
+              ${effectiveBucketSql("a")} AS bucket,
               a.title, COALESCE(a.due_date, a.due_label) AS due_label, a.created_at, COALESCE(p.name,'') AS person
        FROM action_items a LEFT JOIN people p ON p.id = a.person_id
        WHERE a.status = 'open' ORDER BY a.bucket, a.id`
@@ -100,16 +105,10 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
     )
     .all(weekStart, weekEnd) as { title: string; completed_at: string; person: string }[];
 
-  const overdueTouches = db
-    .prepare(
-      `SELECT name, status_key, last_touch, cadence_days,
-              CAST(julianday('now','localtime') - julianday(substr(last_touch,1,10)) AS INTEGER) AS days_since
-       FROM people
-       WHERE cadence_days IS NOT NULL AND last_touch IS NOT NULL
-         AND julianday('now','localtime') - julianday(substr(last_touch,1,10)) > cadence_days
-       ORDER BY days_since - cadence_days DESC`
-    )
-    .all() as { name: string; status_key: string; last_touch: string; cadence_days: number; days_since: number }[];
+  // The same list and order as Keep Warm (never-touched contacts with a cadence
+  // first, lost ones left out), capped so a big import can't fill the prompt.
+  const overdueAll = followUps().filter((f) => f.days_over !== null && f.days_over > 0);
+  const overdueTouches = overdueAll.slice(0, OVERDUE_LISTED);
 
   const statusCounts = db
     .prepare(`SELECT status_key, COUNT(*) AS n FROM people GROUP BY status_key ORDER BY n DESC`)
@@ -165,10 +164,13 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
     `### Open action items (${openActions.length}) — ids are stable, use them to mark completions`,
     ...openActions.map((a) => `- [#${a.id}] [${a.bucket}] ${a.title}${a.person ? ` (${a.person})` : ""}${a.due_label ? ` — due ${a.due_label}` : ""} (created ${a.created_at.slice(0, 10)})`),
     ``,
-    `### Keep-warm cadences overdue (${overdueTouches.length})`,
-    ...overdueTouches.map(
-      (p) => `- **${p.name}** (${p.status_key}) — last touch ${p.last_touch}, ${p.days_since} days ago vs ${p.cadence_days}-day cadence`
+    `### Keep-warm cadences overdue (${overdueAll.length})`,
+    ...overdueTouches.map((p) =>
+      p.last_touch
+        ? `- **${p.name}** (${p.status_key}) — last touch ${p.last_touch}, ${p.days_since} days ago vs ${p.cadence_days}-day cadence`
+        : `- **${p.name}** (${p.status_key}) — no dated touch logged, ${p.cadence_days}-day cadence`
     ),
+    ...(overdueAll.length > overdueTouches.length ? [`- …and ${overdueAll.length - overdueTouches.length} more (the most overdue are listed)`] : []),
     ``,
     `### Roster by status: ${statusCounts.map((s) => `${s.status_key}: ${s.n}`).join(" · ")}`,
     `### Outreach drafts sitting unsent: ${outreachDrafts.length ? outreachDrafts.map((o) => o.t).join("; ") : "none"}`,
@@ -185,10 +187,13 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
  * config/owner.json → coachContextDir; Settings can also switch it off
  * (coach.use_profile). Read live so edits flow into the next session. Markdown is read directly; .docx via `pandoc` or macOS
  * `textutil` when available. Best effort: a missing folder or unreadable file
- * drops out of the context. Cached by directory mtime so it isn't re-read (or
- * re-converted) on every chat turn.
+ * drops out of the context. Cached on each file's name, size and modified time,
+ * so an edit shows up in the next prompt without re-reading (or re-converting)
+ * everything on every chat turn.
  */
-let contextCache: { dir: string; mtimeMs: number; text: string } | null = null;
+let contextCache: { dir: string; signature: string; text: string } | null = null;
+
+const CONTEXT_FILE = /\.(md|txt|docx)$/;
 
 function convertDocx(full: string): string | null {
   for (const [bin, args] of [
@@ -207,16 +212,25 @@ function convertDocx(full: string): string | null {
 export function careerProfile(): string {
   const dir = getCoachSettings().contextDir;
   if (!dir) return "";
-  let mtimeMs = 0;
+  let files: string[];
+  let signature = "";
   try {
-    mtimeMs = fs.statSync(dir).mtimeMs;
+    files = fs.readdirSync(dir).filter((f) => CONTEXT_FILE.test(f)).sort();
+    for (const f of files) {
+      try {
+        const st = fs.statSync(path.join(dir, f));
+        signature += `${f}:${st.size}:${st.mtimeMs}|`;
+      } catch {
+        signature += `${f}:gone|`;
+      }
+    }
   } catch {
     return ""; // folder missing — coach runs on CRM data alone
   }
-  if (contextCache && contextCache.dir === dir && contextCache.mtimeMs === mtimeMs) return contextCache.text;
+  if (contextCache && contextCache.dir === dir && contextCache.signature === signature) return contextCache.text;
   const parts: string[] = [];
   try {
-    for (const f of fs.readdirSync(dir).sort()) {
+    for (const f of files) {
       const full = path.join(dir, f);
       try {
         if (f.endsWith(".md") || f.endsWith(".txt")) {
@@ -233,7 +247,7 @@ export function careerProfile(): string {
     /* unreadable folder */
   }
   const text = parts.join("\n\n");
-  contextCache = { dir, mtimeMs, text };
+  contextCache = { dir, signature, text };
   return text;
 }
 
@@ -338,7 +352,7 @@ Fresh data snapshot for reference:
 ${weekSnapshot(weekStart, kind)}
 
 ROSTER SLUGS (for linking new actions to people):
-${rosterBlock()}
+${rosterBlock(`${newMessage}\n${history.slice(-6).map((m) => m.content_md).join("\n")}`)}
 
 Conversation so far:
 ${transcriptOf(history) || "(no messages yet)"}
@@ -380,7 +394,7 @@ Fresh data snapshot for reference (open action ids are current):
 ${weekSnapshot(weekStart, kind)}
 
 ROSTER SLUGS (for linking new actions to people):
-${rosterBlock()}
+${rosterBlock(history.map((m) => m.content_md).join("\n"))}
 
 Session conversation:
 ${transcriptOf(history) || `(${O.first} did not discuss anything — the advice was read only.)`}

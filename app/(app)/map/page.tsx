@@ -21,26 +21,14 @@ export default function MapPage() {
           <span key={key} className="inline-flex items-center gap-1">
             <span
               className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{
-                backgroundColor:
-                  {
-                    new: "#10b981",
-                    exploring: "#0ea5e9",
-                    active: "#f97316",
-                    on_hold: "#94a3b8",
-                    client: "#8b5cf6",
-                    won: "#22c55e",
-                    lost: "#ef4444",
-                    dormant: "#a8a29e",
-                  }[key] ?? "#a8a29e",
-              }}
+              style={{ backgroundColor: s.dot }}
             />
             {s.label}
           </span>
         ))}
       </div>
       {data.people.length || data.companies.length ? (
-        <NetworkMap data={data} />
+        <NetworkMap data={data} statusFill={Object.fromEntries(Object.entries(STATUS).map(([k, s]) => [k, s.dot]))} />
       ) : (
         <p className="rounded-xl border border-stone-200 bg-white p-6 text-sm italic text-stone-400">
           Nothing to map yet — the graph draws people, their companies, and intros between them.

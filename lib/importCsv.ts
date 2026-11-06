@@ -256,7 +256,8 @@ export function mapRecord(rec: CsvRecord, mapping: HeaderMapping): MappedPerson 
     [cell(f, mapping.first_name), cell(f, mapping.last_name)].filter(Boolean).join(" ").trim();
   if (!name) return { row: rec.line, message: "missing name" };
   const slug = slugify(name);
-  if (!slug) return { row: rec.line, message: `the name "${name}" is only punctuation` };
+  // Any script gives a slug; only a name with no letters or digits at all doesn't.
+  if (!slug) return { row: rec.line, message: `the name "${name}" has no letters or digits` };
 
   const statusRaw = cell(f, mapping.status);
   const status_key = statusRaw ? STATUS_BY_LABEL[normHeader(statusRaw)] : "new";
@@ -408,9 +409,9 @@ export function importPeople(db: Database.Database, parsed: ParsedCsv, opts: Imp
   const insertCompany = db.prepare(`INSERT INTO companies (slug, name, status_key) VALUES (?, ?, 'new')`);
   const insertPerson = db.prepare(
     `INSERT INTO people (slug, name, status_key, role_title, company_id, location, email, phone, linkedin,
-                         notes, last_touch, last_touch_note, cadence_days, tags)
+                         notes, last_touch, connected_on, last_touch_note, cadence_days, tags)
      VALUES (@slug, @name, @status_key, @role_title, @company_id, @location, @email, @phone, @linkedin,
-             @notes, @last_touch, @last_touch_note, @cadence_days, @tags)`
+             @notes, @last_touch, @last_touch, @last_touch_note, @cadence_days, @tags)`
   );
 
   const linked = new Set<number>();

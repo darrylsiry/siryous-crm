@@ -3,7 +3,7 @@ import { getAiSettings, getCoachSettings, getSetting } from "@/lib/settings";
 import { coachToneChoices } from "@/lib/coachTone";
 import { getAiStatus } from "@/lib/aiStatus";
 import { getDb } from "@/lib/db";
-import { lastBackup } from "@/lib/backup.mjs";
+import { backupHealth } from "@/lib/backup.mjs";
 import { loadOwner } from "@/lib/owner.mjs";
 import { authEnabled, signInUrl } from "@/lib/auth.mjs";
 import { saveAiSettings } from "@/lib/settingsActions";
@@ -25,7 +25,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const ai = await getAiStatus();
   const models = ai.model.available;
   const modelListed = ai.model.ok;
-  const backup = lastBackup(getDb());
+  const backup = backupHealth(getDb());
   const owner = loadOwner();
   const backupSetting = getSetting("backup.dir") ?? "";
   const coach = getCoachSettings();
@@ -326,6 +326,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               "Automatic backups are off."
             )}
           </p>
+          {backup.warning ? (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {backup.warning} Check the folder below, then save to try again.
+            </p>
+          ) : null}
           <label className={label}>
             Backup folder
             <input

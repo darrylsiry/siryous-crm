@@ -2,6 +2,7 @@ import Link from "next/link";
 import { loadAgentActivity, mockupIds } from "@/lib/agentActivity";
 import type { AgentView, LedgerItem, LedgerRun } from "@/lib/agentLedger";
 import { AGENTS, type AgentKey } from "@/lib/agentReports";
+import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -338,8 +339,8 @@ function RunsLog({ runs, now }: { runs: LedgerRun[]; now: number }) {
   );
 }
 
-export default async function AppTestsPage({ searchParams }: { searchParams: Promise<{ agent?: string }> }) {
-  const { agent } = await searchParams;
+export default async function AppTestsPage({ searchParams }: { searchParams: Promise<{ agent?: Param }> }) {
+  const agent = first((await searchParams).agent);
   const { view, ledgerUpdatedAt } = loadAgentActivity();
   const mockups = mockupIds();
   const now = Date.now();

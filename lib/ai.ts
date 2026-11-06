@@ -7,6 +7,7 @@ import { bucketList, cadenceSentence, statusList } from "./vocab.mjs";
 import { LocalUnavailable, runLocalStream, type Provider, RunCancelled } from "./llm";
 import { getAiSettings } from "./settings";
 import { loadOwner } from "./owner.mjs";
+import { effectiveBucketSql } from "./rules.mjs";
 
 /**
  * Run the locally installed Claude Code CLI in headless mode and return the
@@ -340,7 +341,8 @@ export function runClaudeStream(
     child.on("error", (err) => finish(() => reject(new Error(explainClaudeError(`Claude CLI failed to start: ${err.message}`)))));
     child.on("close", (code) => {
       if (buffer.trim()) handleLine(buffer);
-      finish(() => reject(new Error(`Claude CLI exited (${code}) without a result: ${stderr.slice(0, 400)}`)));
+      // Run it through the same explanations, so an expired login read from stderr still says how to fix it.
+      finish(() => reject(new Error(explainClaudeError(`Claude CLI exited (${code}) without a result: ${stderr.slice(0, 400)}`))));
     });
 
     child.stdin.on("error", (err) =>
@@ -463,17 +465,22 @@ export function extractJson(text: string): unknown {
  * quote-heavy transcripts), ask a fast model to fix the syntax — content
  * unchanged — and parse again.
  */
-export async function extractJsonWithRepair(text: string): Promise<unknown> {
+export async function extractJsonWithRepair(text: string, route?: { provider?: Provider; model?: string }): Promise<unknown> {
   try {
     return extractJson(text);
   } catch (err) {
+    // No JSON at all is a failed run (an apology, an error), not a syntax slip:
+    // "repairing" it could invent an empty, successful-looking answer.
+    if (!/[{[]/.test(text)) throw err;
     const parseError = err instanceof Error ? err.message : String(err);
     const repaired = await runModel(
       `The text below was supposed to be one valid JSON object but fails to parse (${parseError}). ` +
         `Fix the syntax ONLY — typically unescaped double quotes inside string values (escape them as \\" or replace with typographic quotes), ` +
         `trailing commas, or stray text. Do not change any content, keys, or values otherwise. ` +
         `Respond with ONLY the corrected JSON object.\n\n---\n${text}`,
-      { json: true, timeoutMs: 180_000 }
+      // On the same AI that wrote the text: a feature set to stay on this Mac
+      // (the Coach, say) must not have its answer sent to Claude for repair.
+      { json: true, timeoutMs: 180_000, ...route }
     );
     return extractJson(repaired);
   }
@@ -515,23 +522,69 @@ export interface IntakeAnalysis {
   confidence_flags: string[];
 }
 
-export function rosterBlock(): string {
+/** The roster's share of a local model's context window. */
+const ROSTER_SHARE = 0.3;
+
+/**
+ * The roster lines a prompt matches people against. A large CRM (a LinkedIn
+ * import, say) must not crowd out the input itself, so past `budgetChars` it
+ * keeps the people and companies that matter for this input: named in
+ * `focusText` (by name or email) first, then those with an open deal or
+ * to-do, then those touched in the last 90 days.
+ */
+export function rosterBlock(focusText = "", budgetChars = Math.floor(getAiSettings().numCtx * 4 * ROSTER_SHARE)): string {
   const db = getDb();
   const people = db
     .prepare(
-      `SELECT p.slug, p.name, p.status_key, p.tags, p.role_title, c.name AS company
+      `SELECT p.slug, p.name, p.email, p.status_key, p.tags, p.role_title, p.last_touch, c.name AS company,
+              (EXISTS (SELECT 1 FROM opportunities o WHERE o.person_id = p.id)
+               OR EXISTS (SELECT 1 FROM action_items a WHERE a.person_id = p.id AND a.status = 'open')) AS busy
        FROM people p LEFT JOIN companies c ON c.id = p.company_id ORDER BY p.name`
     )
-    .all() as { slug: string; name: string; status_key: string; tags: string | null; role_title: string | null; company: string | null }[];
+    .all() as { slug: string; name: string; email: string | null; status_key: string; tags: string | null; role_title: string | null; last_touch: string | null; company: string | null; busy: number }[];
   const companies = db
-    .prepare(`SELECT slug, name, industry, status_key FROM companies ORDER BY name`)
-    .all() as { slug: string; name: string; industry: string | null; status_key: string }[];
+    .prepare(
+      `SELECT c.slug, c.name, c.industry, c.status_key,
+              (EXISTS (SELECT 1 FROM opportunities o WHERE o.company_id = c.id)) AS busy
+       FROM companies c ORDER BY c.name`
+    )
+    .all() as { slug: string; name: string; industry: string | null; status_key: string; busy: number }[];
+  const text = focusText.toLowerCase();
+  const named = (s: string | null) => !!s && s.trim().length >= 3 && text.includes(s.trim().toLowerCase());
+  const recent = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  type Line = { name: string; line: string; rank: number; kind: "p" | "c" };
+  const lines: Line[] = [
+    ...people.map((p) => ({
+      name: p.name,
+      kind: "p" as const,
+      line: `${p.slug} | ${p.name} | ${p.role_title ?? "-"} | ${p.company ?? "-"} | ${p.status_key} | ${p.tags ?? "-"}`,
+      rank: named(p.name) || named(p.email) ? 0 : p.busy ? 1 : p.last_touch && p.last_touch >= recent ? 2 : 3,
+    })),
+    ...companies.map((c) => ({
+      name: c.name,
+      kind: "c" as const,
+      line: `${c.slug} | ${c.name} | ${c.industry ?? "-"} | ${c.status_key}`,
+      rank: named(c.name) ? 0 : c.busy ? 1 : 3,
+    })),
+  ];
+  const kept = new Set<Line>();
+  let used = 0;
+  for (const l of [...lines].sort((a, b) => a.rank - b.rank)) {
+    if (used + l.line.length + 1 > budgetChars && kept.size) break;
+    kept.add(l);
+    used += l.line.length + 1;
+  }
+  const keptOf = (kind: "p" | "c") => lines.filter((l) => l.kind === kind && kept.has(l)).map((l) => l.line);
+  const left = lines.length - kept.size;
   return [
     "PEOPLE (slug | name | role | company | status | tags):",
-    ...people.map((p) => `${p.slug} | ${p.name} | ${p.role_title ?? "-"} | ${p.company ?? "-"} | ${p.status_key} | ${p.tags ?? "-"}`),
+    ...keptOf("p"),
     "",
     "COMPANIES (slug | name | industry | status):",
-    ...companies.map((c) => `${c.slug} | ${c.name} | ${c.industry ?? "-"} | ${c.status_key}`),
+    ...keptOf("c"),
+    ...(left
+      ? ["", `(${left} more people and companies are in the CRM but not listed: only those that look relevant to this input are. Use only slugs listed above.)`]
+      : []),
   ].join("\n");
 }
 
@@ -565,7 +618,7 @@ ${rawText}
 }
 
 export function buildIntakePrompt(rawText: string, research: string | null = null): string {
-  const roster = rosterBlock();
+  const roster = rosterBlock(`${rawText}\n${research ?? ""}`);
   const today = new Date().toLocaleDateString("sv-SE");
   const O = loadOwner();
   const researchBlock = research
@@ -762,7 +815,7 @@ export function buildLogPrompt(
 ${fetchInstructions}
 ${hintBlock}
 CURRENT CRM ROSTER:
-${rosterBlock()}
+${rosterBlock(`${rawText}\n${request ?? ""}\n${hint?.name ?? ""}`)}
 
 OPEN ACTION ITEMS (id | bucket | title | person):
 ${openActions.map((a) => `${a.id} | ${a.bucket} | ${a.title} | ${a.person_slug ?? "-"}`).join("\n")}
@@ -819,7 +872,7 @@ export function personContext(personId: number): string {
     .all(personId, (p.company_id as number) ?? -1) as Record<string, unknown>[];
   const actions = db
     .prepare(
-      `SELECT CASE WHEN due_date IS NOT NULL AND due_date < date('now','localtime') THEN 'overdue' ELSE bucket END AS bucket,
+      `SELECT ${effectiveBucketSql()} AS bucket,
               COALESCE(due_date, due_label) AS due_label, title
        FROM action_items WHERE person_id = ? AND status='open'`
     )

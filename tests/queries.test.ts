@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 // Must come first: points CRM_DB_PATH at a temp file before lib/db is loaded.
 import { tmp } from "./helpers/tempdb";
 import { getDb } from "../lib/db";
-import { openActionItems, doneActionItems, followUps, dueForTouch } from "../lib/queries";
+import { openActionItems, doneActionItems, followUps } from "../lib/queries";
 import { todayLocal } from "../lib/dates.mjs";
 
 function isoDaysFromToday(delta: number): string {
@@ -116,17 +116,6 @@ describe("followUps", () => {
     assert.deepEqual(
       followUps().map((r) => r.slug),
       ["never-touched", "overdue-touch", "fresh-touch", "no-cadence"]
-    );
-  });
-
-  test("dueForTouch keeps only positive days_over, capped by limit", () => {
-    assert.deepEqual(
-      dueForTouch().map((r) => r.slug),
-      ["never-touched", "overdue-touch"]
-    );
-    assert.deepEqual(
-      dueForTouch(1).map((r) => r.slug),
-      ["never-touched"]
     );
   });
 });

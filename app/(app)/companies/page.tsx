@@ -4,17 +4,19 @@ import StatusPicker from "@/components/StatusPicker";
 import { createCompany } from "@/lib/actions";
 import { STATUS } from "@/lib/db";
 import PendingButton from "@/components/PendingButton";
+import { first, type Param } from "@/lib/params";
+import { profilePath } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string | string[]; duplicate?: string }>;
+  searchParams: Promise<{ status?: Param; duplicate?: Param }>;
 }) {
   const sp = await searchParams;
-  const status = Array.isArray(sp.status) ? sp.status[0] : sp.status;
-  const duplicate = sp.duplicate;
+  const status = first(sp.status);
+  const duplicate = first(sp.duplicate);
   let companies = allCompanies();
   if (status) companies = companies.filter((c) => c.status_key === status);
 
@@ -22,7 +24,7 @@ export default async function CompaniesPage({
     <div className="space-y-6">
       {duplicate ? (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Not created — <Link href={`/companies/${duplicate}`} className="font-semibold underline">a company with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
+          Not created — <Link href={profilePath("companies", duplicate)} className="font-semibold underline">a company with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
         </p>
       ) : null}
       <header>

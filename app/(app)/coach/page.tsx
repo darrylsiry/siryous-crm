@@ -4,7 +4,7 @@ import { startCoachSession, startCheckinSession } from "@/lib/coach";
 import { mondayOf, sessionLabel } from "@/lib/coachai";
 import PendingButton from "@/components/PendingButton";
 import AiStatusBanner from "@/components/AiStatusBanner";
-import { getAiStatus } from "@/lib/aiStatus";
+import { getAiStatus, routeUsable } from "@/lib/aiStatus";
 import { getCoachSettings } from "@/lib/settings";
 import { coachToneSpec } from "@/lib/coachTone";
 
@@ -38,13 +38,15 @@ export default async function CoachPage() {
   }[];
 
   const coach = getCoachSettings();
+  // The coach may run somewhere else than everything else (Settings → Coach).
+  const coachUsable = routeUsable(ai, coach.route);
   const toneLabel = coachToneSpec(coach.tone).label;
   const thisWeek = mondayOf(new Date());
   const current = sessions.find((s) => s.week_start === thisWeek && s.kind === "weekly");
 
   return (
     <div className="max-w-3xl space-y-6">
-      <AiStatusBanner />
+      <AiStatusBanner route={coach.route} />
       <header>
         <h1 className="text-2xl font-bold tracking-tight">◎ Coach</h1>
         <p className="mt-1 text-sm text-stone-500">
@@ -78,7 +80,7 @@ export default async function CoachPage() {
               label={current ? "◎ Start this week's session again" : "◎ Start this week's session"}
               pendingLabel="Starting…"
               pendingNote="The coach is reviewing your week…"
-              disabled={!ai.aiUsable}
+              disabled={!coachUsable}
             />
           )}
         </form>
@@ -87,7 +89,7 @@ export default async function CoachPage() {
             label="◉ Check in with your coach now"
             pendingLabel="Starting check-in…"
             pendingNote="The coach is catching up on what's moved…"
-            disabled={!ai.aiUsable}
+            disabled={!coachUsable}
           />
         </form>
       </div>

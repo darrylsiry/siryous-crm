@@ -21,8 +21,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { openDatabase } from "../lib/schema.mjs";
 import { loadOwner } from "../lib/owner.mjs";
-import { loadVocab, kindList, stageList, bucketList } from "../lib/vocab.mjs";
+import { loadVocab, kindList, stageList, bucketList, keepWarmSql } from "../lib/vocab.mjs";
 import { parseDueDate } from "../lib/dates.mjs";
+import {
+  slugFor, applyStatusCadence, bumpLastTouch as bumpTouch, effectiveBucketSql, markActionDone,
+  likeNeedle, likeAnySql, LIKE_ESCAPE, PEOPLE_SEARCH_COLUMNS, COMPANY_SEARCH_COLUMNS,
+} from "../lib/rules.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const db = openDatabase(Database, process.env.CRM_DB_PATH || path.join(ROOT, "data", "crm.db"));
@@ -54,7 +58,7 @@ function findOne(table, ref) {
   if (bySlug) return bySlug;
   const exact = db.prepare(`SELECT * FROM ${table} WHERE lower(name) = lower(?)`).all(r);
   if (exact.length === 1) return exact[0];
-  const like = db.prepare(`SELECT * FROM ${table} WHERE name LIKE ? ORDER BY length(name) LIMIT 5`).all(`%${r}%`);
+  const like = db.prepare(`SELECT * FROM ${table} WHERE name LIKE ? ${LIKE_ESCAPE} ORDER BY length(name) LIMIT 5`).all(likeNeedle(r));
   if (like.length === 1) return like[0];
   if (like.length > 1) lastLookupError = `"${r}" is ambiguous — matches ${like.map((x) => x.slug).join(", ")}; use the slug`;
   return null;
@@ -63,10 +67,6 @@ const findPerson = (ref) => findOne("people", ref);
 const findCompany = (ref) => findOne("companies", ref);
 function whyNot(kind, ref) {
   return lastLookupError || `No ${kind} matching "${ref}"`;
-}
-function slugify(name) {
-  return name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 function text(s) {
   return { content: [{ type: "text", text: s }] };
@@ -103,7 +103,7 @@ function personCard(p) {
   if (opps.length) {
     lines.push(`\n## Opportunities\n` + opps.map((o) => `- ${o.name} — ${o.stage}${o.priority === 1 ? " ★" : ""}`).join("\n"));
   }
-  const actions = db.prepare(`SELECT id, CASE WHEN due_date IS NOT NULL AND due_date < date('now','localtime') THEN 'overdue' ELSE bucket END AS bucket, COALESCE(due_date, due_label) AS due_label, title FROM action_items WHERE person_id = ? AND status='open'`).all(p.id);
+  const actions = db.prepare(`SELECT id, ${effectiveBucketSql()} AS bucket, COALESCE(due_date, due_label) AS due_label, title FROM action_items WHERE person_id = ? AND status='open'`).all(p.id);
   if (actions.length) {
     lines.push(`\n## Open action items\n` + actions.map((a) => `- [id ${a.id}] (${a.bucket}${a.due_label ? `, due ${a.due_label}` : ""}) ${a.title}`).join("\n"));
   }
@@ -144,11 +144,11 @@ function companyCard(c) {
   return lines.join("\n");
 }
 function bumpLastTouch(table, id, date) {
-  // last_touch is always an ISO date (or NULL); a newer dated touch also retires any free-text note.
-  db.prepare(
-    `UPDATE ${table} SET last_touch = ?, last_touch_note = NULL, updated_at = datetime('now')
-     WHERE id = ? AND (last_touch IS NULL OR last_touch < ?)`
-  ).run(date, id, date);
+  bumpTouch(db, table, id, date);
+}
+/** `col LIKE ? ESCAPE … OR …` over `columns`, with one bind value per column (the same app search rule, lib/rules.mjs). */
+function likeAny(columns, like) {
+  return [likeAnySql(columns), columns.map(() => like)];
 }
 
 // ---------- server ----------
@@ -165,12 +165,14 @@ server.registerTool(
     inputSchema: { query: z.string().describe("Search term (name, company, topic, keyword)") },
   },
   async ({ query }) => {
-    const like = `%${query}%`;
-    const people = db.prepare(`SELECT slug, name, status_key FROM people WHERE name LIKE ? OR role_title LIKE ? OR tags LIKE ? OR notes LIKE ? OR relationship_intel LIKE ? OR business_context LIKE ? OR engagement_strategy LIKE ? LIMIT 15`).all(like, like, like, like, like, like, like);
-    const companies = db.prepare(`SELECT slug, name, status_key FROM companies WHERE name LIKE ? OR industry LIKE ? OR notes LIKE ? OR business_context LIKE ? LIMIT 15`).all(like, like, like, like);
-    const interactions = db.prepare(`SELECT i.date, i.summary, p.name AS pname, c.name AS cname FROM interactions i LEFT JOIN people p ON p.id=i.person_id LEFT JOIN companies c ON c.id=i.company_id WHERE i.summary LIKE ? ORDER BY i.date DESC LIMIT 10`).all(like);
-    const actions = db.prepare(`SELECT id, title, status, bucket FROM action_items WHERE title LIKE ? OR detail LIKE ? LIMIT 10`).all(like, like);
-    const opps = db.prepare(`SELECT id, name, stage FROM opportunities WHERE name LIKE ? OR value_note LIKE ? OR next_step LIKE ? OR notes LIKE ? LIMIT 10`).all(like, like, like, like);
+    const like = likeNeedle(query);
+    const [pWhere, pVals] = likeAny(PEOPLE_SEARCH_COLUMNS, like);
+    const [cWhere, cVals] = likeAny(COMPANY_SEARCH_COLUMNS, like);
+    const people = db.prepare(`SELECT slug, name, status_key FROM people WHERE ${pWhere} LIMIT 15`).all(...pVals);
+    const companies = db.prepare(`SELECT slug, name, status_key FROM companies WHERE ${cWhere} LIMIT 15`).all(...cVals);
+    const interactions = db.prepare(`SELECT i.date, i.summary, p.name AS pname, c.name AS cname FROM interactions i LEFT JOIN people p ON p.id=i.person_id LEFT JOIN companies c ON c.id=i.company_id WHERE ${likeAnySql(["i.summary"])} ORDER BY i.date DESC LIMIT 10`).all(like);
+    const actions = db.prepare(`SELECT id, title, status, bucket FROM action_items WHERE ${likeAnySql(["title", "detail"])} LIMIT 10`).all(like, like);
+    const opps = db.prepare(`SELECT id, name, stage FROM opportunities WHERE ${likeAnySql(["name", "value_note", "next_step", "notes"])} LIMIT 10`).all(like, like, like, like);
     const out = [];
     if (people.length) out.push("## People\n" + people.map((p) => `- ${p.name} [${p.slug}] — ${STATUS[p.status_key]}`).join("\n"));
     if (companies.length) out.push("## Companies\n" + companies.map((c) => `- ${c.name} [${c.slug}] — ${STATUS[c.status_key]}`).join("\n"));
@@ -240,7 +242,7 @@ server.registerTool(
   async () => {
     const open = db.prepare(
       `SELECT a.id,
-              CASE WHEN a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END AS bucket,
+              ${effectiveBucketSql("a")} AS bucket,
               COALESCE(a.due_date, a.due_label) AS due_label, a.title, p.name AS pname, c.name AS cname
        FROM action_items a LEFT JOIN people p ON p.id=a.person_id LEFT JOIN companies c ON c.id=a.company_id
        WHERE a.status='open' ORDER BY a.due_date IS NULL, a.due_date, a.id`
@@ -257,7 +259,7 @@ server.registerTool(
     const due = db.prepare(
       `SELECT name, slug, cadence_days, last_touch, last_touch_note,
               CAST(julianday('now','localtime') - julianday(last_touch) AS INTEGER) AS days_since
-       FROM people WHERE cadence_days IS NOT NULL AND status_key NOT IN ('lost')`
+       FROM people WHERE cadence_days IS NOT NULL AND ${keepWarmSql(VOCAB)}`
     ).all().map((r) => ({ ...r, over: r.days_since == null ? 9999 : r.days_since - r.cadence_days }))
       .filter((r) => r.over > 0).sort((a, b) => b.over - a.over).slice(0, 12);
     if (due.length) out.push(`## ♨ Due for a keep-warm touch\n` + due.map((r) =>
@@ -316,7 +318,7 @@ server.registerTool(
       .run(p?.id ?? null, c?.id ?? null, date, channel ?? null, summary);
     if (p) bumpLastTouch("people", p.id, date);
     if (c) bumpLastTouch("companies", c.id, date);
-    if (next_action && p) db.prepare(`UPDATE people SET next_action=? WHERE id=?`).run(next_action, p.id);
+    if (next_action && p) db.prepare(`UPDATE people SET next_action=?, updated_at=datetime('now') WHERE id=?`).run(next_action, p.id);
     return text(`Logged ${date} interaction on ${[p?.name, c?.name].filter(Boolean).join(" / ")}. Last-touch updated.${next_action && p ? " Next action updated." : ""}`);
   }
 );
@@ -362,7 +364,7 @@ server.registerTool(
       phone: z.string().optional(),
       location: z.string().optional(),
       linkedin: z.string().optional(),
-      relationship_strength: z.enum(["Cold", "Acquaintance", "Warm", "Trusted"]).optional(),
+      relationship_strength: z.enum(VOCAB.strengths).optional(),
       cadence_days: z.number().int().positive().optional(),
       tags: z.string().optional().describe("Comma-separated; replaces existing tags"),
     },
@@ -387,7 +389,11 @@ server.registerTool(
       sets.push("company_id=?"); vals.push(c.id);
     }
     if (!sets.length) return fail("No fields provided.");
-    db.prepare(`UPDATE people SET ${sets.join(", ")}, updated_at=datetime('now') WHERE id=?`).run(...vals, p.id);
+    db.transaction(() => {
+      db.prepare(`UPDATE people SET ${sets.join(", ")}, updated_at=datetime('now') WHERE id=?`).run(...vals, p.id);
+      // Same rule as the app: a cadence still at the old status's default follows the new status.
+      if (args.status && args.cadence_days === undefined) applyStatusCadence(db, p.id, p.status_key, args.status, DEFAULT_CADENCE);
+    })();
     return text(`Updated ${p.name}: ${sets.map((s) => s.split("=")[0]).join(", ")}.`);
   }
 );
@@ -415,7 +421,7 @@ server.registerTool(
     },
   },
   async (args) => {
-    let slug = slugify(args.name);
+    const slug = slugFor(args.name, "person");
     if (db.prepare(`SELECT 1 FROM people WHERE slug=?`).get(slug)) {
       return fail(`Slug '${slug}' already exists — is this a duplicate? Use get_person/update_person, or create with a differentiated name.`);
     }
@@ -448,7 +454,7 @@ server.registerTool(
     },
   },
   async (args) => {
-    let slug = slugify(args.name);
+    const slug = slugFor(args.name, "company");
     if (db.prepare(`SELECT 1 FROM companies WHERE slug=?`).get(slug)) {
       return fail(`Slug '${slug}' already exists — likely a duplicate. Use get_company/update details instead.`);
     }
@@ -516,6 +522,37 @@ server.registerTool(
 );
 
 server.registerTool(
+  "update_action_item",
+  {
+    title: "Edit an action item",
+    description: `Change a to-do's title, bucket or due date — e.g. re-date a late one. Only provided fields change; due "none" clears the date. Buckets: ${bucketList(VOCAB)}.`,
+    inputSchema: {
+      id: z.number().int(),
+      title: z.string().optional(),
+      bucket: z.enum(BUCKETS).optional(),
+      due: z.string().optional().describe("New due date (YYYY-MM-DD preferred) or freeform; 'none' clears it"),
+    },
+  },
+  async ({ id, title, bucket, due }) => {
+    const row = db.prepare(`SELECT title, due_date FROM action_items WHERE id=?`).get(id);
+    if (!row) return fail(`No action item with id ${id}.`);
+    const sets = [];
+    const vals = [];
+    if (title) { sets.push("title=?"); vals.push(title); }
+    if (bucket) { sets.push("bucket=?"); vals.push(bucket); }
+    if (due !== undefined && due !== "") {
+      const cleared = /^none$/i.test(due.trim());
+      const date = cleared ? null : parseDueDate(due);
+      if (!cleared && !date) return fail(`Couldn't read "${due}" as a date — use YYYY-MM-DD.`);
+      sets.push("due_date=?", "due_label=?"); vals.push(date, cleared ? null : due);
+    }
+    if (!sets.length) return fail("No fields provided.");
+    db.prepare(`UPDATE action_items SET ${sets.join(", ")} WHERE id=?`).run(...vals, id);
+    return text(`Updated [id ${id}] "${title ?? row.title}": ${sets.map((s) => s.split("=")[0]).join(", ")}.`);
+  }
+);
+
+server.registerTool(
   "complete_action_item",
   {
     title: "Complete (or reopen) an action item",
@@ -529,7 +566,7 @@ server.registerTool(
       db.prepare(`UPDATE action_items SET status='open', completed_at=NULL WHERE id=?`).run(id);
       return text(`Reopened [id ${id}] "${row.title}".`);
     }
-    db.prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(id);
+    markActionDone(db, id);
     return text(`Completed [id ${id}] "${row.title}".`);
   }
 );

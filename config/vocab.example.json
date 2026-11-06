@@ -8,12 +8,14 @@
     "keep the keys of anything rows already use. The app falls back to new / this_week / identified / engagement, so keep those.",
     "\"color\" is a palette name, one of: emerald, sky, orange, slate, violet, green, red, zinc, amber, stone, indigo,",
     "fuchsia, teal, blue, rose, yellow (anything else renders as stone). \"order\" sorts entries; omitted = appended.",
+    "A status's \"rank\" is its place in the People and Companies lists (built-in: active 0, client 1, exploring 2, new 3,",
+    "on_hold 4, won 5, dormant 6, lost 7; omitted = after those), and \"keepWarm\": false leaves it out of Keep Warm (built-in: lost).",
     "A kind with \"separate\": true (built-in: job) is listed after the others on the pipeline board, on a card tinted in its colour.",
     "Restart the app and the MCP server after changing this file."
   ],
   "status": {
     "new": { "label": "Prospect", "emoji": "🌱", "color": "emerald" },
-    "advisor": { "label": "Advisor", "emoji": "🧭", "color": "blue" },
+    "advisor": { "label": "Advisor", "emoji": "🧭", "color": "blue", "rank": 0.5 },
     "remove": ["dormant"]
   },
   "buckets": {

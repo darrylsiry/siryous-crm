@@ -3,6 +3,7 @@ import { getDb } from "./db";
 import { claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS } from "./ai";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
+import { shared } from "./serverState";
 import {
   buildNewsPrompt,
   chunk,
@@ -21,9 +22,9 @@ import {
  * every person and company in the roster, a batch at a time. Items are kept
  * until dismissed; a dismissed URL is remembered so it never comes back.
  *
- * Settings: news.enabled ("on" / "off"; off until the owner turns it on, except
- * on installs that already ran it before it became opt-in),
- * news.last_run_at, news.last_error, news.progress (while a scan runs).
+ * Settings: news.enabled ("on" / "off"; off until the owner turns it on),
+ * news.last_run_at, news.last_error, news.progress (while a scan runs) and
+ * news.stop (set to end a running scan before its next batch).
  */
 
 /** A subject is due once its last check is this old (a little under a day, so the daily run doesn't drift later). */
@@ -40,14 +41,11 @@ export interface NewsSettings {
 
 /**
  * The daily run sends every contact's name, role and employer to Claude, so it
- * is opt-in. Installs that already ran it while it was on by default (a
- * last-run stamp and no explicit choice) keep running.
+ * is opt-in: only an explicit "on" counts. (Installs that ran it while it was
+ * on by default were switched on once by the schema migration.)
  */
 export function newsEnabled(): boolean {
-  const v = getSetting("news.enabled");
-  if (v === "on") return true;
-  if (v === "off") return false;
-  return getSetting("news.last_run_at") !== null;
+  return getSetting("news.enabled") === "on";
 }
 
 export function getNewsSettings(): NewsSettings {
@@ -178,12 +176,19 @@ export interface ScanResult {
   searched: number;
   added: number;
   error: string | null;
+  /** The owner paused or stopped it before every batch had run. */
+  stopped: boolean;
 }
 
-let scanning: Promise<ScanResult> | null = null;
+/** Ask a running scan to stop before its next batch. Cleared when the next scan starts. */
+export function requestNewsStop(): void {
+  setSetting("news.stop", "1");
+}
+
+const state = shared("news", () => ({ scanning: null as Promise<ScanResult> | null, loopTimer: null as NodeJS.Timeout | null }));
 
 export function newsScanRunning(): boolean {
-  return scanning !== null;
+  return state.scanning !== null;
 }
 
 /**
@@ -191,17 +196,19 @@ export function newsScanRunning(): boolean {
  * Concurrent callers share the running scan.
  */
 export function runNewsScan(force = false): Promise<ScanResult> {
-  if (scanning) return scanning;
-  scanning = scanInner(force).finally(() => {
-    scanning = null;
+  if (state.scanning) return state.scanning;
+  state.scanning = scanInner(force).finally(() => {
+    state.scanning = null;
     setSetting("news.progress", null);
+    setSetting("news.stop", null);
   });
-  return scanning;
+  return state.scanning;
 }
 
 async function scanInner(force: boolean): Promise<ScanResult> {
   const db = getDb();
-  const result: ScanResult = { searched: 0, added: 0, error: null };
+  const result: ScanResult = { searched: 0, added: 0, error: null, stopped: false };
+  setSetting("news.stop", null);
   if (!claudeBin()) {
     result.error = "The Claude tool isn't installed, so the web can't be searched (see “If you use Claude” in the README).";
     setSetting("news.last_error", result.error);
@@ -215,16 +222,27 @@ async function scanInner(force: boolean): Promise<ScanResult> {
   let failsInARow = 0;
   let lastError: string | null = null;
   for (let i = 0; i < batches.length; i++) {
+    // Each batch sends more contacts to Claude, so a pause or stop takes effect before the next one.
+    if (getSetting("news.stop") || (!force && !newsEnabled())) {
+      result.stopped = true;
+      break;
+    }
     const batch = batches[i];
     setSetting("news.progress", `Searching batch ${i + 1} of ${batches.length} (${due.length} people and companies)`);
     const now = new Date();
     const today = now.toLocaleDateString("sv-SE");
     const since = sinceFor(batch, now);
     try {
+      let searched = false;
       const text = await runClaudeStream(buildNewsPrompt(batch, since, today, owner.possessive), {
         allowedTools: TOOLS.web,
         timeoutMs: 600_000,
+        onEvent: (e) => {
+          if (e.t === "search") searched = true;
+        },
       });
+      // A run that never searched found nothing because it looked nowhere: don't mark the batch checked.
+      if (!searched) throw new Error("The batch never searched the web, so nothing was checked.");
       const items = cleanItems(await extractJsonWithRepair(text), batch, since, today);
       result.added += storeNewsItems(db, items);
       markChecked(db, batch, now.toISOString());
@@ -246,15 +264,13 @@ async function scanInner(force: boolean): Promise<ScanResult> {
 // Background loop (started from instrumentation.ts)
 // ---------------------------------------------------------------------------
 
-let loopTimer: NodeJS.Timeout | null = null;
-
 /** Every 15 minutes: if News Feed is on and anyone is due, run a scan. */
 export function startNewsLoop(): void {
-  if (loopTimer) return;
+  if (state.loopTimer) return;
   setSetting("news.progress", null); // a scan cut off by a restart
   const tick = async () => {
     try {
-      if (!getNewsSettings().enabled || !claudeBin() || scanning) return;
+      if (!getNewsSettings().enabled || !claudeBin() || state.scanning) return;
       if (!dueSubjects(newsSubjects()).length) return;
       const r = await runNewsScan();
       console.log(`[news] searched ${r.searched}, ${r.added} new item(s)${r.error ? ` — ${r.error}` : ""}`);
@@ -262,8 +278,8 @@ export function startNewsLoop(): void {
       console.error("[news] scan failed:", err);
     }
   };
-  loopTimer = setInterval(tick, 15 * 60_000);
-  loopTimer.unref();
+  state.loopTimer = setInterval(tick, 15 * 60_000);
+  state.loopTimer.unref();
   setTimeout(tick, 60_000).unref();
 }
 

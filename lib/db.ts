@@ -2,18 +2,20 @@ import Database from "better-sqlite3";
 import path from "path";
 import { openDatabase } from "./schema.mjs";
 import { loadVocab } from "./vocab.mjs";
+import { shared } from "./serverState";
 
 /** Override with CRM_DB_PATH; otherwise data/crm.db under the project root. */
 export const DB_PATH = process.env.CRM_DB_PATH || path.join(process.cwd(), "data", "crm.db");
 
-let _db: Database.Database | null = null;
+// One connection per process (see lib/serverState.ts), per database file.
+const conn = shared(`db:${DB_PATH}`, () => ({ db: null as Database.Database | null }));
 
 export function getDb(): Database.Database {
-  if (_db) return _db;
+  if (conn.db) return conn.db;
   // Assign only after the schema is in place so a failed migration is retried
   // on the next call instead of caching a half-initialised connection.
   const db = openDatabase(Database, DB_PATH) as Database.Database;
-  _db = db;
+  conn.db = db;
   return db;
 }
 
@@ -24,7 +26,8 @@ export function getDb(): Database.Database {
  */
 export const VOCAB = loadVocab();
 
-export const STATUS: Record<string, { emoji: string; label: string; color: string }> = VOCAB.status;
+export const STATUS: Record<string, { emoji: string; label: string; color: string; dot: string; rank: number; keepWarm: boolean }> =
+  VOCAB.status;
 
 export const BUCKETS: Record<string, { label: string; icon: string; order: number }> = VOCAB.buckets;
 

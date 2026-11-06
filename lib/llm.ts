@@ -17,6 +17,7 @@
  */
 import type { ProgressEvent } from "./ai";
 import { getAiSettings, getLocalKeepAlive, type Provider } from "./settings";
+import { shared } from "./serverState";
 
 export type { Provider };
 
@@ -149,12 +150,11 @@ const fmtTimeout = (ms: number) => (ms >= 120_000 ? `${Math.round(ms / 60000)} m
 // Ollama serves one request at a time per loaded model; queue in-process so a
 // second run waits (and says so) instead of sitting in Ollama's queue with its
 // abort timer already counting.
-let queue: Promise<unknown> = Promise.resolve();
-/** Runs queued or in flight on the local model (the one running counts). */
-let inQueue = 0;
+// `inQueue`: runs queued or in flight on the local model (the one running counts).
+const local = shared("llm.localQueue", () => ({ queue: Promise.resolve() as Promise<unknown>, inQueue: 0 }));
 
 export function localQueueDepth(): number {
-  return inQueue;
+  return local.inQueue;
 }
 
 /** Thrown when a queued run's `stillWanted` says the work is no longer needed (its draft was discarded). */
@@ -170,8 +170,8 @@ export function runLocalStream(
   opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string; stillWanted?: () => boolean } = {}
 ): Promise<string> {
   const onEvent = opts.onEvent ?? (() => {});
-  const ahead = inQueue;
-  inQueue++;
+  const ahead = local.inQueue;
+  local.inQueue++;
   let waited = false;
   const waitNote = setTimeout(() => {
     waited = true;
@@ -181,14 +181,14 @@ export function runLocalStream(
       ts: Date.now(),
     });
   }, 1500);
-  const run = queue.then(() => {
+  const run = local.queue.then(() => {
     clearTimeout(waitNote);
     if (opts.stillWanted && !opts.stillWanted()) throw new RunCancelled();
     if (waited) onEvent({ t: "info", label: "Model free — starting", ts: Date.now() });
     return runLocalStreamNow(prompt, opts);
   });
-  queue = run.catch(() => {}).finally(() => {
-    inQueue--;
+  local.queue = run.catch(() => {}).finally(() => {
+    local.inQueue--;
   });
   return run;
 }
@@ -251,7 +251,9 @@ async function runLocalStreamNow(
     const detail = await res.text().catch(() => "");
     // 404 here is Ollama's "model not found" (e.g. removed since the health check).
     if (res.status === 404 && /model/i.test(detail)) throw new LocalUnavailable(modelNotPulledMessage(LOCAL.model), "model");
-    throw new LocalUnavailable(`Ollama answered ${res.status}: ${detail.slice(0, 300)}`, "down");
+    // Ollama is up but this request failed (out of memory, a damaged model…): a
+    // problem to show, not a reason to send the whole prompt to Claude instead.
+    throw new Error(`The AI on this Mac failed (Ollama answered ${res.status}): ${detail.slice(0, 300)}`);
   }
 
   let content = "";
@@ -272,7 +274,7 @@ async function runLocalStreamNow(
     } catch {
       return;
     }
-    if (chunk.error) throw new LocalUnavailable(`Ollama reported an error: ${chunk.error}`, "down");
+    if (chunk.error) throw new Error(`The AI on this Mac stopped with an error: ${chunk.error}`);
     if (chunk.message?.thinking) {
       thinking += chunk.message.thinking;
       if (!sawThink || Date.now() - lastWriteEvent > 4000) {

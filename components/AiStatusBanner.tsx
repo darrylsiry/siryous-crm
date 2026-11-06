@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { approxDownloadSize, getAiStatus, type AiStatus } from "@/lib/aiStatus";
+import { approxDownloadSize, getAiStatus, routeUsable, type AiStatus } from "@/lib/aiStatus";
+import { modelListed } from "@/lib/llm";
+import type { Provider } from "@/lib/settings";
 
 export const OLLAMA_SITE = "https://ollama.com";
 
@@ -62,8 +64,23 @@ function withCode(text: string) {
  * Amber notice shown at the top of the AI pages (and inside the dashboard's
  * first-run banner) whenever the AI can't run. Renders nothing when it can.
  */
-export default async function AiStatusBanner({ className = "" }: { className?: string }) {
-  const status = await getAiStatus();
+export default async function AiStatusBanner({
+  className = "",
+  route,
+}: {
+  className?: string;
+  /** A feature with its own AI choice (the Coach): judge that route instead of the app-wide one. */
+  route?: { provider: Provider; model: string };
+}) {
+  const base = await getAiStatus();
+  const status: AiStatus = route
+    ? {
+        ...base,
+        provider: route.provider,
+        model: { ...base.model, name: route.model, ok: base.ollama.ok && modelListed(base.model.available.map((m) => m.name), route.model) },
+        aiUsable: routeUsable(base, route),
+      }
+    : base;
   const why = aiOffExplanation(status);
   if (!why) return null;
   return (

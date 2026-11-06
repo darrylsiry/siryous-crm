@@ -7,7 +7,7 @@ import { getDb } from "./db";
 import type { IntakeAnalysis } from "./ai";
 import { insertIntakeDraft, processIntakeDraft } from "./drafts";
 import { IntakeAnalysisSchema } from "./schemas";
-import { slugify } from "./slug";
+import { bumpLastTouch, profilePath, slugFor } from "./rules.mjs";
 import { DEFAULT_CADENCE } from "./db";
 import { parseDueDate } from "./dates.mjs";
 
@@ -42,11 +42,24 @@ export async function confirmIntake(formData: FormData) {
     .prepare(`UPDATE intake_drafts SET status='confirming' WHERE id=? AND status='ready'`)
     .run(draftId).changes;
   if (!claimed) redirect(`/intake/${draftId}`);
+  let target: string | null = null;
   try {
-    await confirmIntakeInner(db, draftId, formData);
+    target = writeIntake(db, draftId, formData);
   } finally {
     db.prepare(`UPDATE intake_drafts SET status='ready' WHERE id=? AND status='confirming'`).run(draftId);
   }
+  if (!target) return;
+  revalidatePath("/", "layout");
+  redirect(target);
+}
+
+/** Run a failed draft again on the text it already has, so nothing needs pasting twice. */
+export async function retryIntake(id: number, formData: FormData) {
+  const changed = getDb()
+    .prepare(`UPDATE intake_drafts SET status='analyzing', error=NULL, progress=NULL, result_json=NULL WHERE id=? AND status='error'`)
+    .run(id).changes;
+  if (changed) after(() => processIntakeDraft(id, !!formData.get("research")));
+  redirect(`/intake/${id}`);
 }
 
 /**
@@ -135,16 +148,17 @@ function saveReviewEdits(db: ReturnType<typeof getDb>, draftId: number, formData
   db.prepare(`UPDATE intake_drafts SET result_json=? WHERE id=?`).run(JSON.stringify(parsed.data), draftId);
 }
 
-async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number, formData: FormData) {
+/** The duplicate check, then every write in one transaction. Returns where to go next, or null when nothing was done. */
+function writeIntake(db: ReturnType<typeof getDb>, draftId: number, formData: FormData): string | null {
   const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
+  if (!name) return null;
 
   // --- duplicate guard (before anything is written) ---
   // Refuse to silently create a second profile for a name that already exists
   // unless the reviewer explicitly opted in on the review screen. The bounce
   // back to the review page re-renders from result_json, so the reviewer's
   // edits are written there first and survive the round trip.
-  let slug = slugify(name);
+  let slug = slugFor(name, "person");
   const slugTaken = !!db.prepare(`SELECT 1 FROM people WHERE slug=?`).get(slug);
   if (slugTaken && !formData.get("allow_duplicate")) {
     saveReviewEdits(db, draftId, formData);
@@ -152,6 +166,13 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
   }
   if (slugTaken) slug = `${slug}-${draftId}`;
 
+  // All or nothing from here: a failure part-way must not leave a half-created
+  // person behind, which a second confirm would then trip over.
+  db.transaction(() => writeIntakeRecords(db, draftId, formData, name, slug))();
+  return profilePath("people", slug);
+}
+
+function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formData: FormData, name: string, slug: string) {
   // --- company ---
   let companyId: number | null = null;
   const companyMode = String(formData.get("company_mode") ?? "none");
@@ -160,7 +181,7 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
   } else if (companyMode === "new") {
     const cname = str(formData, "company_name");
     if (cname) {
-      let cslug = slugify(cname);
+      const cslug = slugFor(cname, "company");
       const exists = db.prepare(`SELECT id FROM companies WHERE slug=?`).get(cslug) as { id: number } | undefined;
       if (exists) {
         companyId = exists.id;
@@ -228,18 +249,8 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
         str(formData, "interaction_channel"),
         isum
       );
-      db.prepare(`UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
-        idate,
-        personId,
-        idate
-      );
-      if (companyId) {
-        db.prepare(`UPDATE companies SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`).run(
-          idate,
-          companyId,
-          idate
-        );
-      }
+      bumpLastTouch(db, "people", personId, idate);
+      if (companyId) bumpLastTouch(db, "companies", companyId, idate);
     }
   }
 
@@ -276,6 +287,4 @@ async function confirmIntakeInner(db: ReturnType<typeof getDb>, draftId: number,
   }
 
   db.prepare(`UPDATE intake_drafts SET status='confirmed' WHERE id=?`).run(draftId);
-  revalidatePath("/", "layout");
-  redirect(`/people/${slug}`);
 }

@@ -10,6 +10,7 @@ import ConfirmButton from "@/components/ConfirmButton";
 import { deleteCompany, updateSnapshot } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
 import StaleNotice from "@/components/StaleNotice";
+import { profilePath, slugParam } from "@/lib/slug";
 import { opportunityHref } from "@/lib/queries";
 import { STAGES, STATUS } from "@/lib/db";
 
@@ -22,7 +23,7 @@ export default async function CompanyPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ stale?: string }>;
 }) {
-  const { slug } = await params;
+  const slug = slugParam((await params).slug);
   const { stale } = await searchParams;
   const c = companyBySlug(slug);
   if (!c) notFound();
@@ -33,7 +34,7 @@ export default async function CompanyPage({
 
   return (
     <div className="space-y-6">
-      {stale ? <StaleNotice href={`/companies/${slug}`} /> : null}
+      {stale ? <StaleNotice href={profilePath("companies", slug)} kept={stale === "kept"} /> : null}
       <header>
         <Link href="/companies" className="text-xs text-stone-400 hover:text-indigo-600">
           ← Companies

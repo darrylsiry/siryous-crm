@@ -18,7 +18,7 @@ export default function EditableSection({
   id: number;
   column: string;
   value: string | null;
-  /** Row's updated_at at render time — the action refuses to overwrite a newer row. */
+  /** Row's updated_at at render time (the fallback check for a form without `original`). */
   updatedAt?: string | null;
 }) {
   return (
@@ -47,6 +47,8 @@ export default function EditableSection({
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="column" value={column} />
           {updatedAt !== undefined ? <input type="hidden" name="updated_at" value={updatedAt ?? ""} /> : null}
+          {/* The text as shown: only a change to this section, not to the rest of the row, blocks the save. */}
+          <input type="hidden" name="original" value={value ?? ""} />
           <textarea
             name="value"
             defaultValue={value ?? ""}

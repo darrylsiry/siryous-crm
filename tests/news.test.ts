@@ -2,9 +2,11 @@ import "./helpers/tempdb";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { getDb } from "../lib/db";
-import { cleanItems, chunk, headlineKey, sinceFor, urlKey, buildNewsPrompt, type NewsSubject } from "../lib/newsCore";
+import { cleanItems, chunk, headlineKey, hostOf, sinceFor, urlKey, buildNewsPrompt, type NewsSubject } from "../lib/newsCore";
 import { dueSubjects, getNewsSettings, newsFeed, newsSubjects, storeNewsItems } from "../lib/news";
 import { setSetting } from "../lib/settings";
+import { initSchema } from "../lib/schema.mjs";
+import Database from "better-sqlite3";
 
 const subj = (ref: string, checkedAt: string | null = null): NewsSubject => ({
   ref,
@@ -57,7 +59,18 @@ describe("newsCore", () => {
     assert.deepEqual(out.map((o) => o.headline), ["Good", "String about"]);
     assert.deepEqual(out[0].about, ["p:jane"]);
     assert.equal(out[1].published, "2026-10-11");
-    assert.deepEqual(cleanItems("nonsense", batch, "2026-10-01", "2026-10-12"), []);
+    assert.throws(() => cleanItems("nonsense", batch, "2026-10-01", "2026-10-12"), /wasn't a list/);
+    assert.throws(() => cleanItems({}, batch, "2026-10-01", "2026-10-12"), /wasn't a list/);
+    assert.deepEqual(cleanItems({ items: [] }, batch, "2026-10-01", "2026-10-12"), []);
+  });
+
+  test("cleanItems drops URLs a browser couldn't open, and hostOf never throws", () => {
+    const batch = [subj("p:jane")];
+    const item = (url: string) => ({ headline: "H", url, published: "2026-10-10", about: ["p:jane"] });
+    const out = cleanItems({ items: [item("https://"), item("https://exa mple.com/x"), item("ftp://x.example/a"), item("https://www.ok.example/a")] }, batch, "2026-10-01", "2026-10-12");
+    assert.deepEqual(out.map((o) => o.url), ["https://www.ok.example/a"]);
+    assert.equal(hostOf("https://www.ok.example/a"), "ok.example");
+    for (const bad of ["https://", "https://exa mple.com", "javascript:alert(1)", ""]) assert.equal(hostOf(bad), "", bad);
   });
 
   test("prompt lists every subject ref", () => {
@@ -113,16 +126,29 @@ describe("news store", () => {
 });
 
 describe("news opt-in", () => {
-  test("off on a fresh install, on for installs that already ran it, explicit choice wins", () => {
+  test("only an explicit choice turns it on: a one-off run never does", () => {
     setSetting("news.enabled", null);
     setSetting("news.last_run_at", null);
     assert.equal(getNewsSettings().enabled, false);
-    setSetting("news.last_run_at", "2026-10-12T10:00:00.000Z");
+    setSetting("news.last_run_at", "2026-10-12T10:00:00.000Z"); // what "Check now" leaves behind
+    assert.equal(getNewsSettings().enabled, false);
+    initSchema(getDb()); // the next start runs the migrations again
+    assert.equal(getNewsSettings().enabled, false);
+    setSetting("news.enabled", "on");
     assert.equal(getNewsSettings().enabled, true);
     setSetting("news.enabled", "off");
     assert.equal(getNewsSettings().enabled, false);
-    setSetting("news.last_run_at", null);
-    setSetting("news.enabled", "on");
-    assert.equal(getNewsSettings().enabled, true);
+  });
+
+  test("an install that ran it before it became opt-in is switched on once", () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT)`);
+    db.prepare(`INSERT INTO settings (key, value) VALUES ('news.last_run_at', '2026-10-01T00:00:00Z')`).run();
+    initSchema(db);
+    const get = (k: string) => (db.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as { value: string } | undefined)?.value;
+    assert.equal(get("news.enabled"), "on");
+    db.prepare(`UPDATE settings SET value='off' WHERE key='news.enabled'`).run();
+    initSchema(db);
+    assert.equal(get("news.enabled"), "off", "an explicit choice is never overwritten");
   });
 });

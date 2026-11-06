@@ -231,7 +231,30 @@ describe("inboxCheckDue", () => {
     assert.equal(due(600, null, 600), true);
   });
 
+  test("a follow-up a full check asked for is due from its time, even while away", () => {
+    const at = (minutes: number) => new Date(now + minutes * 60_000).toISOString();
+    const base = { now, lastAttemptAt: ago(1), lastActiveAt: null, pollMinutes: 30 };
+    assert.equal(inboxCheckDue({ ...base, followUpAt: at(2) }), false);
+    assert.equal(inboxCheckDue({ ...base, followUpAt: at(-1) }), true);
+    assert.equal(inboxCheckDue({ ...base, followUpAt: "garbage" }), false);
+  });
+
   test("an unreadable timestamp doesn't stop the checks", () => {
     assert.equal(inboxCheckDue({ now, lastAttemptAt: "garbage", lastActiveAt: "garbage", pollMinutes: 30 }), true);
+  });
+});
+
+describe("routing people the roster knows by name", () => {
+  test("someone matched by name isn't also drafted as new, even with a different address", () => {
+    const r = routeEmail(email({ body: "From: Sam Lee <sam@new.example>\nTo: owner@firm.example\n\nHello again." }), roster, OWNER);
+    assert.equal(r.mode, "log");
+    assert.deepEqual(r.known.map((k) => k.slug), ["sam-lee"]);
+    assert.deepEqual(r.unknown, []);
+  });
+
+  test("a re-route chosen by hand beats a tag in the subject", () => {
+    const r = routeEmail(email({ subject: "#intake Fwd: hi", body: "From: Bob <bob@x.example>" }), roster, OWNER, "log");
+    assert.equal(r.mode, "log");
+    assert.equal(r.forced, "log");
   });
 });

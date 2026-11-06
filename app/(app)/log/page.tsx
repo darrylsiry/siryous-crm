@@ -4,37 +4,46 @@ import { analyzeLog } from "@/lib/logmeeting";
 import { getAiStatus } from "@/lib/aiStatus";
 import PendingButton from "@/components/PendingButton";
 import AiStatusBanner from "@/components/AiStatusBanner";
+import { first, type Param } from "@/lib/params";
+import { profilePath } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
 export default async function LogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string; company?: string }>;
+  searchParams: Promise<{ person?: Param; company?: Param }>;
 }) {
   const ai = await getAiStatus();
   const hasClaude = ai.claude.ok;
   const db = getDb();
   const sp = await searchParams;
+  const person = first(sp.person);
+  const company = first(sp.company);
   // Opened from a profile's "Draft with AI" link: the entries default to that contact.
-  const hintPerson = sp.person
-    ? (db.prepare(`SELECT id, slug, name FROM people WHERE slug=?`).get(sp.person) as { id: number; slug: string; name: string } | undefined)
+  const hintPerson = person
+    ? (db.prepare(`SELECT id, slug, name FROM people WHERE slug=?`).get(person) as { id: number; slug: string; name: string } | undefined)
     : undefined;
   const hintCompany =
-    !hintPerson && sp.company
-      ? (db.prepare(`SELECT id, slug, name FROM companies WHERE slug=?`).get(sp.company) as { id: number; slug: string; name: string } | undefined)
+    !hintPerson && company
+      ? (db.prepare(`SELECT id, slug, name FROM companies WHERE slug=?`).get(company) as { id: number; slug: string; name: string } | undefined)
       : undefined;
   const hint = hintPerson
-    ? { kind: "person" as const, id: hintPerson.id, name: hintPerson.name, href: `/people/${hintPerson.slug}` }
+    ? { kind: "person" as const, id: hintPerson.id, name: hintPerson.name, href: profilePath("people", hintPerson.slug) }
     : hintCompany
-      ? { kind: "company" as const, id: hintCompany.id, name: hintCompany.name, href: `/companies/${hintCompany.slug}` }
+      ? { kind: "company" as const, id: hintCompany.id, name: hintCompany.name, href: profilePath("companies", hintCompany.slug) }
       : null;
+  // Everything still waiting, however old; failures listed apart so they can't push a ready draft off the page.
   const drafts = db
     .prepare(
       `SELECT id, status, source, substr(raw_text, 1, 80) AS preview
-       FROM log_drafts WHERE status IN ('analyzing','ready','error') ORDER BY id DESC LIMIT 5`
+       FROM log_drafts WHERE status IN ('analyzing','ready') ORDER BY id DESC`
     )
     .all() as { id: number; status: string; source: string; preview: string }[];
+  const failed = db
+    .prepare(`SELECT id, status, source, substr(raw_text, 1, 80) AS preview FROM log_drafts WHERE status='error' ORDER BY id DESC LIMIT 20`)
+    .all() as { id: number; status: string; source: string; preview: string }[];
+  const failedCount = (db.prepare(`SELECT COUNT(*) n FROM log_drafts WHERE status='error'`).get() as { n: number }).n;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -143,10 +152,29 @@ export default async function LogPage({
         />
       </form>
 
+      {failed.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Failed · {failedCount} — open one to run it again or discard it
+          </h2>
+          <ul className="space-y-1.5">
+            {failed.map((d) => (
+              <li key={d.id} className="text-sm">
+                <Link href={`/log/${d.id}`} className="font-medium text-indigo-700 hover:underline">
+                  #{d.id}
+                </Link>{" "}
+                <span className="text-red-600">[failed]</span> <span className="text-stone-400">({d.source})</span>{" "}
+                <span className="text-stone-500">{d.preview}…</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {drafts.length > 0 && (
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
-            Recent
+            Waiting for review · {drafts.length}
           </h2>
           <ul className="space-y-1.5">
             {drafts.map((d) => (

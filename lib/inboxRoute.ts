@@ -39,7 +39,6 @@ export interface Route {
   forced: "log" | "intake" | null;
 }
 
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 /** "Name <a@b.c>" or "a@b.c" or "Name (a@b.c)", as mail clients render them. */
 const ADDR_RE = /(?:"?([^"<,;()]*?)"?\s*[<(]\s*)?([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*[>)]?/g;
 /** A header line in a forwarded/quoted block: optional quote marks, optional bold, From/To/Cc. */
@@ -160,12 +159,20 @@ export function primaryParticipant(email: InboxEmail, unknown: Participant[]): P
   return unknown[0];
 }
 
-export function routeEmail(email: InboxEmail, roster: RosterEntry[], ownerEmails: string[]): Route {
+const normName = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * `force` is a re-route chosen by hand on the queue: it beats a #log / #intake
+ * tag in the subject.
+ */
+export function routeEmail(email: InboxEmail, roster: RosterEntry[], ownerEmails: string[], force: "log" | "intake" | null = null): Route {
   const participants = participantsOf(email, ownerEmails);
   const known = matchRoster(email, participants, roster);
   const knownEmails = new Set(roster.filter((r) => known.some((k) => k.slug === r.slug) && r.email).map((r) => normEmail(r.email!)));
-  const unknown = participants.filter((p) => !knownEmails.has(p.email));
-  const forced = subjectTag(email.subject);
+  // Someone matched by name (no email on file, or an older one) is known, not new.
+  const knownNames = new Set(known.map((k) => normName(k.name)));
+  const unknown = participants.filter((p) => !knownEmails.has(p.email) && !(p.name && knownNames.has(normName(p.name))));
+  const forced = force ?? subjectTag(email.subject);
 
   let mode: Route["mode"];
   if (forced === "intake") mode = "intake";
@@ -218,8 +225,6 @@ export function ownerAddresses(ownerEmail: string | null | undefined, inboxAddre
   return [ownerEmail ?? "", inboxAddress, ...extra].map((e) => e.trim()).filter(Boolean);
 }
 
-export { EMAIL_RE };
-
 /**
  * True when the email's own sender (its From header — not a forwarded block
  * in the body) is one of the owner's addresses, plus-tags ignored. Mail-in
@@ -252,12 +257,17 @@ export function inboxCheckDue({
   lastAttemptAt,
   lastActiveAt,
   pollMinutes,
+  followUpAt = null,
 }: {
   now: number;
   lastAttemptAt: string | null;
   lastActiveAt: string | null;
   pollMinutes: number;
+  /** A follow-up a full check asked for: due from then, whatever the pace. */
+  followUpAt?: string | null;
 }): boolean {
+  const followUp = Date.parse(followUpAt ?? "");
+  if (Number.isFinite(followUp) && now >= followUp) return true;
   const attempted = Date.parse(lastAttemptAt ?? "");
   if (!Number.isFinite(attempted)) return true;
   const active = Date.parse(lastActiveAt ?? "");

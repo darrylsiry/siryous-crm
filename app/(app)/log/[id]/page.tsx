@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb, BUCKETS } from "@/lib/db";
 import type { LogAnalysis, ProgressEvent } from "@/lib/ai";
-import { confirmLog, discardLog } from "@/lib/logmeeting";
+import { confirmLog, discardLog, retryLog } from "@/lib/logmeeting";
 import Markdown from "@/components/Markdown";
 import PendingButton from "@/components/PendingButton";
 import ActivityFeed from "@/components/ActivityFeed";
@@ -86,12 +86,24 @@ export default async function LogReviewPage({
         <h1 className="text-2xl font-bold tracking-tight">Analysis failed</h1>
         <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{draft.error}</p>
         <FeedRecap progress={draft.progress} />
+        <section className="rounded-xl border border-stone-200 bg-white p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-400">
+            {draft.source === "paste" ? "What you pasted (kept)" : "What you asked for (kept)"}
+          </h2>
+          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-stone-700">{draft.raw_text}</pre>
+        </section>
+        <form action={retryLog.bind(null, draft.id)} className="flex flex-wrap items-center gap-3">
+          <PendingButton label="Run it again" pendingLabel="Starting…" />
+          <button formNoValidate formAction={discardLog.bind(null, draft.id)} className="rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Discard
+          </button>
+        </form>
         <div className="flex gap-4">
           <Link
             href={draft.hint_person_id && origin ? `/log?person=${origin.slug}` : draft.hint_company_id && origin ? `/log?company=${origin.slug}` : "/log"}
-            className="text-sm font-medium text-indigo-700 hover:underline"
+            className="text-sm text-stone-500 hover:underline"
           >
-            ← Try again
+            Start a new one instead
           </Link>
           {originHref && origin ? (
             <Link href={originHref} className="text-sm text-stone-500 hover:underline">

@@ -57,22 +57,41 @@ non-technical users, so keep it boring and idempotent. In order it:
 1. exits early (just opening the browser) if something already answers on
    `http://127.0.0.1:3000/`;
 2. checks `node` and `npm` are on PATH (it prepends `/usr/local/bin`,
-   `/opt/homebrew/bin` and `~/.local/bin`) and that Node is ≥ 22, with a
+   `/opt/homebrew/bin` and `~/.local/bin`) and that Node's major version is
+   22–26 (`NODE_MIN`/`NODE_MAX`, kept in step with `engines`), with a
    nodejs.org pointer if not;
 3. runs `npm install --no-audit --no-fund` when `node_modules` is missing or
-   `package-lock.json` is newer than `node_modules/.package-lock.json`;
+   `package-lock.json` is newer than `node_modules/.package-lock.json`; then,
+   unless that was a fresh install, runs `npm rebuild better-sqlite3` when
+   `node -v` differs from the version recorded in
+   `node_modules/.crm-node-version` or nothing is recorded there (an install
+   older than the stamp), and records the current version;
 4. runs `npm run build` when `.next/BUILD_ID` is missing or older than anything
-   in `app/`, `lib/`, `components/`, `package.json`, `next.config.ts` or
-   `tsconfig.json`;
+   in `app/`, `lib/`, `components/`, `package.json`, `package-lock.json`,
+   `next.config.ts`, `tsconfig.json`, `proxy.ts`, `instrumentation.ts` or
+   `postcss.config.mjs`;
 5. starts `npm start` under `nohup` with output in `data/server.log`, waits up
    to 60 s for the port, prints the tail of the log on failure, and opens
-   `http://127.0.0.1:3000/?token=<data/auth-token>` so the browser is signed in.
+   `http://127.0.0.1:3000/?token=<token>` so the browser is signed in.
+
+The launchers don't load `.env.local` into their own environment (the server
+does that itself), but to find the token they ask `tokenPath()` in
+`lib/auth.mjs` — the server's own lookup, so `auth-token` is read from next to
+`CRM_DB_PATH` — in a one-off `node -e` that first loads the `.env*` files with
+Next.js's loader (`@next/env`, production mode, as `next start` does). A
+`CRM_DB_PATH` set in the launcher's environment wins over `.env.local`, as it
+does for the server. If that lookup fails they fall back to `data/auth-token`,
+and without a token file they open the plain URL (the sign-in page).
 
 `Stop CRM.command` kills whatever is listening on TCP 3000 (via `lsof`, or
-`pkill -f "next start"` when `lsof` is missing). `Start CRM.bat` does the same
-sequence on Windows using PowerShell for the timestamp comparisons and runs the
-server in a separate minimised window; `Stop CRM.bat` kills the PID `netstat`
-reports on `127.0.0.1:3000`.
+`pkill -f "next start"` when `lsof` is missing). `Start CRM.bat` follows the
+same sequence on Windows — the same Node range check, Node stamp and rebuild,
+and token lookup — using PowerShell for the timestamp comparisons, and runs the
+server in a separate minimised window (so there is no `data/server.log`; the
+error shows in that window); `Stop CRM.bat` kills the PID `netstat` reports on
+`127.0.0.1:3000`. `Restart CRM.command` / `Restart CRM.bat` run Stop then
+Start. The `.bat` files, including these steps, have still not been run on a
+real Windows machine.
 
 Deploying a code change locally: `./Stop\ CRM.command && ./Start\ CRM.command`
 (rebuilds because the source is newer than `BUILD_ID`), or `npm run build &&
@@ -146,7 +165,10 @@ and a *write* step (local model, no tools). `lib/llm.ts` is the Ollama client
 (streaming, context-overflow detection, the URL guard), `runModel` in
 `lib/ai.ts` does the local-first / Claude-fallback routing, and
 `runWithProgress` in `lib/progress.ts` routes each step by whether it carries a
-tool grant and streams a live activity feed to the UI.
+tool grant and streams a live activity feed to the UI. The one-at-a-time
+local-model queue, the in-flight Inbox poll and News scan, and the database
+handle live on `globalThis` (`lib/serverState.ts`), so instrumentation, pages
+and server actions share them however Next.js bundles those entries.
 
 | Feature | Fetch step (Claude, read-only tools) | Write step (local model) |
 |---------|--------------------------------------|--------------------------|
@@ -232,11 +254,11 @@ the Ollama URL (point it at another machine to run models there), the provider
 backup folder, plus the coach's tone and notes folder. Values are stored in
 the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
 `ai.num_ctx`, `ai.temperature`, `ai.provider`, `ai.fallback`, `ai.keep_alive`,
-`backup.dir`, `coach.tone`, `coach.use_profile`, `coach.context_dir`,
+`backup.dir` (plus the `backup.last_*` status keys), `coach.tone`, `coach.use_profile`, `coach.context_dir`,
 `coach.provider`, `coach.model`; the Inbox and News Feed pages store
 `inbox.address`, `inbox.enabled`, `inbox.poll_minutes`,
 `inbox.extra_owner_emails`, `news.enabled`, and their `*.last_poll_at` /
-`inbox.last_attempt_at` / `*.last_run_at` / `*.last_error` status keys, and the
+`inbox.last_attempt_at` / `inbox.follow_up_at` / `*.last_run_at` / `*.last_error` status keys, and the
 sidebar's `app.last_active_at`) and apply to the next run; the defaults come from the
 environment. `coach.provider`/`coach.model` let the coach run on a different
 model (or on Claude) than the rest of the app: `getCoachSettings().route` is
@@ -277,7 +299,10 @@ example file lists them all) mapped to Tailwind classes inside `lib/vocab.mjs`.
 An opportunity kind with `"separate": true` (the built-in `job`, "Job
 opportunity") is listed after the other kinds in each pipeline column, on a
 card tinted in its colour, so a job search stays apart from business
-development.
+development. A status's `rank` sets its place in the People and Companies lists
+(`order` sets it in pickers and legends), and `"keepWarm": false` (built-in:
+`lost`) leaves it out of Keep Warm; the sidebar legend, the Keep Warm footer
+and the map's colours are all built from the vocabulary.
 The app (`lib/db.ts` re-exports `STATUS`/`BUCKETS`/`STAGES`/`KINDS`/
 `STRENGTHS`/`DEFAULT_CADENCE`), the MCP server's tool descriptions
 (`loadVocab(ROOT)`) and every AI prompt (`bucketList(VOCAB)` and friends) are
@@ -300,10 +325,13 @@ the MCP server. Everything reads and writes the one database:
 
 - the **web app** (this repo, port 3000);
 - **Claude Desktop**, via the `siryous-crm` MCP server
-  (`scripts/mcp-server.mjs`, also `npm run mcp`) — 16 tools for conversational
+  (`scripts/mcp-server.mjs`, also `npm run mcp`) — 17 tools for conversational
   CRM work: search, full profiles, agenda ("what's overdue?"), pipeline, logging
   interactions, building/updating profiles with arbitrary markdown, action
-  items, and deals. There are deliberately no delete tools. Run Start CRM
+  items (including re-dating one), and deals. There are deliberately no delete
+  tools. Rules both write paths must apply alike (slugs, the status → cadence
+  rule, the last-touch bump, the overdue rule, which columns search covers)
+  live in `lib/rules.mjs`, imported by the app and the server. Run Start CRM
   once first so `node_modules` exists (the web app doesn't need to be running
   for the MCP server to work). Register it in Claude Desktop's config with
   absolute paths — Claude Desktop doesn't see your shell's PATH, so use the
@@ -339,7 +367,15 @@ may be running.
   then `CRM_BACKUP_DIR`, then `data/backups` next to the database; `off`
   disables). Snapshots use SQLite's online-backup API, are named
   `crm-YYYY-MM-DD.db`, and the newest 30 are kept. A backup happens on any day
-  the data can change — because only those two processes change it.
+  the data can change — because only those two processes change it. Each
+  attempt records its outcome (`backup.last_error`, `backup.last_error_at`,
+  `backup.last_ok_at` in `settings`); `backupHealth()` turns that and the
+  newest file's date into the warning Settings and the Dashboard show (failed,
+  or more than `BACKUP_STALE_DAYS` old). Saving a folder on Settings checks it
+  (`validateBackupDir`: a full path this process can write to or create) and
+  makes today's snapshot there at once; a relative folder (say from
+  `CRM_BACKUP_DIR`) is refused rather than resolved against the working
+  directory.
   `scripts/backup.sh` takes a manual snapshot of `data/crm.db` into
   `$CRM_BACKUP_DIR` or `data/backups` (macOS/Linux; uses `sqlite3` if present,
   otherwise `better-sqlite3`). Unlike the automatic backup it ignores the
@@ -352,9 +388,12 @@ may be running.
   (interactions, action items, outreach, opportunities, briefs, connections)
   is re-pointed at the kept profile; scalar fields on the kept profile win
   unless empty; tags are unioned; status, status note, next action and last
-  touch come from whichever was touched more recently; narrative sections from
-  the duplicate are appended under a "merged from" marker; then the duplicate
-  row is deleted. One transaction; `--dry-run` prints the plan and rolls back.
+  touch come from whichever was touched more recently (the later imported
+  `connected_on` date is kept); narrative sections from the duplicate are
+  appended under a "merged from" marker; News Feed refs and Coach proposals
+  that name the duplicate's slug move too; then the duplicate row is deleted
+  (`lib/mergePeople.ts`). One transaction; `--dry-run` prints the plan and
+  rolls back.
 
 ## Getting data in
 
@@ -369,8 +408,10 @@ may be running.
   role/title/position, company, location, phone, tags (comma-separated), notes,
   status (a `STATUS` key or label; default `new`), cadence (days; default by
   status), last touch / connected on (ISO, `12 Jul 2026`, `Jul 12, 2026`,
-  `7/12/2026`; anything else is kept as a last-touch note). Unrecognised
-  columns are ignored. The same import runs from the terminal:
+  `7/12/2026`; anything else is kept as a last-touch note). A parsed date is
+  also stored as `connected_on`, the floor last touch never drops below when a
+  newer interaction is deleted. Names in any script get a slug; only a name
+  with no letters or digits is refused. Unrecognised columns are ignored. The same import runs from the terminal:
 
   ```bash
   npm run import-csv -- path/to/file.csv [--update] [--dry-run]
@@ -428,7 +469,12 @@ date parsing (`lib/dates.mjs`), slugs, the model-output schemas, the Ollama URL
 guard and settings storage, the schema bootstrap and its date-normalisation
 migration, the effective-bucket / keep-warm queries, markdown sanitisation,
 the access-token proxy, vocabulary loading, coach tones, the Log hint, Inbox
-routing, and the News Feed's parsing, de-duplication and storage. Every suite that touches disk points `CRM_DB_PATH` at a
+routing and polling, the News Feed's parsing, de-duplication, storage and
+scans, the AI pipeline (fallback rules, the bounded roster, JSON extraction and
+repair, the local-model queue), Intake/Log confirmation rollback, CSV import,
+merging, slugs in any script, the status → cadence rule, last-touch
+recomputation, section-save conflicts, to-do editing, search coverage and
+backups. Every suite that touches disk points `CRM_DB_PATH` at a
 temp directory first (`tests/helpers/tempdb.ts`), so `data/crm.db` and
 `data/auth-token` are never opened; each test file runs in its own process and
 cleans up after itself. The GitHub Actions workflow in

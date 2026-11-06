@@ -33,12 +33,13 @@ marked.use({
   },
 });
 
-/** Rewrite relative profile links (../people/x.md, companies/y.md) to app routes. */
+/** Rewrite relative profile links (../people/x.md, companies/y.md) to app routes. Slugs may be in any script. */
 function rewriteLinks(md: string): string {
+  const to = (table: "people" | "companies") => (_: string, slug: string) => `(/${table}/${encodeURIComponent(slug)})`;
   return md
-    .replace(/\((?:\.\.\/)?people\/([a-z0-9-]+)\.md\)/g, "(/people/$1)")
-    .replace(/\((?:\.\.\/)?companies\/([a-z0-9-]+)\.md\)/g, "(/companies/$1)")
-    .replace(/\(([a-z0-9-]+)\.md\)/g, "(/people/$1)");
+    .replace(/\((?:\.\.\/)?people\/([\p{L}\p{N}-]+)\.md\)/gu, to("people"))
+    .replace(/\((?:\.\.\/)?companies\/([\p{L}\p{N}-]+)\.md\)/gu, to("companies"))
+    .replace(/\(([\p{L}\p{N}-]+)\.md\)/gu, to("people"));
 }
 
 export default function Markdown({ children }: { children: string }) {

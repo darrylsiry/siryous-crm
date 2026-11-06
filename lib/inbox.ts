@@ -1,11 +1,12 @@
 import type Database from "better-sqlite3";
-import { z } from "zod";
 import { getDb } from "./db";
 import { buildInboxFetchPrompt, claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS, type InboxFetchedMessage } from "./ai";
 import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { inboxCheckDue, intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
+import { parseInboxListing } from "./schemas";
+import { shared } from "./serverState";
 
 /**
  * Mail-in: a mailbox address the owner forwards or copies emails to. A poll
@@ -23,7 +24,8 @@ import { getSetting, setSetting } from "./settings";
  *
  * Settings (key/value, edited on /inbox): inbox.address, inbox.enabled,
  * inbox.poll_minutes, inbox.extra_owner_emails, and the status keys
- * inbox.last_poll_at (last success), inbox.last_attempt_at, inbox.last_error.
+ * inbox.last_poll_at (last success), inbox.last_attempt_at, inbox.last_error,
+ * and inbox.follow_up_at (set by a full check that stored new mail).
  */
 
 export const INBOX_MAX_PER_POLL = 20;
@@ -80,22 +82,12 @@ export function inboxOwnerEmails(s: InboxSettings = getInboxSettings()): string[
 // Polling
 // ---------------------------------------------------------------------------
 
-const FetchedSchema = z.object({
-  messages: z.array(
-    z.object({
-      id: z.string().min(1),
-      thread_id: z.string().nullable().optional(),
-      date: z.string().nullable().optional(),
-      subject: z.string().optional(),
-      from: z.string().optional(),
-      to: z.array(z.string()).optional(),
-      cc: z.array(z.string()).optional(),
-      body: z.string().optional(),
-    })
-  ),
-});
+/** After a capped check that stored new mail, the next one runs this soon (the loop ticks every minute). */
+const FOLLOW_UP_MS = 2 * 60_000;
+/** Ids sent as "already recorded" in the fetch prompt, at most. */
+const MAX_SEEN_IDS = 500;
 
-let polling: Promise<PollResult> | null = null;
+const state = shared("inbox", () => ({ polling: null as Promise<PollResult> | null, loopTimer: null as NodeJS.Timeout | null }));
 
 export interface PollResult {
   fetched: number;
@@ -104,19 +96,23 @@ export interface PollResult {
   /** Not sent from one of the owner's addresses — stored, not routed. */
   ignored: number;
   error: string | null;
+  /** The check stored new mail and returned as many messages as it may: more may be waiting, and a follow-up check fetches them. */
+  capped?: boolean;
+  /** Messages in the listing that couldn't be read (no id, say) and were left out. */
+  dropped?: number;
 }
 
 /** One poll; concurrent callers share the in-flight one. */
 export function pollInbox(): Promise<PollResult> {
-  if (polling) return polling;
-  polling = pollInboxInner().finally(() => {
-    polling = null;
+  if (state.polling) return state.polling;
+  state.polling = pollInboxInner().finally(() => {
+    state.polling = null;
   });
-  return polling;
+  return state.polling;
 }
 
 export function inboxPollRunning(): boolean {
-  return polling !== null;
+  return state.polling !== null;
 }
 
 function isoDate(d: Date): string {
@@ -141,13 +137,18 @@ async function pollInboxInner(): Promise<PollResult> {
     return result;
   }
   setSetting("inbox.last_attempt_at", new Date().toISOString());
+  setSetting("inbox.follow_up_at", null);
   try {
     const since = new Date();
     if (s.lastPollAt) since.setTime(new Date(s.lastPollAt).getTime() - LOOKBACK_DAYS * 86_400_000);
     else since.setTime(since.getTime() - FIRST_LOOKBACK_DAYS * 86_400_000);
-    const seen = (db.prepare(`SELECT gmail_id FROM inbox_messages ORDER BY id DESC LIMIT 60`).all() as { gmail_id: string }[]).map(
-      (r) => r.gmail_id
-    );
+    // Everything already stored from inside the look-back window, so a window
+    // holding more mail than one check returns still moves on to the rest.
+    const seen = (
+      db
+        .prepare(`SELECT gmail_id FROM inbox_messages WHERE COALESCE(date, substr(created_at, 1, 10)) >= ? ORDER BY id DESC LIMIT ?`)
+        .all(isoDate(since), MAX_SEEN_IDS) as { gmail_id: string }[]
+    ).map((r) => r.gmail_id);
     let reachedGmail = false;
     const text = await runClaudeStream(buildInboxFetchPrompt(s.address, gmailDate(since), seen, INBOX_MAX_PER_POLL), {
       model: INBOX_MODEL,
@@ -160,19 +161,14 @@ async function pollInboxInner(): Promise<PollResult> {
     // Without this, a model that couldn't reach Gmail can look like an empty
     // mailbox: its explanation may quote {"messages": []}, which parses fine.
     if (!reachedGmail) throw new Error("The check never reached Gmail, so nothing was fetched. Is the Gmail connector still connected in Claude?");
-    const parsed = FetchedSchema.safeParse(await extractJsonWithRepair(text));
-    if (!parsed.success) throw new Error(`Couldn't read the mailbox listing: ${parsed.error.issues[0]?.message ?? "bad JSON"}`);
-    const messages: InboxFetchedMessage[] = parsed.data.messages.map((m) => ({
-      id: m.id,
-      thread_id: m.thread_id ?? null,
+    const listing = parseInboxListing(await extractJsonWithRepair(text));
+    if (!listing) throw new Error(`Couldn't read the mailbox listing: the answer had no "messages" list.`);
+    const messages: InboxFetchedMessage[] = listing.messages.map((m) => ({
+      ...m,
       date: m.date && /^\d{4}-\d{2}-\d{2}/.test(m.date) ? m.date.slice(0, 10) : null,
-      subject: m.subject ?? "",
-      from: m.from ?? "",
-      to: m.to ?? [],
-      cc: m.cc ?? [],
-      body: m.body ?? "",
     }));
     result.fetched = messages.length;
+    if (listing.dropped) result.dropped = listing.dropped;
     const owners = inboxOwnerEmails(s);
     for (const m of messages) {
       const stored = storeMessage(db, m);
@@ -188,13 +184,41 @@ async function pollInboxInner(): Promise<PollResult> {
       routeMessage(db, stored);
       result.routed++;
     }
-    setSetting("inbox.last_poll_at", new Date().toISOString());
+    const full = messages.length + (listing.dropped ?? 0) >= INBOX_MAX_PER_POLL;
+    const storedNew = result.routed + result.ignored;
+    result.capped = full && storedNew > 0;
+    if (result.capped) {
+      // Oldest first and full: there may be more waiting. Keep the look-back
+      // where it was (what was stored is now in the skip list) and check again
+      // shortly rather than a full interval later. Each follow-up only happens
+      // after one that stored something, so it can't spin on old mail.
+      setSetting("inbox.follow_up_at", new Date(Date.now() + FOLLOW_UP_MS).toISOString());
+    } else if (full) {
+      // A full answer of mail already stored (the model ignored the skip list):
+      // move the look-back up to the newest of it instead of asking again.
+      setSetting("inbox.last_poll_at", lookBackPast(messages, s.lastPollAt).toISOString());
+    } else {
+      setSetting("inbox.last_poll_at", new Date().toISOString());
+    }
     setSetting("inbox.last_error", null);
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
     setSetting("inbox.last_error", result.error);
   }
   return result;
+}
+
+/**
+ * The last_poll_at that makes the next look-back start at the newest of these
+ * messages' dates (never earlier than it already is, never in the future).
+ */
+function lookBackPast(messages: InboxFetchedMessage[], lastPollAt: string | null): Date {
+  const now = Date.now();
+  const newest = messages.map((m) => m.date).filter((d): d is string => !!d).sort().at(-1);
+  let t = newest ? Date.parse(`${newest}T00:00:00Z`) + LOOKBACK_DAYS * 86_400_000 : now;
+  const current = Date.parse(lastPollAt ?? "");
+  if (Number.isFinite(current)) t = Math.max(t, current);
+  return new Date(Math.min(t, now));
 }
 
 /** Insert the message if it is new; null when it was seen before or is empty. */
@@ -318,7 +342,7 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
   }
 
   if (force) discardDrafts(db, row);
-  const route = routeEmail(force ? { ...email, subject: `#${force} ${email.subject}` } : email, roster(db), owners);
+  const route = routeEmail(email, roster(db), owners, force);
   const notes: string[] = [];
   let logDraftId: number | null = null;
   const intakeIds: number[] = [];
@@ -372,15 +396,13 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
 // Background loop (started from instrumentation.ts)
 // ---------------------------------------------------------------------------
 
-let loopTimer: NodeJS.Timeout | null = null;
-
 /**
  * Check the mailbox on a schedule while mail-in is on (see inboxCheckDue). The
  * interval is read from settings on every tick, so changes on /inbox apply
  * without a restart.
  */
 export function startInboxLoop(): void {
-  if (loopTimer) return;
+  if (state.loopTimer) return;
   const tick = async () => {
     try {
       const s = getInboxSettings();
@@ -390,6 +412,7 @@ export function startInboxLoop(): void {
           lastAttemptAt: s.lastAttemptAt,
           lastActiveAt: getSetting("app.last_active_at"),
           pollMinutes: s.pollMinutes,
+          followUpAt: getSetting("inbox.follow_up_at"),
         });
         if (due) {
           const r = await pollInbox();
@@ -400,8 +423,8 @@ export function startInboxLoop(): void {
       console.error("[inbox] poll failed:", err);
     }
   };
-  loopTimer = setInterval(tick, 60_000);
-  loopTimer.unref();
+  state.loopTimer = setInterval(tick, 60_000);
+  state.loopTimer.unref();
   // First check shortly after boot rather than a full interval later.
   setTimeout(tick, 15_000).unref();
 }
@@ -426,13 +449,13 @@ export interface OpenInboxItem {
  */
 export function openInboxItems(limit = 100): OpenInboxItem[] {
   const db = getDb();
-  const rows = db
-    .prepare(`SELECT * FROM inbox_messages WHERE status <> 'ignored' ORDER BY id DESC LIMIT ?`)
-    .all(limit) as InboxRow[];
+  // Filter to what is still open first, then apply the limit: resolved mail mustn't crowd out an older open one.
+  const rows = db.prepare(`SELECT * FROM inbox_messages WHERE status <> 'ignored' ORDER BY id DESC`).all() as InboxRow[];
   const logStatus = db.prepare(`SELECT status FROM log_drafts WHERE id=?`);
   const intakeStatus = db.prepare(`SELECT status FROM intake_drafts WHERE id=?`);
   const out: OpenInboxItem[] = [];
   for (const r of rows) {
+    if (out.length >= limit) break;
     const base = { id: r.id, subject: r.subject, sender: r.sender, date: r.date ?? r.created_at.slice(0, 10) };
     if (r.status === "error") {
       out.push({ ...base, state: "error", href: `/inbox/${r.id}` });

@@ -10,6 +10,7 @@ import ConfirmButton from "@/components/ConfirmButton";
 import { deletePerson, updateSnapshot } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
 import StaleNotice from "@/components/StaleNotice";
+import { profilePath, slugParam } from "@/lib/slug";
 import { opportunityHref } from "@/lib/queries";
 import { STAGES, STATUS, STRENGTHS } from "@/lib/db";
 
@@ -22,7 +23,7 @@ export default async function PersonPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ stale?: string }>;
 }) {
-  const { slug } = await params;
+  const slug = slugParam((await params).slug);
   const { stale } = await searchParams;
   const p = personBySlug(slug);
   if (!p) notFound();
@@ -33,7 +34,7 @@ export default async function PersonPage({
 
   return (
     <div className="space-y-6">
-      {stale ? <StaleNotice href={`/people/${slug}`} /> : null}
+      {stale ? <StaleNotice href={profilePath("people", slug)} kept={stale === "kept"} /> : null}
       <header>
         <Link href="/people" className="text-xs text-stone-400 hover:text-indigo-600">
           ← People

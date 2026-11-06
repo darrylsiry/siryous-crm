@@ -1,4 +1,6 @@
-import { getDb, STAGES } from "./db";
+import { getDb, STAGES, VOCAB } from "./db";
+import { keepWarmSql, statusRankSql } from "./vocab.mjs";
+import { COMPANY_SEARCH_COLUMNS, PEOPLE_SEARCH_COLUMNS, effectiveBucketSql, likeAnySql, likeNeedle } from "./rules.mjs";
 import type {
   ActionItemJoined,
   Company,
@@ -10,16 +12,13 @@ import type {
   PersonWithCompany,
 } from "./types";
 
-const STATUS_ORDER = `CASE status_key
-  WHEN 'active' THEN 0 WHEN 'client' THEN 1 WHEN 'exploring' THEN 2 WHEN 'new' THEN 3
-  WHEN 'on_hold' THEN 4 WHEN 'won' THEN 5 WHEN 'dormant' THEN 6 WHEN 'lost' THEN 7 ELSE 8 END`;
 
 export function allPeople(): (PersonWithCompany & Versioned)[] {
   return getDb()
     .prepare(
       `SELECT p.*, c.name AS company_name, c.slug AS company_slug
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
-       ORDER BY ${STATUS_ORDER.replaceAll("status_key", "p.status_key")}, p.name`
+       ORDER BY ${statusRankSql(VOCAB, "p.status_key")}, p.name`
     )
     .all() as (PersonWithCompany & Versioned)[];
 }
@@ -43,7 +42,7 @@ export function allCompanies(): (Company & Versioned & { people_count: number; k
         (SELECT COUNT(*) FROM people p WHERE p.company_id = c.id) AS people_count,
         COALESCE((SELECT GROUP_CONCAT(p.name, ' · ') FROM people p WHERE p.company_id = c.id), '') AS key_people
        FROM companies c
-       ORDER BY ${STATUS_ORDER.replaceAll("status_key", "c.status_key")}, c.name`
+       ORDER BY ${statusRankSql(VOCAB, "c.status_key")}, c.name`
     )
     .all() as (Company & Versioned & { people_count: number; key_people: string })[];
 }
@@ -79,7 +78,7 @@ export function interactionsFor(opts: { personId?: number; companyId?: number })
 }
 
 /** SQL for the effective bucket: anything with a passed due date is overdue, whatever it was filed under. */
-export const EFFECTIVE_BUCKET = `CASE WHEN a.status='open' AND a.due_date IS NOT NULL AND a.due_date < date('now','localtime') THEN 'overdue' ELSE a.bucket END`;
+export const EFFECTIVE_BUCKET = effectiveBucketSql("a");
 
 export function openActionItems(): ActionItemJoined[] {
   return getDb()
@@ -129,17 +128,6 @@ export function outreachById(id: number): (Outreach & { person_name: string | nu
     .get(id) as (Outreach & { person_name: string | null; person_slug: string | null }) | undefined;
 }
 
-export function dashboardStats() {
-  const db = getDb();
-  const people = db.prepare(`SELECT status_key, COUNT(*) n FROM people GROUP BY status_key`).all() as { status_key: string; n: number }[];
-  const companies = db.prepare(`SELECT status_key, COUNT(*) n FROM companies GROUP BY status_key`).all() as { status_key: string; n: number }[];
-  const openActions = (db.prepare(`SELECT COUNT(*) n FROM action_items WHERE status='open'`).get() as { n: number }).n;
-  const overdue = (
-    db.prepare(`SELECT COUNT(*) n FROM action_items a WHERE a.status='open' AND ${EFFECTIVE_BUCKET} = 'overdue'`).get() as { n: number }
-  ).n;
-  return { people, companies, openActions, overdue };
-}
-
 export function allOpportunities(): OpportunityJoined[] {
   return getDb()
     .prepare(
@@ -182,7 +170,7 @@ export function followUps(): FollowUp[] {
               c.name AS company_name, c.slug AS company_slug,
               CAST(julianday('now','localtime') - julianday(substr(p.last_touch, 1, 10)) AS INTEGER) AS days_since
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
-       WHERE p.status_key NOT IN ('lost')`
+       WHERE ${keepWarmSql(VOCAB, "p.status_key")}`
     )
     .all() as (Omit<FollowUp, "days_over"> & { days_since: number | null })[];
   return rows
@@ -196,12 +184,6 @@ export function followUps(): FollowUp[] {
             : r.days_since - r.cadence_days,
     }))
     .sort((a, b) => (b.days_over ?? -9999) - (a.days_over ?? -9999));
-}
-
-export function dueForTouch(limit = 6): FollowUp[] {
-  return followUps()
-    .filter((f) => f.days_over !== null && f.days_over > 0)
-    .slice(0, limit);
 }
 
 export interface MapData {
@@ -237,10 +219,6 @@ export interface SearchResults {
   truncated: { [K in keyof Omit<SearchResults, "truncated">]: boolean };
 }
 
-/** Escape LIKE metacharacters so a literal %, _ or \ in the query matches itself. */
-function likeNeedle(q: string): string {
-  return `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-}
 
 export function search(q: string): SearchResults {
   const db = getDb();
@@ -251,17 +229,14 @@ export function search(q: string): SearchResults {
     .prepare(
       `SELECT p.*, c.name AS company_name, c.slug AS company_slug
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
-       WHERE p.name LIKE @q ESCAPE '\\' OR p.role_title LIKE @q ESCAPE '\\' OR p.tags LIKE @q ESCAPE '\\'
-         OR p.notes LIKE @q ESCAPE '\\' OR p.relationship_intel LIKE @q ESCAPE '\\'
-         OR p.business_context LIKE @q ESCAPE '\\' OR p.engagement_strategy LIKE @q ESCAPE '\\'
+       WHERE ${likeAnySql(PEOPLE_SEARCH_COLUMNS, "@q", "p")}
        ORDER BY p.name LIMIT @n`
     )
     .all({ q: like, n }) as PersonWithCompany[];
   const companies = db
     .prepare(
       `SELECT * FROM companies
-       WHERE name LIKE @q ESCAPE '\\' OR industry LIKE @q ESCAPE '\\' OR notes LIKE @q ESCAPE '\\'
-         OR business_context LIKE @q ESCAPE '\\'
+       WHERE ${likeAnySql(COMPANY_SEARCH_COLUMNS, "@q")}
        ORDER BY name LIMIT @n`
     )
     .all({ q: like, n }) as Company[];

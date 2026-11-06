@@ -9,6 +9,7 @@ import { runWithProgress } from "./progress";
 import { getCoachSettings } from "./settings";
 import { loadProposals, type CoachProposal } from "./coachData";
 import { parseDueDate } from "./dates.mjs";
+import { markActionDone } from "./rules.mjs";
 import { CoachCloseSchema, CoachTurnSchema, validateModelJson } from "./schemas";
 import {
   buildCoachAdvicePrompt,
@@ -136,7 +137,7 @@ export async function reviewCoachProposals(formData: FormData) {
           | { title: string }
           | undefined;
         if (row) {
-          db.prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(p.action_id);
+          markActionDone(db, p.action_id);
           lines.push(`✅ Completed: ${row.title}`);
         } else {
           lines.push(`✅ Already done: ${p.title}`);
@@ -283,11 +284,12 @@ export async function sendCoachMessage(formData: FormData): Promise<{ ok: boolea
   let ok = false;
   try {
     const history = loadMessages(sessionId);
+    const route = getCoachSettings().route;
     const raw = await runModel(
       buildCoachReplyPrompt(session.week_start, session.advice_md!, history, message, session.kind),
-      { json: true, timeoutMs: 300_000, ...getCoachSettings().route }
+      { json: true, timeoutMs: 300_000, ...route }
     );
-    const turn: CoachTurn = validateModelJson(CoachTurnSchema, await extractJsonWithRepair(raw), raw);
+    const turn: CoachTurn = validateModelJson(CoachTurnSchema, await extractJsonWithRepair(raw, route), raw);
     const insert = db.prepare(`INSERT INTO coach_messages (session_id, role, content_md) VALUES (?,?,?)`);
     db.transaction(() => {
       insert.run(sessionId, "owner", message);
@@ -321,11 +323,12 @@ export async function endCoachSession(formData: FormData): Promise<{ ok: boolean
 
   let ok = false;
   try {
+    const route = getCoachSettings().route;
     const raw = await runModel(
       buildCoachSummaryPrompt(session.week_start, session.advice_md!, loadMessages(sessionId), session.kind),
-      { json: true, timeoutMs: 300_000, ...getCoachSettings().route }
+      { json: true, timeoutMs: 300_000, ...route }
     );
-    const close: CoachClose = validateModelJson(CoachCloseSchema, await extractJsonWithRepair(raw), raw);
+    const close: CoachClose = validateModelJson(CoachCloseSchema, await extractJsonWithRepair(raw, route), raw);
     db.transaction(() => {
       proposeCrmUpdates(sessionId, null, close);
       db.prepare(

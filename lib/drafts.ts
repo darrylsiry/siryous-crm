@@ -24,12 +24,16 @@ function stillAnalyzing(table: "log_drafts" | "intake_drafts", id: number): () =
   };
 }
 
-/** Record a failure — unless the draft was discarded meanwhile (then the outcome no longer matters). */
+/** Record a failure — unless the draft was discarded meanwhile (then the outcome no longer matters). Never throws. */
 function failDraft(table: "log_drafts" | "intake_drafts", id: number, err: unknown) {
   if (err instanceof RunCancelled) return;
-  getDb()
-    .prepare(`UPDATE ${table} SET status='error', error=? WHERE id=? AND status='analyzing'`)
-    .run(err instanceof Error ? err.message : String(err), id);
+  try {
+    getDb()
+      .prepare(`UPDATE ${table} SET status='error', error=? WHERE id=? AND status='analyzing'`)
+      .run(err instanceof Error ? err.message : String(err), id);
+  } catch (writeErr) {
+    console.error(`[drafts] couldn't record the failure of ${table} #${id}:`, writeErr, "— original error:", err);
+  }
 }
 
 /**
@@ -89,16 +93,16 @@ export function logFetchTools(source: string): string {
 }
 
 export async function processLogDraft(draftId: number): Promise<void> {
-  const db = getDb();
-  const row = db
-    .prepare(`SELECT source, raw_text, fetched_text, hint_person_id, hint_company_id FROM log_drafts WHERE id=?`)
-    .get(draftId) as
-    | { source: string; raw_text: string; fetched_text: string | null; hint_person_id: number | null; hint_company_id: number | null }
-    | undefined;
-  if (!row) return;
-  const hint = loadLogHint(db, row.hint_person_id, row.hint_company_id);
-  const allowedTools = row.fetched_text ? "" : logFetchTools(row.source);
   try {
+    const db = getDb();
+    const row = db
+      .prepare(`SELECT source, raw_text, fetched_text, hint_person_id, hint_company_id FROM log_drafts WHERE id=?`)
+      .get(draftId) as
+      | { source: string; raw_text: string; fetched_text: string | null; hint_person_id: number | null; hint_company_id: number | null }
+      | undefined;
+    if (!row) return;
+    const hint = loadLogHint(db, row.hint_person_id, row.hint_company_id);
+    const allowedTools = row.fetched_text ? "" : logFetchTools(row.source);
     // Step 1 (Claude + connector tools, only for Zoom/Meet/Gmail): fetch the content.
     let content = row.fetched_text ?? row.raw_text;
     if (allowedTools) {
@@ -152,11 +156,11 @@ export function insertIntakeDraft(db: Database.Database, raw: string): number {
 }
 
 export async function processIntakeDraft(draftId: number, research: boolean): Promise<void> {
-  const db = getDb();
-  const row = db.prepare(`SELECT raw_text FROM intake_drafts WHERE id=?`).get(draftId) as { raw_text: string } | undefined;
-  if (!row) return;
-  const raw = row.raw_text;
   try {
+    const db = getDb();
+    const row = db.prepare(`SELECT raw_text FROM intake_drafts WHERE id=?`).get(draftId) as { raw_text: string } | undefined;
+    if (!row) return;
+    const raw = row.raw_text;
     // Step 1 (optional, Claude + web): research digest. A failure here is
     // not fatal — the analysis proceeds from the paste alone and says so.
     let digest: string | null = null;

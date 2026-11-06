@@ -48,6 +48,35 @@ function listOf<T extends z.ZodTypeAny>(item: T) {
   }, z.array(item));
 }
 
+/** One message from the Inbox's mailbox listing: null fields → "", a lone address → [address]. */
+const InboxMessageSchema = z.object({
+  id: rstr,
+  thread_id: nstr,
+  date: nstr,
+  subject: dstr,
+  from: dstr,
+  to: strList,
+  cc: strList,
+  body: dstr,
+});
+export type InboxListedMessage = z.output<typeof InboxMessageSchema>;
+
+/**
+ * The mailbox listing, each message checked on its own: one the model wrote
+ * oddly is dropped and counted rather than failing the whole check. null when
+ * the answer isn't a listing at all.
+ */
+export function parseInboxListing(v: unknown): { messages: InboxListedMessage[]; dropped: number } | null {
+  const list = v && typeof v === "object" ? (v as { messages?: unknown }).messages : undefined;
+  if (!Array.isArray(list)) return null;
+  const messages: InboxListedMessage[] = [];
+  for (const m of list) {
+    const r = InboxMessageSchema.safeParse(m);
+    if (r.success) messages.push(r.data);
+  }
+  return { messages, dropped: list.length - messages.length };
+}
+
 const nullableObject = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null), schema.nullable());
 

@@ -143,8 +143,9 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   opens with a greeting and a quote of the day, then:
   - **Your move** — to-dos that are late (up to two weeks) or due in the next
     seven days, each with the person, their company, the open deal it belongs
-    to and when you last spoke. Tick one off right there. Anything more than
-    two weeks late folds into a collapsed list to do, re-date or drop.
+    to and when you last spoke. Tick one off right there, or click its date
+    to re-date or reword it. Anything more than two weeks late folds into a
+    collapsed list to do, re-date or drop.
   - **Deals in motion** — open opportunities grouped by stage, furthest along
     first, with the next step and the days since you last logged contact
     (amber after two weeks, red after a month). Job opportunities sit at the
@@ -157,7 +158,9 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   a narrative in four sections (Relationship, Business context, Strategy,
   Notes) and a log of every interaction. Click any text to edit it in place,
   and click the status badge — on a profile or in the People/Companies lists —
-  to change the status on the spot.
+  to change the status on the spot. If Claude (or another window) changed the
+  same section while you were typing, nothing is lost: your text is saved
+  below the newer version, marked ⚠, for you to merge.
   Profiles link to each other, and you can delete a person, company, log entry
   or open item from the profile page (permanent — only the daily backups can
   bring it back).
@@ -175,13 +178,15 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
 - **Actions** — everything you have promised or are waiting for, grouped by
   urgency (overdue, this week, awaiting the other party, high potential, keep
   warm, data gaps). Items carry a real due date — type one or write "Fri 7/25"
-  and it is understood. Tick things off; "Recently completed" lets you reopen.
+  and it is understood. Tick things off; **✎ Edit** changes an item's wording,
+  date or group; "Recently completed" lets you reopen.
 - **✨ Intake (AI)** — paste anything about a person (a LinkedIn profile, an
   email thread, your own rough notes) and the AI extracts the person and their
   company, writes up the profile in a consistent style, spots links to people
   you already know, and suggests tags, a status and follow-ups. Nothing is
   saved until you have looked it over and clicked confirm. With Claude, it can
-  also look the person up on the web first.
+  also look the person up on the web first. A run that fails keeps what you
+  pasted: **Run it again** or **Discard** it from the draft's page.
 - **✎ Log (AI)** — turn a meeting or an email into log entries on the right
   contacts. Paste the notes or transcript, or (with Claude) have it fetch the
   Zoom recording transcript, the Gmail thread or the Google Meet transcript
@@ -225,7 +230,8 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   daily run sends your contacts' names, roles and employers to Anthropic (see
   "What leaves your computer"); with a large contact list it is also many
   Claude runs a day. "Check now" searches everyone once without turning on
-  the daily run; "Pause daily search" turns it off again.
+  the daily run; "Pause daily search" turns it off again, and **Stop after
+  this batch** ends a search that is running.
 - **🗓 Prep (AI)** — a three-minute briefing before you meet someone: where
   things stand, what has changed since you last spoke (with Claude: checked
   against your calendar, your email and the web, with sources), what you want
@@ -373,11 +379,13 @@ reviewed it.
   your entire CRM.
 - **Daily backups** are made automatically while the CRM is running, into
   `data/backups` inside the CRM folder. The newest 30 are kept. The Settings
-  page shows when the last one was made.
+  page shows when the last one was made, and both Settings and the Dashboard
+  warn you in red if a backup failed or the newest is more than two days old.
 - **To keep a copy off the Mac**, open **Settings** → **Backups** and type the
-  path of a folder that syncs to the cloud — for example a folder inside your
-  iCloud Drive, Dropbox or Google Drive folder. From then on the daily copy
-  goes there. Note that it is a plain, unencrypted copy of everything in the
+  full path of a folder that syncs to the cloud — for example a folder inside
+  your iCloud Drive, Dropbox or Google Drive folder (`~/` works). The folder is
+  checked when you save, and today's copy is made there straight away; from
+  then on the daily copy goes there. Note that it is a plain, unencrypted copy of everything in the
   CRM.
 - **Moving to a new Mac:** stop the CRM, copy the whole CRM folder across,
   install Node (and Ollama) on the new machine, delete the `node_modules` and

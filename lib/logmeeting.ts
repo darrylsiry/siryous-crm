@@ -7,6 +7,7 @@ import { getDb } from "./db";
 import { COMPANY_TARGET } from "./logHint";
 import { insertLogDraft, processLogDraft } from "./drafts";
 import { parseDueDate } from "./dates.mjs";
+import { bumpLastTouch, markActionDone, profilePath } from "./rules.mjs";
 
 export async function analyzeLog(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
@@ -20,6 +21,15 @@ export async function analyzeLog(formData: FormData) {
   });
   after(() => processLogDraft(draftId));
   redirect(`/log/${draftId}`);
+}
+
+/** Run a failed draft again on what it already has (the paste, or the fetched content), so nothing needs pasting twice. */
+export async function retryLog(id: number) {
+  const changed = getDb()
+    .prepare(`UPDATE log_drafts SET status='analyzing', error=NULL, progress=NULL, result_json=NULL WHERE id=? AND status='error'`)
+    .run(id).changes;
+  if (changed) after(() => processLogDraft(id));
+  redirect(`/log/${id}`);
 }
 
 export async function discardLog(id: number) {
@@ -42,16 +52,23 @@ export async function confirmLog(formData: FormData) {
     .prepare(`UPDATE log_drafts SET status='confirming' WHERE id=? AND status='ready'`)
     .run(draftId).changes;
   if (!claimed) redirect(`/log/${draftId}`);
+  let target: string | null = null;
   try {
-    await confirmLogInner(db, draftId, formData);
+    // All or nothing: a failure part-way must not leave half a meeting logged,
+    // to be logged again when the draft is confirmed a second time.
+    target = db.transaction(() => writeLog(db, draftId, formData))();
   } finally {
     db.prepare(`UPDATE log_drafts SET status='ready' WHERE id=? AND status='confirming'`).run(draftId);
   }
+  if (!target) return;
+  revalidatePath("/", "layout");
+  redirect(target);
 }
 
-async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, formData: FormData) {
+/** The confirmation's writes, run inside one transaction. Returns where to go next, or null when nothing was done. */
+function writeLog(db: ReturnType<typeof getDb>, draftId: number, formData: FormData): string | null {
   const date = String(formData.get("date") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const channel = str(formData, "channel");
 
   let firstTarget: string | null = null;
@@ -92,26 +109,19 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
       channel,
       summary
     );
-    if (personId) {
-      db.prepare(
-        `UPDATE people SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
-      ).run(date, personId, date);
-    }
-    if (companyId) {
-      db.prepare(
-        `UPDATE companies SET last_touch=?, last_touch_note=NULL, updated_at=datetime('now') WHERE id=? AND (last_touch IS NULL OR last_touch < ?)`
-      ).run(date, companyId, date);
-    }
+    if (personId) bumpLastTouch(db, "people", personId, date);
+    if (companyId) bumpLastTouch(db, "companies", companyId, date);
     const next = str(formData, `entry_next_${i}`);
-    if (next && personId) db.prepare(`UPDATE people SET next_action=? WHERE id=?`).run(next, personId);
-    if (!firstTarget) firstTarget = companySlug ? `/companies/${companySlug}` : `/people/${slug}`;
+    // updated_at too, so a profile form opened before this can't overwrite the new next action unnoticed.
+    if (next && personId) db.prepare(`UPDATE people SET next_action=?, updated_at=datetime('now') WHERE id=?`).run(next, personId);
+    if (!firstTarget) firstTarget = companySlug ? profilePath("companies", companySlug) : profilePath("people", slug);
   }
 
   // Resolved action items: checkbox resolve_<id>
   for (const [key] of formData.entries()) {
     const m = key.match(/^resolve_(\d+)$/);
     if (!m) continue;
-    db.prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(Number(m[1]));
+    markActionDone(db, Number(m[1]));
   }
 
   // Suggested actions: checkbox action_<i>, fields action_title_<i>, action_bucket_<i>, action_due_<i>, action_slug_<i>
@@ -137,7 +147,5 @@ async function confirmLogInner(db: ReturnType<typeof getDb>, draftId: number, fo
   }
 
   db.prepare(`UPDATE log_drafts SET status='confirmed' WHERE id=?`).run(draftId);
-  revalidatePath("/", "layout");
-  if (skipped) redirect(`/log/${draftId}?skipped=${skipped}`);
-  redirect(firstTarget ?? "/");
+  return skipped ? `/log/${draftId}?skipped=${skipped}` : (firstTarget ?? "/");
 }

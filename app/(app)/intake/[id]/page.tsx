@@ -2,13 +2,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb, STATUS, STRENGTHS, BUCKETS } from "@/lib/db";
 import type { IntakeAnalysis, ProgressEvent } from "@/lib/ai";
-import { confirmIntake, discardIntake } from "@/lib/intake";
+import { confirmIntake, discardIntake, retryIntake } from "@/lib/intake";
+import { claudeAvailable } from "@/lib/ai";
 import { slugify } from "@/lib/slug";
 import Markdown from "@/components/Markdown";
 import PendingButton from "@/components/PendingButton";
 import ActivityFeed from "@/components/ActivityFeed";
 import FeedRecap from "@/components/FeedRecap";
 import SearchSelect from "@/components/SearchSelect";
+import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +23,10 @@ export default async function IntakeReviewPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ duplicate?: string }>;
+  searchParams: Promise<{ duplicate?: Param }>;
 }) {
   const { id } = await params;
-  const { duplicate: blockedSlug } = await searchParams;
+  const blockedSlug = first((await searchParams).duplicate);
   const db = getDb();
   const draft = db.prepare(`SELECT * FROM intake_drafts WHERE id=?`).get(Number(id)) as
     | { id: number; raw_text: string; result_json: string | null; status: string; error: string | null; progress: string | null }
@@ -56,10 +58,26 @@ export default async function IntakeReviewPage({
   if (draft.status === "error") {
     return (
       <div className="max-w-3xl space-y-4">
+        <Link href="/intake" className="text-xs text-stone-400 hover:text-indigo-600">← Intake</Link>
         <h1 className="text-2xl font-bold tracking-tight">Analysis failed</h1>
         <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{draft.error}</p>
         <FeedRecap progress={draft.progress} />
-        <Link href="/intake" className="text-sm font-medium text-indigo-700 hover:underline">← Try again</Link>
+        <section className="rounded-xl border border-stone-200 bg-white p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-400">What you pasted (kept)</h2>
+          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-stone-700">{draft.raw_text}</pre>
+        </section>
+        <form action={retryIntake.bind(null, draft.id)} className="flex flex-wrap items-center gap-3">
+          {claudeAvailable() ? (
+            <label className="flex items-center gap-2 text-sm text-stone-600">
+              <input type="checkbox" name="research" value="1" defaultChecked />
+              Look them up on the web first
+            </label>
+          ) : null}
+          <PendingButton label="Run it again" pendingLabel="Starting…" />
+          <button formNoValidate formAction={discardIntake.bind(null, draft.id)} className="rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Discard
+          </button>
+        </form>
       </div>
     );
   }

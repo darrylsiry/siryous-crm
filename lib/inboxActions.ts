@@ -29,7 +29,9 @@ export async function checkInboxNow() {
       ? "Checked — nothing new at the CRM address."
       : `Checked — ${r.routed} new email${r.routed === 1 ? "" : "s"} routed${r.skipped ? ` (${r.skipped} already seen)` : ""}${
           r.ignored ? `; ${r.ignored} from an address that isn't yours, ignored` : ""
-        }.`;
+        }.${r.dropped ? ` ${r.dropped} more couldn't be read and were left out.` : ""}${
+          r.capped ? " That's as many as one check takes: the rest come in on a follow-up check in a few minutes." : ""
+        }`;
   redirect(`/inbox?${r.error ? "error" : "saved"}=${encodeURIComponent(msg)}`);
 }
 

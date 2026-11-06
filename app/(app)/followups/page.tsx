@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { followUps } from "@/lib/queries";
+import { VOCAB } from "@/lib/db";
+import { cadenceLine } from "@/lib/vocab.mjs";
 import StatusBadge from "@/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
@@ -151,8 +153,8 @@ export default function FollowUpsPage() {
         </table>
       </div>
       <p className="text-xs text-stone-400">
-        Cadence defaults were set by status (Active 30d · Exploring 45d · New 21d · Dormant 180d) —
-        tune per person from their profile. Logging an interaction resets the clock.
+        Cadence defaults were set by status ({cadenceLine(VOCAB)}) — tune per person from their profile.
+        Logging an interaction resets the clock.
       </p>
     </div>
   );

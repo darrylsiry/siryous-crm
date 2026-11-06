@@ -31,11 +31,35 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+rem    Supported versions: 22 to 26, in step with "engines" in package.json.
+set "NODE_VERSION="
+set "NODE_MAJOR="
+for /f "delims=" %%v in ('node -v') do set "NODE_VERSION=%%v"
+for /f "tokens=1 delims=." %%v in ('node -p process.versions.node') do set "NODE_MAJOR=%%v"
+if not defined NODE_MAJOR goto :node_ok
+if %NODE_MAJOR% LSS 22 (
+  echo Your Node.js is too old ^(%NODE_VERSION%^); the CRM needs version 22 to 26.
+  goto :node_unsupported
+)
+if %NODE_MAJOR% GTR 26 (
+  echo Your Node.js is newer than the CRM supports yet ^(%NODE_VERSION%^); it needs version 22 to 26.
+  goto :node_unsupported
+)
+goto :node_ok
+:node_unsupported
+echo Download the LTS version from https://nodejs.org and install it over this one.
+echo Then double-click Start CRM.bat again.
+echo.
+pause
+exit /b 1
+:node_ok
 
 rem 2. The app's components (node_modules). Reinstall when the lock file changed,
 rem    i.e. after an update to the CRM itself.
 set "NEED_INSTALL=no"
+set "FRESH_INSTALL=no"
 if not exist "node_modules\" set "NEED_INSTALL=yes"
+if not exist "node_modules\" set "FRESH_INSTALL=yes"
 if "%NEED_INSTALL%"=="no" (
   for /f %%i in ('powershell -NoProfile -Command "if (!(Test-Path 'node_modules\.package-lock.json') -or ((Get-Item 'package-lock.json').LastWriteTime -gt (Get-Item 'node_modules\.package-lock.json').LastWriteTime)) { 'yes' } else { 'no' }"') do set "NEED_INSTALL=%%i"
 )
@@ -48,6 +72,29 @@ if "%NEED_INSTALL%"=="yes" (
     pause
     exit /b 1
   )
+)
+
+rem 2b. Node was updated, or the folder came from another computer: the database
+rem     component is compiled for one Node version, so rebuild it to match. A
+rem     fresh install has just compiled it for this one; otherwise rebuild when
+rem     the recorded version differs or there is no record.
+set "NODE_STAMP=node_modules\.crm-node-version"
+set "BUILT_FOR="
+if exist "%NODE_STAMP%" set /p BUILT_FOR=<"%NODE_STAMP%"
+if "%FRESH_INSTALL%"=="yes" goto :stamp
+if "%BUILT_FOR%"=="%NODE_VERSION%" goto :stamp
+echo Making sure the database component matches Node.js %NODE_VERSION%...
+call npm rebuild better-sqlite3
+if errorlevel 1 (
+  echo.
+  echo Rebuilding failed -- see the messages above. Delete the node_modules and .next
+  echo folders inside the CRM folder and try again.
+  pause
+  exit /b 1
+)
+:stamp
+if defined NODE_VERSION (
+  >"%NODE_STAMP%" echo %NODE_VERSION%
 )
 
 rem 3. Build the production bundle on first run, or when the source changed since.
@@ -89,13 +136,19 @@ pause
 exit /b 1
 
 :open
-rem The app is locked to this machine with a private token in data\auth-token
-rem (README, "Signing in"). Opening it with ?token= signs this browser in once.
-if not exist "data\auth-token" (
+rem The app is locked to this machine with a private token (README, "Signing
+rem in"). Opening it with ?token= signs this browser in once. The token sits next
+rem to the database, so ask lib\auth.mjs where the server keeps it, with
+rem CRM_DB_PATH taken from the environment or from .env.local (read the way
+rem Next.js reads it); data\auth-token if that doesn't work.
+set "TOKEN_FILE="
+for /f "delims=" %%t in ('node -e "require('@next/env').loadEnvConfig(process.cwd(), false, { info() {}, error() {} }); import('./lib/auth.mjs').then(function (m) { console.log(m.tokenPath()) })" 2^>nul') do set "TOKEN_FILE=%%t"
+if not defined TOKEN_FILE set "TOKEN_FILE=data\auth-token"
+if not exist "%TOKEN_FILE%" (
   start "" "%URL%"
   goto :opened
 )
-set /p TOKEN=<data\auth-token
+set /p TOKEN=<"%TOKEN_FILE%"
 start "" "%URL%/?token=%TOKEN%"
 :opened
 echo Running at %URL% -- you can close this window.

@@ -3,7 +3,9 @@ import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { getInboxSettings, pollInbox } from "../lib/inbox";
+import { getInboxSettings, INBOX_MAX_PER_POLL, openInboxItems, pollInbox } from "../lib/inbox";
+import { inboxCheckDue } from "../lib/inboxRoute";
+import { getDb } from "../lib/db";
 import { getSetting, noteAppActivity, setSetting } from "../lib/settings";
 
 // A stand-in for the Claude CLI: records its arguments and prompt, then prints
@@ -26,7 +28,8 @@ after(() => tmp.cleanup());
 
 describe("pollInbox", () => {
   beforeEach(() => {
-    for (const k of ["inbox.last_poll_at", "inbox.last_attempt_at", "inbox.last_error"]) setSetting(k, null);
+    for (const k of ["inbox.last_poll_at", "inbox.last_attempt_at", "inbox.last_error", "inbox.follow_up_at"]) setSetting(k, null);
+    getDb().prepare(`DELETE FROM inbox_messages`).run();
     setSetting("inbox.address", "me+crm@example.com");
   });
 
@@ -62,6 +65,72 @@ describe("pollInbox", () => {
     assert.ok(s.lastAttemptAt);
   });
 
+  test("a full check doesn't move the look-back window past mail it left behind, and asks to go again", async () => {
+    const before = "2026-11-01T00:00:00.000Z";
+    setSetting("inbox.last_poll_at", before);
+    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({
+      id: `cap-${i}`,
+      date: "2026-11-02",
+      subject: `Note ${i}`,
+      from: "Someone <someone@elsewhere.example>",
+      body: "hello",
+    }));
+    cli(searched, result(JSON.stringify({ messages })));
+    const r = await pollInbox();
+    assert.equal(r.capped, true);
+    assert.equal(getSetting("inbox.last_poll_at"), before);
+    const s = getInboxSettings();
+    const now = Date.now();
+    const due = (at: number) =>
+      inboxCheckDue({ now: at, lastAttemptAt: s.lastAttemptAt, lastActiveAt: null, pollMinutes: s.pollMinutes, followUpAt: getSetting("inbox.follow_up_at") });
+    assert.equal(due(now), false, "not straight away");
+    assert.equal(due(now + 3 * 60_000), true, "but within a few minutes, not hours");
+    await pollInbox();
+    const prompt = fs.readFileSync(promptFile, "utf8");
+    assert.match(prompt, /after:2026\/10\/30/, "the next check still looks back from the old date");
+    assert.match(prompt, /\bcap-0\b/, "and skips what the first one stored");
+  });
+
+  test("a full answer of mail already stored isn't capped, and moves the look-back on instead of looping", async () => {
+    setSetting("inbox.last_poll_at", "2026-11-01T00:00:00.000Z");
+    const db = getDb();
+    const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, subject, body, date, status) VALUES (?, 's', 'b', ?, 'ignored')`);
+    // More stored mail inside the window than one check returns.
+    for (let i = 0; i < 80; i++) insert.run(`old-${i}`, "2026-11-01");
+    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `old-${i}`, date: "2026-11-03", subject: "s", body: "b" }));
+    cli(searched, result(JSON.stringify({ messages })));
+    const r = await pollInbox();
+    assert.equal(r.capped, false);
+    assert.equal(r.skipped, INBOX_MAX_PER_POLL);
+    assert.equal(getSetting("inbox.follow_up_at"), null, "no follow-up");
+    assert.equal(getSetting("inbox.last_poll_at"), "2026-11-05T00:00:00.000Z", "the next look-back starts at the newest returned day");
+    // Every stored id in the window was offered as already recorded, not just the newest 60.
+    const prompt = fs.readFileSync(promptFile, "utf8");
+    assert.match(prompt, /\bold-0\b/);
+    assert.match(prompt, /\bold-79\b/);
+  });
+
+  test("one oddly shaped message doesn't fail the check; one that can't be read is left out and counted", async () => {
+    cli(
+      searched,
+      result(
+        JSON.stringify({
+          messages: [
+            { id: "odd-1", subject: "Hi", from: "A <a@x.example>", to: "Me <me+crm@example.com>", cc: null, body: "hello" },
+            { id: "odd-2", subject: null, from: "B <b@x.example>", to: ["me+crm@example.com"], body: "there", thread_id: null },
+            { subject: "no id", body: "lost" },
+          ],
+        })
+      )
+    );
+    const r = await pollInbox();
+    assert.equal(r.error, null);
+    assert.equal(r.fetched, 2);
+    assert.equal(r.dropped, 1);
+    const row = getDb().prepare(`SELECT recipients FROM inbox_messages WHERE gmail_id='odd-1'`).get() as { recipients: string };
+    assert.deepEqual(JSON.parse(row.recipients), { to: ["Me <me+crm@example.com>"], cc: [] });
+  });
+
   test("before the attempt key existed, the last success stands in for it", () => {
     setSetting("inbox.last_poll_at", "2026-11-01T00:00:00.000Z");
     assert.equal(getInboxSettings().lastAttemptAt, "2026-11-01T00:00:00.000Z");
@@ -79,5 +148,16 @@ describe("noteAppActivity", () => {
     assert.equal(getSetting("app.last_active_at"), new Date(t0).toISOString());
     noteAppActivity(t0 + 6 * 60_000);
     assert.equal(getSetting("app.last_active_at"), new Date(t0 + 6 * 60_000).toISOString());
+  });
+});
+
+describe("open Inbox items", () => {
+  test("an older open email isn't crowded out by newer resolved ones", () => {
+    const db = getDb();
+    db.prepare(`DELETE FROM inbox_messages`).run();
+    db.prepare(`INSERT INTO inbox_messages (gmail_id, body, status) VALUES ('old-open', 'x', 'new')`).run();
+    const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, body, status) VALUES (?, 'x', 'routed')`);
+    for (let i = 0; i < 150; i++) insert.run(`resolved-${i}`);
+    assert.deepEqual(openInboxItems(100).map((i) => i.state), ["unrouted"]);
   });
 });

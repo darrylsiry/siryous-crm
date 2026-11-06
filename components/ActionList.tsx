@@ -4,6 +4,7 @@ import { completeActionItem, deleteActionItem, reopenActionItem } from "@/lib/ac
 import ConfirmButton from "./ConfirmButton";
 import Markdown from "./Markdown";
 import SubmitButton from "./SubmitButton";
+import ActionEdit from "./ActionEdit";
 
 export function ActionRow({ item, done = false }: { item: ActionItemJoined; done?: boolean }) {
   const action = done ? reopenActionItem.bind(null, item.id) : completeActionItem.bind(null, item.id);
@@ -44,6 +45,7 @@ export function ActionRow({ item, done = false }: { item: ActionItemJoined; done
           ) : null}
           {item.source ? <span>· {item.source}</span> : null}
           {done && item.completed_at ? <span>done {item.completed_at}</span> : null}
+          {!done ? <ActionEdit item={item}>✎ Edit</ActionEdit> : null}
         </div>
       </div>
       {!done ? (

@@ -11,12 +11,18 @@ export default async function IntakePage({ searchParams }: { searchParams: Promi
   const { short } = await searchParams;
   const ai = await getAiStatus();
   const hasClaude = ai.claude.ok;
-  const drafts = getDb()
+  const db = getDb();
+  // Everything still waiting, however old; failures listed apart so they can't push a ready draft off the page.
+  const drafts = db
     .prepare(
       `SELECT id, status, created_at, substr(raw_text, 1, 90) AS preview
-       FROM intake_drafts WHERE status IN ('analyzing','ready','error') ORDER BY id DESC LIMIT 5`
+       FROM intake_drafts WHERE status IN ('analyzing','ready') ORDER BY id DESC`
     )
     .all() as { id: number; status: string; created_at: string; preview: string }[];
+  const failed = db
+    .prepare(`SELECT id, status, created_at, substr(raw_text, 1, 90) AS preview FROM intake_drafts WHERE status='error' ORDER BY id DESC LIMIT 20`)
+    .all() as { id: number; status: string; created_at: string; preview: string }[];
+  const failedCount = (db.prepare(`SELECT COUNT(*) n FROM intake_drafts WHERE status='error'`).get() as { n: number }).n;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -65,10 +71,28 @@ export default async function IntakePage({ searchParams }: { searchParams: Promi
         <AnalyzeButton disabled={!ai.aiUsable} />
       </form>
 
+      {failed.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Failed · {failedCount} — open one to run it again or discard it
+          </h2>
+          <ul className="space-y-1.5">
+            {failed.map((d) => (
+              <li key={d.id} className="text-sm">
+                <Link href={`/intake/${d.id}`} className="font-medium text-indigo-700 hover:underline">
+                  #{d.id}
+                </Link>{" "}
+                <span className="text-red-600">[failed]</span> <span className="text-stone-500">{d.preview}…</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {drafts.length > 0 && (
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
-            Recent analyses
+            Waiting for review · {drafts.length}
           </h2>
           <ul className="space-y-1.5">
             {drafts.map((d) => (

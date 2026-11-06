@@ -2,16 +2,16 @@ import Link from "next/link";
 import { opportunityHref, search, SEARCH_LIMIT, type SearchResults } from "@/lib/queries";
 import StatusBadge from "@/components/StatusBadge";
 import { STAGES } from "@/lib/db";
+import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: Param }>;
 }) {
-  const { q } = await searchParams;
-  const query = (Array.isArray(q) ? q[0] : q ?? "").trim();
+  const query = (first((await searchParams).q) ?? "").trim();
   const results = query ? search(query) : null;
   const total = results
     ? results.people.length +

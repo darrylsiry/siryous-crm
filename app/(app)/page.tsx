@@ -11,8 +11,10 @@ import { quoteOfTheDay } from "@/lib/quotes";
 import { openInboxItems } from "@/lib/inbox";
 import { cleanSubject } from "@/lib/inboxRoute";
 import { newsFeed, newsCounts, type NewsFeedItem } from "@/lib/news";
+import { hostOf } from "@/lib/newsCore";
 import { loadOwner } from "@/lib/owner.mjs";
 import { todayLocal } from "@/lib/dates.mjs";
+import { backupHealth } from "@/lib/backup.mjs";
 import type { ActionItemJoined as ActionBase } from "@/lib/types";
 
 /** openActionItems() selects a.*, so created_at is there at runtime. */
@@ -20,6 +22,7 @@ type ActionItemJoined = ActionBase & { created_at: string };
 import SubmitButton from "@/components/SubmitButton";
 import { dashboardCompleteAction, dashboardDismissNews } from "@/lib/dashboardActions";
 import AiStatusBanner from "@/components/AiStatusBanner";
+import ActionEdit from "@/components/ActionEdit";
 
 export const dynamic = "force-dynamic";
 
@@ -129,7 +132,9 @@ function ActionLine({ a, today, late, ctx }: { a: ActionItemJoined; today: strin
           </p>
         ) : null}
       </div>
-      <span className={`whitespace-nowrap text-xs leading-5 tabular-nums ${whenTone}`}>{when}</span>
+      <span className={`whitespace-nowrap text-xs leading-5 tabular-nums ${whenTone}`}>
+        <ActionEdit item={a}>{when}</ActionEdit>
+      </span>
     </li>
   );
 }
@@ -156,7 +161,7 @@ function NewsLine({ n, dealRefs }: { n: NewsFeedItem; dealRefs: Set<string> }) {
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-stone-400">
         {deal ? <span className="rounded bg-indigo-50 px-1.5 font-medium text-indigo-700">⚑ deal</span> : null}
         <span>
-          {n.source ?? new URL(n.url).hostname.replace(/^www\./, "")}
+          {n.source ?? (hostOf(n.url) || "source")}
           {n.published ? ` · ${short(n.published)}` : ""}
         </span>
         {n.about.map((a) => (
@@ -174,6 +179,7 @@ export default function Dashboard() {
   const today = todayLocal();
   const owner = loadOwner();
   const people = allPeople();
+  const backup = backupHealth(db);
 
   // ── Your move: everything with a date that is due within a week or already late,
   //    plus awaiting items whose follow-up date has passed ("chase").
@@ -263,6 +269,14 @@ export default function Dashboard() {
           <AiStatusBanner />
         </div>
       ) : null}
+      {backup.warning ? (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+          <span className="font-semibold">Backups need attention.</span> {backup.warning}{" "}
+          <Link href="/settings" className="font-semibold underline">
+            Settings
+          </Link>
+        </p>
+      ) : null}
       <header>
         <h1 className="text-2xl font-bold tracking-tight">
           {greeting}
@@ -329,7 +343,7 @@ export default function Dashboard() {
               {backlog.length ? (
                 <details className="mt-2 border-t border-stone-100 pt-2">
                   <summary className="cursor-pointer py-1 text-xs text-stone-500 hover:text-stone-800">
-                    <b>{backlog.length} older items</b> more than {SLIPPED_DAYS} days late — do, re-date or drop them
+                    <b>{backlog.length} older items</b> more than {SLIPPED_DAYS} days late — do, re-date (click the date) or drop them
                   </summary>
                   <ul className="divide-y divide-stone-100 opacity-80">
                     {backlog.map((a) => (

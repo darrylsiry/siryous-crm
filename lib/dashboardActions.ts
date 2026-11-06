@@ -3,13 +3,14 @@
 // Dashboard buttons: tick a to-do done, dismiss a news item.
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/lib/db";
+import { markActionDone } from "@/lib/rules.mjs";
 
 function refresh() {
   revalidatePath("/");
 }
 
 export async function dashboardCompleteAction(id: number) {
-  getDb().prepare(`UPDATE action_items SET status='done', completed_at=date('now','localtime') WHERE id=?`).run(id);
+  markActionDone(getDb(), id);
   refresh();
   revalidatePath("/actions");
 }

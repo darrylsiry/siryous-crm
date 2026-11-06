@@ -104,7 +104,11 @@ Return {"items": []} if nothing qualifies.`;
  */
 export function cleanItems(raw: unknown, batch: NewsSubject[], since: string, today: string): NewsItemIn[] {
   const refs = new Set(batch.map((s) => s.ref));
-  const list = raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown }).items) ? (raw as { items: unknown[] }).items : [];
+  // Anything but {"items": [...]} is a failed answer, not an empty one: the batch must not be marked searched.
+  if (!raw || typeof raw !== "object" || !Array.isArray((raw as { items?: unknown }).items)) {
+    throw new Error("The answer wasn't a list of news items.");
+  }
+  const list = (raw as { items: unknown[] }).items;
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const out: NewsItemIn[] = [];
   const seen = new Set<string>();
@@ -114,7 +118,7 @@ export function cleanItems(raw: unknown, batch: NewsSubject[], since: string, to
     const url = str(o.url);
     const headline = str(o.headline).slice(0, 300);
     const published = str(o.published).slice(0, 10);
-    if (!/^https?:\/\//i.test(url) || !headline) continue;
+    if (!hostOf(url) || !headline) continue;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(published) || published < since || published > today) continue;
     const about = (Array.isArray(o.about) ? o.about : [o.about]).map(str).filter((r) => refs.has(r));
     if (!about.length) continue;
@@ -131,4 +135,14 @@ export function cleanItems(raw: unknown, batch: NewsSubject[], since: string, to
     });
   }
   return out;
+}
+
+/** The site an http(s) URL points at, without "www." ("" when it isn't a usable web address). Never throws. */
+export function hostOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return /^https?:$/.test(u.protocol) ? u.hostname.replace(/^www\./, "") : "";
+  } catch {
+    return "";
+  }
 }

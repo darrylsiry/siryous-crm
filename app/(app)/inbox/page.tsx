@@ -10,6 +10,7 @@ import { INBOX_UNREAD_COND } from "@/lib/navCounts";
 import { loadOwner } from "@/lib/owner.mjs";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
+import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
@@ -77,17 +78,26 @@ function ReviewLink({ kind, id }: { kind: "log" | "intake"; id: number }) {
   );
 }
 
-export default async function InboxPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
-  const { saved, error } = await searchParams;
+const PAGE_SIZE = 40;
+
+export default async function InboxPage({ searchParams }: { searchParams: Promise<{ saved?: Param; error?: Param; page?: Param }> }) {
+  const sp = await searchParams;
+  const saved = first(sp.saved);
+  const error = first(sp.error);
+  const page = Math.max(1, Math.floor(Number(first(sp.page))) || 1);
   const ai = await getAiStatus();
   const s = getInboxSettings();
   const owner = loadOwner();
   const running = inboxPollRunning();
   const queued = localQueueDepth();
-  const rows = getDb()
-    .prepare(`SELECT m.*, (${INBOX_UNREAD_COND}) AS unread FROM inbox_messages m ORDER BY m.id DESC LIMIT 40`)
-    .all() as (InboxRow & { unread: number })[];
-  const unreadCount = rows.filter((r) => r.unread).length;
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT m.*, (${INBOX_UNREAD_COND}) AS unread FROM inbox_messages m ORDER BY m.id DESC LIMIT ? OFFSET ?`)
+    .all(PAGE_SIZE, (page - 1) * PAGE_SIZE) as (InboxRow & { unread: number })[];
+  const total = (db.prepare(`SELECT COUNT(*) n FROM inbox_messages`).get() as { n: number }).n;
+  // The whole mailbox, as the sidebar badge counts it, not just this page.
+  const unreadCount = (db.prepare(`SELECT COUNT(*) n FROM inbox_messages m WHERE ${INBOX_UNREAD_COND}`).get() as { n: number }).n;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -161,7 +171,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         </p>
 
         {rows.length === 0 ? (
-          <p className="text-sm text-stone-500">Nothing has arrived yet.</p>
+          <p className="text-sm text-stone-500">{page > 1 ? "No more emails." : "Nothing has arrived yet."}</p>
         ) : (
           <ul className="divide-y divide-stone-100">
             {rows.map((r) => {
@@ -247,6 +257,27 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
             })}
           </ul>
         )}
+        {pages > 1 ? (
+          <nav aria-label="Older and newer emails" className="flex items-center justify-between border-t border-stone-100 pt-3 text-sm">
+            {page > 1 ? (
+              <Link href={page === 2 ? "/inbox" : `/inbox?page=${page - 1}`} className="text-indigo-700 hover:underline">
+                ← Newer
+              </Link>
+            ) : (
+              <span />
+            )}
+            <span className="text-xs text-stone-400">
+              Page {page} of {pages} · {total} emails
+            </span>
+            {page < pages ? (
+              <Link href={`/inbox?page=${page + 1}`} className="text-indigo-700 hover:underline">
+                Older →
+              </Link>
+            ) : (
+              <span />
+            )}
+          </nav>
+        ) : null}
       </section>
 
       <form action={saveInboxSettings} className="space-y-4">

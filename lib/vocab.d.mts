@@ -5,6 +5,8 @@ export interface PaletteClasses {
   stage: string;
   /** Border + background tint for a card of a "separate" opportunity kind. */
   card: string;
+  /** The colour as a hex value, for inline styles (network map). */
+  dot: string;
 }
 export const PALETTES: Record<string, PaletteClasses>;
 export function palette(name: unknown): PaletteClasses;
@@ -14,6 +16,12 @@ export interface StatusEntry {
   label: string;
   /** Resolved Tailwind classes. */
   color: string;
+  /** Hex colour (network map). */
+  dot: string;
+  /** Position in the People and Companies lists, lowest first. */
+  rank: number;
+  /** False: left out of Keep Warm. */
+  keepWarm: boolean;
 }
 export interface BucketEntry {
   label: string;
@@ -54,7 +62,9 @@ export interface LoadedVocab extends Vocab {
 
 /** Raw shape of config/vocab.json (palette names, not class strings). */
 export interface VocabConfig {
-  status?: Record<string, Partial<{ emoji: string; label: string; color: string; order: number }>> & { remove?: string[] };
+  status?: Record<string, Partial<{ emoji: string; label: string; color: string; order: number; rank: number; keepWarm: boolean }>> & {
+    remove?: string[];
+  };
   buckets?: Record<string, Partial<BucketEntry>> & { remove?: string[] };
   stages?: Record<string, Partial<{ label: string; icon: string; color: string; order: number; open: boolean }>> & {
     remove?: string[];
@@ -65,7 +75,7 @@ export interface VocabConfig {
 }
 
 export const DEFAULT_VOCAB: {
-  status: Record<string, { emoji: string; label: string; color: string }>;
+  status: Record<string, { emoji: string; label: string; color: string; rank: number; keepWarm?: boolean }>;
   buckets: Record<string, BucketEntry>;
   stages: Record<string, { label: string; icon: string; color: string; order: number; open: boolean }>;
   kinds: Record<string, { label: string; color: string }>;
@@ -81,3 +91,6 @@ export function bucketList(v: Vocab): string;
 export function stageList(v: Vocab): string;
 export function kindList(v: Vocab): string;
 export function cadenceSentence(v: Vocab): string;
+export function statusRankSql(v: Vocab, col?: string): string;
+export function keepWarmSql(v: Vocab, col?: string): string;
+export function cadenceLine(v: Vocab): string;

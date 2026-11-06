@@ -36,6 +36,34 @@ describe("parseDueDate", () => {
     assert.equal(parseDueDate("Jun 10", BASE), "2026-06-10"); // 37 days back
   });
 
+  test("a written year is used as is, never rolled forward", () => {
+    assert.equal(parseDueDate("12/31/2025", BASE), "2025-12-31");
+    assert.equal(parseDueDate("3/15/2028", BASE), "2028-03-15");
+    assert.equal(parseDueDate("7/25/26", BASE), "2026-07-25");
+    assert.equal(parseDueDate("12-31-2025", BASE), "2025-12-31");
+    assert.equal(parseDueDate("Dec 31, 2025", BASE), "2025-12-31");
+    assert.equal(parseDueDate("31 Dec 2027", BASE), "2027-12-31");
+    assert.equal(parseDueDate("2026/7/25", BASE), "2026-07-25");
+    assert.equal(parseDueDate("2/29/2027", BASE), null);
+  });
+
+  test("number ranges and durations are not dates", () => {
+    assert.equal(parseDueDate("in 1-2 weeks", BASE), null);
+    assert.equal(parseDueDate("2-3 days", BASE), null);
+    assert.equal(parseDueDate("3-4 wks", BASE), null);
+    assert.equal(parseDueDate("within 1/2 day", BASE), null);
+    assert.equal(parseDueDate("2-3 business days", BASE), null);
+    assert.equal(parseDueDate("in 1-2", BASE), null);
+    assert.equal(parseDueDate("Thu 1-2pm", BASE), null);
+    assert.equal(parseDueDate("Q3-4", BASE), null);
+    assert.equal(parseDueDate("1.5-2 weeks", BASE), null);
+  });
+
+  test("a real date next to a range is still found", () => {
+    assert.equal(parseDueDate("1-2 weeks, by 8/1", BASE), "2026-08-01");
+    assert.equal(parseDueDate("7/25-7/30", BASE), "2026-07-25");
+  });
+
   test("impossible calendar dates are rejected", () => {
     assert.equal(parseDueDate("02-30", BASE), null);
     assert.equal(parseDueDate("2026-02-30", BASE), null);

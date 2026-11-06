@@ -10,10 +10,13 @@ export default function MobileNav({
   nav,
   appName = "CRM",
   counts: initialCounts = {},
+  statusLegend,
 }: {
   nav: { title: string | null; items: { href: string; label: string; icon: string }[] }[];
   appName?: string;
   counts?: NavCounts;
+  /** "🌱 New · 🔍 Exploring · …", built from the vocabulary by the layout. */
+  statusLegend: string;
 }) {
   const [open, setOpen] = useState(false);
   const counts = useNavCounts(initialCounts);
@@ -89,8 +92,7 @@ export default function MobileNav({
             ))}
           </nav>
           <div className="mt-3 border-t border-stone-100 pt-3 text-[0.68rem] leading-relaxed text-stone-400">
-            Status: 🌱 New · 🔍 Exploring · 🔥 Active · ⏸️ Hold · 🤝 Client · ✅ Won
-            · ❌ Lost · 😴 Dormant
+            Status: {statusLegend}
           </div>
         </div>
       ) : null}

@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { setSetting, validateContextDir, validateOllamaUrl } from "./settings";
+import { getSetting, setSetting, validateContextDir, validateOllamaUrl } from "./settings";
 import { isCoachTone } from "./coachTone";
+import { ensureDailyBackup, validateBackupDir } from "./backup.mjs";
+import { getDb } from "./db";
 
 export async function saveAiSettings(formData: FormData) {
   const str = (k: string) => String(formData.get(k) ?? "").trim();
@@ -13,6 +15,8 @@ export async function saveAiSettings(formData: FormData) {
   if (url && !url.ok) redirect(`/settings?error=${encodeURIComponent(`The AI address wasn't saved — ${url.reason}`)}`);
   const ctx = validateContextDir(str("coach_context_dir"));
   if (!ctx.ok) redirect(`/settings?error=${encodeURIComponent(`The coach notes folder wasn't saved — ${ctx.reason}`)}`);
+  const backup = validateBackupDir(str("backup_dir"));
+  if (!backup.ok) redirect(`/settings?error=${encodeURIComponent(`The backup folder wasn't saved — ${backup.reason}`)}`);
 
   const provider = str("provider") === "claude" ? "claude" : "local";
   setSetting("ai.provider", provider);
@@ -26,7 +30,8 @@ export async function saveAiSettings(formData: FormData) {
   const numCtx = Number(str("num_ctx"));
   setSetting("ai.num_ctx", numCtx > 0 ? String(Math.round(numCtx)) : null);
   // Backups: blank = default (data/backups), "off" = disabled, otherwise a folder.
-  setSetting("backup.dir", str("backup_dir") || null);
+  const backupChanged = (getSetting("backup.dir") ?? "") !== backup.dir;
+  setSetting("backup.dir", backup.dir || null);
   const temperature = str("temperature");
   setSetting("ai.temperature", temperature !== "" && !Number.isNaN(Number(temperature)) ? temperature : null);
   // Coach: tone, and whether/where it reads the owner's own notes.
@@ -46,6 +51,8 @@ export async function saveAiSettings(formData: FormData) {
     setSetting("coach.model", null);
   }
   setSetting("coach.context_dir", ctx.dir || null);
+  // A new folder (or a retry after a failure) gets today's backup now, so Settings shows straight away whether it works.
+  if (backupChanged || getSetting("backup.last_error")) await ensureDailyBackup(getDb());
   revalidatePath("/settings");
   redirect("/settings?saved=1");
 }
