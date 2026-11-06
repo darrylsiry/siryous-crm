@@ -1,5 +1,7 @@
+import { execFile } from "child_process";
 import fs from "fs";
 import path from "path";
+import { promisify } from "util";
 import { activityView, readLedger, type ActivityView } from "./agentLedger";
 import { AGENTS, parseReport, urgentSeverities, type AgentKey, type ParsedReport } from "./agentReports";
 
@@ -47,6 +49,58 @@ export function readReport(agent: AgentKey): { text: string; mtime: Date } | nul
   if (!info) return null;
   const f = readOptional(path.join(reportsDir(), info.file));
   return f && { text: f.text.replace(/\/(?:Users|home|private)\/[^\s`'"]*?\.review\/(?:code|security|ux)\//g, ""), mtime: f.mtime };
+}
+
+/**
+ * Where an agent's review stands against the code as it is now, so the page
+ * can say when its numbers are behind. `runningSince`: scripts/review-run.sh
+ * holds .review/lock-<agent> while a run is under way. `codeNow`: the
+ * fingerprint of the files that agent covers, from `review-run.sh <agent>
+ * status`; when it differs from the report's code version, the code has
+ * changed since that report. null when it can't be told (no bash or git).
+ */
+export interface ReviewFreshness {
+  runningSince: Date | null;
+  codeNow: string | null;
+}
+
+const run = promisify(execFile);
+/** A lock older than this is a run that died without cleaning up (the runner stops an agent at 90 minutes). */
+export const STALE_LOCK_MS = 2 * 60 * 60 * 1000;
+
+export async function reviewFreshness(agent: AgentKey): Promise<ReviewFreshness> {
+  const root = process.cwd();
+  let runningSince: Date | null = null;
+  try {
+    runningSince = fs.statSync(path.join(root, ".review", `lock-${agent}`)).mtime;
+  } catch {
+    /* not running */
+  }
+  let codeNow: string | null = null;
+  try {
+    const { stdout } = await run("bash", [path.join(root, "scripts", "review-run.sh"), agent, "status"], { cwd: root, timeout: 10_000 });
+    codeNow = /: code ([0-9a-f]{8});/.exec(stdout)?.[1] ?? null;
+  } catch {
+    /* no bash or git: say nothing rather than guess */
+  }
+  return { runningSince, codeNow };
+}
+
+/** Whether a report's numbers are current: what App Tests says under each agent. */
+export type ReviewStanding =
+  | { kind: "running"; since: Date }
+  | { kind: "stuck"; since: Date }
+  | { kind: "behind" }
+  | { kind: "current" }
+  | { kind: "unknown" };
+
+/** `version`: the code version the latest report reviewed. Pure. */
+export function reviewStanding(version: string | null, f: ReviewFreshness, now: number): ReviewStanding {
+  if (f.runningSince) {
+    return now - f.runningSince.getTime() > STALE_LOCK_MS ? { kind: "stuck", since: f.runningSince } : { kind: "running", since: f.runningSince };
+  }
+  if (!version || !f.codeNow) return { kind: "unknown" };
+  return f.codeNow === version ? { kind: "current" } : { kind: "behind" };
 }
 
 /** A UX before/after mockup, or null. The strict id keeps this inside the mockups folder. */

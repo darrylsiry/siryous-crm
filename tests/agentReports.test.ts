@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { activityView, emptyLedger, foldReport, readLedger } from "../lib/agentLedger";
-import { hasReports, loadAgentActivity, mockupIds, readMockup, readReport, reportsDir, urgentFindingCount } from "../lib/agentActivity";
+import { hasReports, loadAgentActivity, mockupIds, readMockup, readReport, reportsDir, reviewFreshness, reviewStanding, urgentFindingCount } from "../lib/agentActivity";
 import { parseReport } from "../lib/agentReports";
 
 after(() => tmp.cleanup());
@@ -266,5 +266,30 @@ describe("review-save.py", () => {
     assert.match(fs.readFileSync(path.join(reports, "ux", "REPORT.md"), "utf8"), /^- UX-001\.html$/m);
     assert.equal(save("ux", `# UX review: Siryous CRM\n\n## Resolved since last run\n- **UX-001 — Keep it** — resolved: done.\n`, reports).status, 0);
     assert.ok(!fs.existsSync(mockup));
+  });
+});
+
+describe("App Tests says when a report is behind the code", () => {
+  const at = (iso: string) => new Date(iso);
+  const now = Date.parse("2026-11-06T06:00:00Z");
+
+  test("running, stuck, behind, current, or nothing to say", () => {
+    assert.deepEqual(reviewStanding("8d0dee55", { runningSince: at("2026-11-06T05:40:00Z"), codeNow: "e6fd021e" }, now), {
+      kind: "running",
+      since: at("2026-11-06T05:40:00Z"),
+    });
+    assert.equal(reviewStanding("8d0dee55", { runningSince: at("2026-11-06T02:00:00Z"), codeNow: null }, now).kind, "stuck");
+    assert.equal(reviewStanding("8d0dee55", { runningSince: null, codeNow: "e6fd021e" }, now).kind, "behind");
+    assert.equal(reviewStanding("8d0dee55", { runningSince: null, codeNow: "8d0dee55" }, now).kind, "current");
+    assert.equal(reviewStanding(null, { runningSince: null, codeNow: "8d0dee55" }, now).kind, "unknown");
+    assert.equal(reviewStanding("8d0dee55", { runningSince: null, codeNow: null }, now).kind, "unknown");
+  });
+
+  test("the fingerprint comes from the runner, so it matches what the next run will review", async () => {
+    const f = await reviewFreshness("code");
+    const git = spawnSync("git", ["rev-parse", "--is-inside-work-tree"]).status === 0;
+    if (git) assert.match(f.codeNow ?? "", /^[0-9a-f]{8}$/);
+    const status = spawnSync("bash", ["scripts/review-run.sh", "code", "status"], { encoding: "utf8" }).stdout;
+    if (git) assert.ok(status.includes(`code ${f.codeNow};`));
   });
 });

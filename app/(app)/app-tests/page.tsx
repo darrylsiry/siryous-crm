@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { loadAgentActivity, mockupIds } from "@/lib/agentActivity";
+import { loadAgentActivity, mockupIds, reviewFreshness, reviewStanding, type ReviewStanding } from "@/lib/agentActivity";
 import type { AgentView, LedgerItem, LedgerRun } from "@/lib/agentLedger";
 import { AGENTS, type AgentKey } from "@/lib/agentReports";
 import { first, type Param } from "@/lib/params";
@@ -113,7 +113,31 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   );
 }
 
-function AgentCard({ a, selected, now }: { a: AgentView; selected: boolean; now: number }) {
+/** Under an agent's numbers: are they for the code as it is now? */
+function StandingNote({ a, s }: { a: AgentView; s: ReviewStanding }) {
+  if (!a.report) return null;
+  if (s.kind === "running") {
+    return <p className="mt-1 text-xs font-medium text-indigo-700">Reviewing the current code now, since {stamp(s.since.toISOString())}: these numbers change when it finishes.</p>;
+  }
+  if (s.kind === "stuck") {
+    return (
+      <p className="mt-1 text-xs font-medium text-red-700">
+        A run started {stamp(s.since.toISOString())} never finished, which stops new ones. Delete the folder <code>.review/lock-{a.info.key}</code> in the CRM folder to clear it.
+      </p>
+    );
+  }
+  if (s.kind === "behind") {
+    return (
+      <p className="mt-1 text-xs font-medium text-amber-800">
+        The code has changed since this run, so some of these may already be fixed. The next run updates them (scheduled, or <code>{a.info.command}</code>).
+      </p>
+    );
+  }
+  if (s.kind === "current") return <p className="mt-1 text-xs text-emerald-700">Up to date with the current code.</p>;
+  return null;
+}
+
+function AgentCard({ a, selected, now, standing }: { a: AgentView; selected: boolean; now: number; standing: ReviewStanding }) {
   const r = a.report;
   return (
     <Link
@@ -156,6 +180,7 @@ function AgentCard({ a, selected, now }: { a: AgentView; selected: boolean; now:
           "No report yet"
         )}
       </p>
+      <StandingNote a={a} s={standing} />
     </Link>
   );
 }
@@ -346,6 +371,13 @@ export default async function AppTestsPage({ searchParams }: { searchParams: Pro
   const { view, ledgerUpdatedAt } = loadAgentActivity();
   const mockups = mockupIds();
   const now = Date.now();
+  // Each report is for the code as it was when its run started: say where that leaves the numbers.
+  const freshness = await Promise.all(view.agents.map((a) => reviewFreshness(a.info.key)));
+  const standings = view.agents.map((a, i) => reviewStanding(a.report?.version ?? null, freshness[i], now));
+  const named = (kind: ReviewStanding["kind"]) => view.agents.filter((_, i) => standings[i].kind === kind).map((a) => a.info.name);
+  const and = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]);
+  const running = named("running");
+  const behind = named("behind");
   const selected: AgentKey = AGENTS.some((a) => a.key === agent) ? (agent as AgentKey) : "code";
   const current = view.agents.find((a) => a.info.key === selected)!;
   const t = view.totals;
@@ -372,6 +404,20 @@ export default async function AppTestsPage({ searchParams }: { searchParams: Pro
         {ledgerUpdatedAt ? <> · ledger updated {stamp(ledgerUpdatedAt)}</> : null}
       </p>
 
+      {running.length || behind.length ? (
+        <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {running.length ? <>Running now: {and(running)}. </> : null}
+          {behind.length ? (
+            <>
+              The code has changed since the latest {and(behind)} run{behind.length > 1 ? "s" : ""}, so the counts below can include findings that are already
+              fixed until {behind.length > 1 ? "they run" : "it runs"} again.
+            </>
+          ) : (
+            <>The counts below change when {running.length > 1 ? "they finish" : "it finishes"}.</>
+          )}
+        </p>
+      ) : null}
+
       <section aria-label="Totals" className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="Findings raised" value={t.raised} sub="all time, all agents" />
         <Stat label="Resolved" value={t.resolved} sub={t.raised ? `${Math.round((t.resolved / t.raised) * 100)}% of everything raised` : "—"} />
@@ -382,7 +428,7 @@ export default async function AppTestsPage({ searchParams }: { searchParams: Pro
 
       <section aria-label="Agents" className="grid gap-3 md:grid-cols-3">
         {view.agents.map((a) => (
-          <AgentCard key={a.info.key} a={a} selected={a.info.key === selected} now={now} />
+          <AgentCard key={a.info.key} a={a} selected={a.info.key === selected} now={now} standing={standings[view.agents.indexOf(a)]} />
         ))}
       </section>
 

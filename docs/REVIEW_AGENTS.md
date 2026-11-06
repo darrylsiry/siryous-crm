@@ -44,6 +44,13 @@ on your Claude plan: each run reads the whole repository. `REVIEW_MODEL` overrid
    it into `data/agent-reports/AGENT_LEDGER.json`. Only the App Tests page reads across agents, and no agent
    can reach it.
 
+A report describes the code as it was when its run started, and the page shows the latest finished one. So
+each agent's card also says where that leaves its numbers: **reviewing now** (the runner holds
+`.review/lock-<agent>`), **the code has changed since this run** (the fingerprint from
+`scripts/review-run.sh <agent> status` differs from the report's code version, so some findings may
+already be fixed), or **up to date**. A lock older than two hours is reported as a run that never finished,
+since it blocks new runs until it is deleted.
+
 An agent's only link to the past is its own previous report, so it can keep finding IDs stable. Don't pass
 one agent's findings, a session's conclusions or anyone's memory into another agent's definition or
 snapshot. The definitions are in this repository, written by the same hand as the code: independence
