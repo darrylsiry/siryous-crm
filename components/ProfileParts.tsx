@@ -5,6 +5,7 @@ import type { ActionItemJoined } from "@/lib/types";
 import { ActionRow } from "@/components/ActionList";
 import AddTodoButton from "@/components/AddTodoButton";
 import QuickLog from "@/components/QuickLog";
+import { profilePath } from "@/lib/slug";
 
 const BTN =
   "inline-flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:border-indigo-400 hover:text-indigo-700";
@@ -24,7 +25,7 @@ function mailHref(email: string): string | null {
 /**
  * The action bar under a profile's header: everything the owner comes to a
  * profile to do, without scrolling. Call and Email appear when the snapshot
- * has a number or address.
+ * has a number or address; Edit opens the profile's edit page.
  */
 export function ProfileActions({
   person,
@@ -65,6 +66,9 @@ export function ProfileActions({
           ✉ Email
         </a>
       ) : null}
+      <Link href={`${person ? profilePath("people", person.slug) : profilePath("companies", company!.slug)}/edit`} className={BTN}>
+        ✎ Edit
+      </Link>
     </div>
   );
 }

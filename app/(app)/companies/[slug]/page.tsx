@@ -7,13 +7,11 @@ import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
 import InteractionLog from "@/components/InteractionLog";
 import ConfirmButton from "@/components/ConfirmButton";
-import ClosingDetails from "@/components/ClosingDetails";
 import { PeopleOptions } from "@/components/PeoplePicker";
 import { OpenTodos, ProfileActions, RestoreNote } from "@/components/ProfileParts";
 import { shortDate, todayLocal } from "@/lib/dates.mjs";
 import type { Metadata } from "next";
-import { deleteCompany, updateSnapshot } from "@/lib/actions";
-import PendingButton from "@/components/PendingButton";
+import { deleteCompany } from "@/lib/actions";
 import StaleNotice from "@/components/StaleNotice";
 import { profilePath, slugParam } from "@/lib/slug";
 import { opportunityHref } from "@/lib/queries";
@@ -180,14 +178,17 @@ export default async function CompanyPage({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm italic text-stone-500">No linked contacts. Link someone from their profile&apos;s ✎ Edit snapshot.</p>
+              <p className="text-sm italic text-stone-500">No linked contacts. Link someone from their profile&apos;s ✎ Edit.</p>
             )}
           </section>
 
           <section className="rounded-xl border border-stone-200 bg-white p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
-              Snapshot
-            </h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Snapshot</h2>
+              <Link href={`${profilePath("companies", c.slug)}/edit`} className="text-xs font-medium text-indigo-600 hover:underline">
+                ✎ Edit
+              </Link>
+            </div>
             <dl className="space-y-2.5 text-sm">
               {[
                 ["HQ / locations", c.hq],
@@ -223,37 +224,6 @@ export default async function CompanyPage({
                 <dd className="text-stone-800 tabular-nums">{c.last_touch ? shortDate(c.last_touch, today) : "—"}</dd>
               </div>
             </dl>
-            <ClosingDetails className="mt-4">
-              <summary className="cursor-pointer text-xs font-medium text-indigo-600 select-none">
-                ✎ Edit snapshot
-              </summary>
-              <form action={updateSnapshot} className="mt-2 space-y-2">
-                <input type="hidden" name="entity" value="company" />
-                <input type="hidden" name="id" value={c.id} />
-                <input type="hidden" name="updated_at" value={c.updated_at ?? ""} />
-                <label className="block text-xs font-medium text-stone-600">
-                  Name
-                  <input name="name" required defaultValue={c.name} className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs" />
-                </label>
-                {[
-                  ["industry", "Industry", c.industry],
-                  ["size", "Size / headcount", c.size],
-                  ["hq", "HQ / locations", c.hq],
-                  ["website", "Website", c.website],
-                  ["revenue_stage", "Revenue / stage", c.revenue_stage],
-                ].map(([name, label, value]) => (
-                  <label key={name as string} className="block text-xs font-medium text-stone-600">
-                    {label}
-                    <input
-                      name={name as string}
-                      defaultValue={(value as string) ?? ""}
-                      className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                    />
-                  </label>
-                ))}
-                <PendingButton label="Save" pendingLabel="Saving…" className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"} />
-              </form>
-            </ClosingDetails>
           </section>
         </aside>
       </div>

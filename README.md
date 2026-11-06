@@ -175,11 +175,14 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   status (New → Exploring → Active → Client …), how strong the relationship is,
   a narrative in four sections (Relationship, Business context, Strategy,
   Notes) and a log of every interaction. Under the name is a bar for what you
-  came to do: **Log touch**, **Prep**, **Add to-do**, **Add deal**, and **Call**
-  or **Email** when the snapshot has a number or address. What you have open
-  with them is listed right below it. **✎ Edit** on each section edits it;
-  **✎ Edit snapshot** changes contact details, the name (links keep working)
-  and the company (pick one, or type a new one). Click the status badge — on
+  came to do: **Log touch**, **Prep**, **Add to-do**, **Add deal**, **Call**
+  or **Email** when the snapshot has a number or address, and **✎ Edit**. What
+  you have open with them is listed right below it. **✎ Edit** in that bar
+  (or beside each name in the People and Companies lists, which you return to
+  after saving) opens one form for the name (links keep working), company
+  (pick one, or type a new one), status, contact details, strength, tags and
+  keep-warm cadence; a company's has its name, status and snapshot.
+  **✎ Edit** on each section edits that section. Click the status badge — on
   a profile or in the People/Companies lists — to change the status on the
   spot. If Claude (or another window) changed the same section while you were
   typing, nothing is lost: your text is saved below the newer version, marked

@@ -46,6 +46,8 @@ export default async function PeoplePage({
     return qs ? `/people?${qs}` : "/people";
   };
   const companies = allCompanies();
+  // An edit opened from this list comes back to it, filters and all.
+  const editHref = (slug: string) => `${profilePath("people", slug)}/edit?back=${encodeURIComponent(keep({}))}`;
 
   return (
     <div className="space-y-6">
@@ -175,7 +177,12 @@ export default async function PeoplePage({
                   <div className="truncate text-xs text-stone-500">{p.role_title}</div>
                 ) : null}
               </div>
-              <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
+                <Link href={editHref(p.slug)} aria-label={`Edit ${p.name}`} className="whitespace-nowrap rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-600 hover:border-indigo-400 hover:text-indigo-700">
+                  ✎ Edit
+                </Link>
+              </div>
             </div>
             <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-stone-500">
               {p.company_slug ? (
@@ -215,6 +222,9 @@ export default async function PeoplePage({
               <th className="px-4 py-3 font-medium">Strength</th>
               <th className="px-4 py-3 font-medium">Last touch</th>
               <th className="px-4 py-3 font-medium">Next step</th>
+              <th className="px-4 py-3 font-medium">
+                <span className="sr-only">Edit</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
@@ -245,11 +255,16 @@ export default async function PeoplePage({
                 <td className="px-4 py-3 text-xs text-stone-600 max-w-72">
                   <span className="line-clamp-2">{p.next_action ?? "—"}</span>
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <Link href={editHref(p.slug)} aria-label={`Edit ${p.name}`} className="whitespace-nowrap rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-600 hover:border-indigo-400 hover:text-indigo-700">
+                    ✎ Edit
+                  </Link>
+                </td>
               </tr>
             ))}
             {!people.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-sm italic text-stone-500">
+                <td colSpan={7} className="px-4 py-6 text-sm italic text-stone-500">
                   {q || status ? "No matches." : "No people yet — add one above, or paste a LinkedIn profile into Intake."}
                 </td>
               </tr>

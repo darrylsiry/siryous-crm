@@ -43,6 +43,8 @@ export default async function CompaniesPage({
     const qs = u.toString();
     return qs ? `/companies?${qs}` : "/companies";
   };
+  // An edit opened from this list comes back to it, filters and all.
+  const editHref = (slug: string) => `${profilePath("companies", slug)}/edit?back=${encodeURIComponent(keep({}))}`;
   const empty = status || q ? "No matches." : "No companies yet — add one above. Intake also creates a company when it extracts one from a profile.";
 
   return (
@@ -146,7 +148,12 @@ export default async function CompaniesPage({
               <Link href={`/companies/${c.slug}`} className="min-w-0 font-semibold text-stone-900 hover:text-indigo-700">
                 {c.name}
               </Link>
-              <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} compact />
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} compact />
+                <Link href={editHref(c.slug)} aria-label={`Edit ${c.name}`} className="whitespace-nowrap rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-600 hover:border-indigo-400 hover:text-indigo-700">
+                  ✎ Edit
+                </Link>
+              </div>
             </div>
             {c.industry ? <div className="mt-1 text-xs text-stone-600 line-clamp-2">{c.industry}</div> : null}
             {c.key_people ? <div className="mt-1 text-xs text-stone-500 line-clamp-2">{c.key_people}</div> : null}
@@ -171,6 +178,9 @@ export default async function CompaniesPage({
               <th className="px-4 py-3 font-medium">Contacts</th>
               <th className="px-4 py-3 font-medium">Last touch</th>
               <th className="px-4 py-3 font-medium">Next step</th>
+              <th className="px-4 py-3 font-medium">
+                <span className="sr-only">Edit</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
@@ -194,11 +204,16 @@ export default async function CompaniesPage({
                 <td className="max-w-72 px-4 py-3 text-xs text-stone-600">
                   <span className="line-clamp-2">{c.next_action ?? "—"}</span>
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <Link href={editHref(c.slug)} aria-label={`Edit ${c.name}`} className="whitespace-nowrap rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-600 hover:border-indigo-400 hover:text-indigo-700">
+                    ✎ Edit
+                  </Link>
+                </td>
               </tr>
             ))}
             {!companies.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-sm italic text-stone-500">
+                <td colSpan={7} className="px-4 py-6 text-sm italic text-stone-500">
                   {empty}
                 </td>
               </tr>

@@ -3,7 +3,8 @@ import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { getDb } from "../lib/db";
+import { DEFAULT_CADENCE, getDb } from "../lib/db";
+import { localPath } from "../lib/params";
 import {
   addActionItem,
   clearNextStep,
@@ -142,6 +143,50 @@ describe("profile edits", () => {
     await run(() => updateSnapshot(form({ entity: "person", id: "1", new_company: "Beta Co", company_id: "1" })));
     const beta = one<{ id: number }>(`SELECT id FROM companies WHERE name='Beta Co'`);
     assert.equal(one<{ company_id: number }>(`SELECT company_id FROM people WHERE id=1`).company_id, beta.id);
+  });
+
+  test("the edit page saves the status with the rest; a cadence left as it was follows the new status", async () => {
+    const was = String(DEFAULT_CADENCE.active ?? "");
+    db.prepare(`UPDATE people SET cadence_days=? WHERE id=1`).run(DEFAULT_CADENCE.active ?? null);
+    await run(() =>
+      updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: was, cadence_was: was, email: "sam@example.com" }))
+    );
+    assert.deepEqual(one(`SELECT status_key, cadence_days, email FROM people WHERE id=1`), {
+      status_key: "client",
+      cadence_days: DEFAULT_CADENCE.client ?? null,
+      email: "sam@example.com",
+    });
+  });
+
+  test("a cadence typed in the same form wins over the new status's default", async () => {
+    await run(() => updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: "10", cadence_was: "" })));
+    assert.deepEqual(one(`SELECT status_key, cadence_days FROM people WHERE id=1`), { status_key: "client", cadence_days: 10 });
+  });
+
+  test("an unknown status keeps the current one; a company's status saves with its snapshot", async () => {
+    await run(() => updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "nonsense" })));
+    assert.equal(one<{ status_key: string }>(`SELECT status_key FROM people WHERE id=1`).status_key, "active");
+    await run(() => updateSnapshot(form({ entity: "company", id: "1", name: "Acme Inc", status_key: "active", industry: "Insurance" })));
+    assert.deepEqual(one(`SELECT status_key, industry FROM companies WHERE id=1`), { status_key: "active", industry: "Insurance" });
+  });
+
+  test("a stale save from the edit page goes back to it, keeping where to return to", async () => {
+    let target = "";
+    try {
+      await updateSnapshot(form({ entity: "person", id: "1", name: "X", updated_at: "1999-01-01 00:00:00", back: "/people?status=active" }));
+    } catch (e) {
+      target = String((e as { digest?: string }).digest ?? "");
+    }
+    assert.match(target, /\/people\/sam-lee\/edit\?stale=1&back=%2Fpeople%3Fstatus%3Dactive/);
+    assert.equal(one<{ name: string }>(`SELECT name FROM people WHERE id=1`).name, "Sam Lee");
+  });
+
+  test("an edit page only returns to a page of this app", () => {
+    assert.equal(localPath("/people?status=active#x"), "/people?status=active#x");
+    assert.equal(localPath("/companies/acme"), "/companies/acme");
+    for (const bad of ["//evil.example/x", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "people", "", undefined]) {
+      assert.equal(localPath(bad), undefined, String(bad));
+    }
   });
 
   test("Add person keeps the phone", async () => {

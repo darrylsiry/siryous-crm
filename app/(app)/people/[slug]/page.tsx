@@ -1,22 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { companyOptions, connectionsFor, interactionsFor, openActionItems, opportunitiesFor, peopleOptions, personBySlug } from "@/lib/queries";
+import { connectionsFor, interactionsFor, openActionItems, opportunitiesFor, peopleOptions, personBySlug } from "@/lib/queries";
 import StatusPicker from "@/components/StatusPicker";
 import StatusEditor from "@/components/StatusEditor";
 import EditableSection from "@/components/EditableSection";
 import AddInteraction from "@/components/AddInteraction";
 import InteractionLog from "@/components/InteractionLog";
 import ConfirmButton from "@/components/ConfirmButton";
-import ClosingDetails from "@/components/ClosingDetails";
-import SearchSelect from "@/components/SearchSelect";
 import { PeopleOptions } from "@/components/PeoplePicker";
 import { OpenTodos, ProfileActions, RestoreNote } from "@/components/ProfileParts";
-import { deletePerson, updateSnapshot } from "@/lib/actions";
-import PendingButton from "@/components/PendingButton";
+import { deletePerson } from "@/lib/actions";
 import StaleNotice from "@/components/StaleNotice";
 import { profilePath, slugParam } from "@/lib/slug";
 import { opportunityHref } from "@/lib/queries";
-import { STAGES, STATUS, STRENGTHS } from "@/lib/db";
+import { STAGES, STATUS } from "@/lib/db";
 import { shortDate, todayLocal } from "@/lib/dates.mjs";
 import type { Metadata } from "next";
 
@@ -158,7 +155,12 @@ export default async function PersonPage({
           {/* Snapshot sidebar: first on a phone, where calling or emailing is the point. */}
           <aside className="order-first space-y-4 lg:order-none">
             <section className="rounded-xl border border-stone-200 bg-white p-5">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">Snapshot</h2>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Snapshot</h2>
+                <Link href={`${profilePath("people", p.slug)}/edit`} className="text-xs font-medium text-indigo-600 hover:underline">
+                  ✎ Edit
+                </Link>
+              </div>
               <dl className="space-y-2.5 text-sm">
                 <div>
                   <dt className="text-xs text-stone-500">Email</dt>
@@ -217,93 +219,6 @@ export default async function PersonPage({
                   <dd className="text-stone-800">{cadence ? `every ${cadence} days` : "—"}</dd>
                 </div>
               </dl>
-              <ClosingDetails className="mt-4">
-                <summary className="cursor-pointer select-none text-xs font-medium text-indigo-600">✎ Edit snapshot</summary>
-                <form action={updateSnapshot} className="mt-2 space-y-2">
-                  <input type="hidden" name="entity" value="person" />
-                  <input type="hidden" name="id" value={p.id} />
-                  <input type="hidden" name="updated_at" value={p.updated_at ?? ""} />
-                  <label className="block text-xs font-medium text-stone-600">
-                    Name
-                    <input name="name" required defaultValue={p.name} className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs" />
-                  </label>
-                  <label className="block text-xs font-medium text-stone-600">
-                    Company
-                    <SearchSelect
-                      name="company_id"
-                      options={companyOptions()}
-                      defaultValue={p.company_id}
-                      emptyLabel="No company"
-                      ariaLabel="Company"
-                      className="mt-0.5 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-xs"
-                    />
-                  </label>
-                  <label className="block text-xs font-medium text-stone-600">
-                    …or a new company
-                    <input
-                      name="new_company"
-                      placeholder="Type a name to create (or link) it"
-                      className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                    />
-                  </label>
-                  {[
-                    ["role_title", "Role / title", p.role_title],
-                    ["email", "Email", p.email],
-                    ["phone", "Phone", p.phone],
-                    ["location", "Location", p.location],
-                    ["linkedin", "LinkedIn", p.linkedin],
-                    ["company_note", "Company note", p.company_note],
-                  ].map(([name, label, value]) => (
-                    <label key={name as string} className="block text-xs font-medium text-stone-600">
-                      {label}
-                      <input
-                        name={name as string}
-                        defaultValue={(value as string) ?? ""}
-                        className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                      />
-                    </label>
-                  ))}
-                  <label className="block text-xs font-medium text-stone-600">
-                    Keep-warm cadence (days, blank = none)
-                    <input
-                      name="cadence_days"
-                      type="number"
-                      min={1}
-                      defaultValue={cadence ?? ""}
-                      className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                    />
-                  </label>
-                  <label className="block text-xs font-medium text-stone-600">
-                    Tags (comma-separated)
-                    <input
-                      name="tags"
-                      defaultValue={tags ?? ""}
-                      placeholder="connector, friend, inbound…"
-                      className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                    />
-                  </label>
-                  <label className="block text-xs font-medium text-stone-600">
-                    Relationship strength
-                    <select
-                      name="relationship_strength"
-                      defaultValue={p.relationship_strength ?? ""}
-                      className="mt-0.5 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-xs"
-                    >
-                      <option value="">—</option>
-                      {STRENGTHS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <PendingButton
-                    label="Save"
-                    pendingLabel="Saving…"
-                    className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
-                  />
-                </form>
-              </ClosingDetails>
             </section>
             {opps.length > 0 && (
               <section className="rounded-xl border border-stone-200 bg-white p-5">

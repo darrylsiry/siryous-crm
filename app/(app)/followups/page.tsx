@@ -172,7 +172,7 @@ export default function FollowUpsPage() {
           <summary className="cursor-pointer select-none text-sm font-medium text-stone-600">
             {uncadenced.length} {uncadenced.length === 1 ? "person has" : "people have"} no cadence, so {uncadenced.length === 1 ? "isn't" : "aren't"} kept warm
           </summary>
-          <p className="mt-2 text-xs text-stone-500">Give someone a cadence in their profile&apos;s ✎ Edit snapshot to add them above.</p>
+          <p className="mt-2 text-xs text-stone-500">Give someone a cadence from their profile&apos;s ✎ Edit to add them above.</p>
           <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
             {uncadenced.map((r) => (
               <li key={r.id}>

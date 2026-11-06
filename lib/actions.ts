@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getDb, STATUS, STAGES, KINDS, BUCKETS, DEFAULT_CADENCE } from "./db";
 import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
 import { applyStatusCadence, bumpLastTouch, markActionDone, profilePath, slugFor } from "./rules.mjs";
+import { localPath } from "./params";
 
 /** Keep a form-supplied enum value only if it's one we know; else the fallback. */
 const oneOf = (value: FormDataEntryValue | null, allowed: Record<string, unknown>, fallback: string) => {
@@ -438,48 +439,69 @@ function sameText(a: string | null, b: string | null): boolean {
   return norm(a) === norm(b);
 }
 
+/**
+ * Saves a profile's edit page (app/(app)/people|companies/[slug]/edit): name,
+ * status and the snapshot fields. Then goes `back` (the profile, or the list
+ * the edit was opened from); a refused stale save returns to the edit page.
+ */
 export async function updateSnapshot(formData: FormData) {
   const entity = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));
   if (!id) return;
-  if (isStale(entity, id, formData)) redirect(`${profileHref(entity, id)}?stale=1`);
-  const db = getDb();
-  // A rename keeps the slug, so links and bookmarks to the profile still work.
-  const name = str(formData, "name");
-  if (name) db.prepare(`UPDATE ${entity} SET name=? WHERE id=?`).run(name, id);
-  if (entity === "people") {
-    if (formData.has("company_id") || str(formData, "new_company")) {
-      const companyId = companyFromForm(formData);
-      db.prepare(`UPDATE people SET company_id=? WHERE id=?`).run(companyId, id);
-    }
-    const cadenceRaw = String(formData.get("cadence_days") ?? "").trim();
-    db.prepare(
-      `UPDATE people SET role_title=?, location=?, email=?, phone=?, linkedin=?, company_note=?, relationship_strength=?, cadence_days=?, tags=?, updated_at=datetime('now') WHERE id=?`
-    ).run(
-      str(formData, "role_title"),
-      str(formData, "location"),
-      str(formData, "email"),
-      str(formData, "phone"),
-      str(formData, "linkedin"),
-      str(formData, "company_note"),
-      str(formData, "relationship_strength"),
-      cadenceRaw ? Number(cadenceRaw) || null : null,
-      str(formData, "tags"),
-      id
-    );
-  } else {
-    db.prepare(
-      `UPDATE companies SET industry=?, size=?, hq=?, website=?, revenue_stage=?, updated_at=datetime('now') WHERE id=?`
-    ).run(
-      str(formData, "industry"),
-      str(formData, "size"),
-      str(formData, "hq"),
-      str(formData, "website"),
-      str(formData, "revenue_stage"),
-      id
-    );
+  const back = localPath(formData.get("back"));
+  if (isStale(entity, id, formData)) {
+    redirect(back ? `${profileHref(entity, id)}/edit?stale=1&back=${encodeURIComponent(back)}` : `${profileHref(entity, id)}?stale=1`);
   }
+  const db = getDb();
+  const before = db.prepare(`SELECT status_key FROM ${entity} WHERE id=?`).get(id) as { status_key: string } | undefined;
+  if (!before) return;
+  const statusKey = formData.has("status_key") ? oneOf(formData.get("status_key"), STATUS, before.status_key) : before.status_key;
+  db.transaction(() => {
+    // A rename keeps the slug, so links and bookmarks to the profile still work.
+    const name = str(formData, "name");
+    if (name) db.prepare(`UPDATE ${entity} SET name=? WHERE id=?`).run(name, id);
+    if (entity === "people") {
+      if (formData.has("company_id") || str(formData, "new_company")) {
+        const companyId = companyFromForm(formData);
+        db.prepare(`UPDATE people SET company_id=? WHERE id=?`).run(companyId, id);
+      }
+      const cadenceRaw = String(formData.get("cadence_days") ?? "").trim();
+      db.prepare(
+        `UPDATE people SET role_title=?, location=?, email=?, phone=?, linkedin=?, company_note=?, relationship_strength=?, cadence_days=?, tags=?, status_key=?, updated_at=datetime('now') WHERE id=?`
+      ).run(
+        str(formData, "role_title"),
+        str(formData, "location"),
+        str(formData, "email"),
+        str(formData, "phone"),
+        str(formData, "linkedin"),
+        str(formData, "company_note"),
+        str(formData, "relationship_strength"),
+        cadenceRaw ? Number(cadenceRaw) || null : null,
+        str(formData, "tags"),
+        statusKey,
+        id
+      );
+      // A new status brings its default cadence, as the status picker does, unless the cadence was changed in this form.
+      const cadenceWas = formData.get("cadence_was");
+      if (cadenceWas === null || String(cadenceWas).trim() === cadenceRaw) {
+        applyStatusCadence(db, id, before.status_key, statusKey, DEFAULT_CADENCE);
+      }
+    } else {
+      db.prepare(
+        `UPDATE companies SET industry=?, size=?, hq=?, website=?, revenue_stage=?, status_key=?, updated_at=datetime('now') WHERE id=?`
+      ).run(
+        str(formData, "industry"),
+        str(formData, "size"),
+        str(formData, "hq"),
+        str(formData, "website"),
+        str(formData, "revenue_stage"),
+        statusKey,
+        id
+      );
+    }
+  })();
   revalidatePath("/", "layout");
+  if (back) redirect(back);
 }
 
 function str(fd: FormData, key: string): string | null {
