@@ -54,13 +54,13 @@ cookie is host-scoped and the startup log prints a `127.0.0.1` sign-in link.
 `Start CRM.command` (macOS, double-clickable) is the whole first-run path for
 non-technical users, so keep it boring and idempotent. In order it:
 
-1. exits early (just opening the browser) if the CRM already answers: it
-   checks `GET /api/health` (`app/api/health/route.ts`, open without the
-   token, answers `{"app":"siryous-crm"}` and nothing else), so another program
-   on port 3000 is never mistaken for it or handed the sign-in link. If
-   something else answers, it still tries to start (a program listening on
-   every address can leave 127.0.0.1 free) and opens the browser only once
-   `/api/health` answers; otherwise it says another program has the port;
+1. exits early (just opening the browser) if the CRM already answers:
+   `scripts/crm-check.mjs` sends a random nonce to `/api/health` and checks
+   the proof (an HMAC of it under this folder's token), so another program on
+   port 3000 is never mistaken for it or handed a sign-in code. If something
+   else answers, it still tries to start (a program listening on every
+   address can leave 127.0.0.1 free) and opens the browser only once the
+   check passes; otherwise it says another program has the port;
 2. checks `node` and `npm` are on PATH (it prepends `/usr/local/bin`,
    `/opt/homebrew/bin` and `~/.local/bin`) and that Node's major version is
    22–26 (`NODE_MIN`/`NODE_MAX`, kept in step with `engines`), with a
@@ -77,16 +77,18 @@ non-technical users, so keep it boring and idempotent. In order it:
    `postcss.config.mjs`;
 5. starts `npm start` under `nohup` with output in `data/server.log`, waits up
    to 60 s for the port, prints the tail of the log on failure, and opens
-   `http://127.0.0.1:3000/?token=<token>` so the browser is signed in.
+   `http://127.0.0.1:3000/?once=<one-time code>` so the browser is signed in
+   (the token itself never goes in a URL). Dependencies are installed with
+   `npm ci`, so the lock file is never rewritten.
 
 The launchers don't load `.env.local` into their own environment (the server
-does that itself), but to find the token they ask `tokenPath()` in
-`lib/auth.mjs` — the server's own lookup, so `auth-token` is read from next to
-`CRM_DB_PATH` — in a one-off `node -e` that first loads the `.env*` files with
-Next.js's loader (`@next/env`, production mode, as `next start` does). A
+does that itself), but to make the one-time code they call
+`createSignInCode()` in `lib/auth.mjs` — the server's own lookup, so the code
+is written next to `CRM_DB_PATH` — in a one-off `node -e` that first loads the
+`.env*` files with Next.js's loader (`@next/env`, production mode, as
+`next start` does); `scripts/crm-check.mjs` loads them the same way. A
 `CRM_DB_PATH` set in the launcher's environment wins over `.env.local`, as it
-does for the server. If that lookup fails they fall back to `data/auth-token`,
-and without a token file they open the plain URL (the sign-in page).
+does for the server. If that fails they open the plain URL (the sign-in page).
 
 `Stop CRM.command` stops only the CRM: the TCP 3000 listener whose working
 folder (`lsof -d cwd`) is this one; another program on the port is left
@@ -126,7 +128,7 @@ create and use a separate, empty `data/crm.db`.
 | `LOCAL_LLM_TEMPERATURE` | `0.3` | Sampling temperature. |
 | `LOCAL_LLM_ALLOW_REMOTE` | unset | Set to `1` to allow a non-private Ollama host. The prompt carries the whole roster, so the URL guard in `lib/llm.ts` refuses public hosts otherwise. |
 | `AI_PROVIDER` | `local` | `local` or `claude` for the tool-less write steps. |
-| `AI_FALLBACK` | `claude` | `claude` or `none`: what to do when Ollama is unavailable. |
+| `AI_FALLBACK` | `none` | `claude` or `none`: what to do when Ollama is unavailable. Never applies to the Coach or to drafts made from Inbox emails (`runModel`'s `fallback: false`). |
 | `CLAUDE_BIN` | unset | Path to the Claude Code CLI if it isn't on PATH, in `~/.local/bin` or `/opt/homebrew/bin`. |
 | `LOCAL_LLM_KEEP_ALIVE` | `1m` | How long Ollama keeps the model loaded after a request (`0` unloads at once); the `ai.keep_alive` setting wins. |
 | `OWNER_CONFIG` | `config/owner.json` | Alternative path to the owner profile. |
@@ -142,19 +144,33 @@ There are no user accounts. On first start `lib/auth.mjs` generates a random
 leaves the machine). `proxy.ts` (the Next.js middleware, matched on everything
 except static assets) checks, in order:
 
-1. a valid `crm_auth` cookie → through, cookie refreshed (one-year max age,
-   `httpOnly`, `sameSite: strict`);
-2. a valid `?token=` query parameter → set the cookie and redirect to the
-   clean URL; an invalid one → `/signin?bad=1`. The value is passed through
-   `normalizeToken()` first, so the sign-in box accepts the whole sign-in link
-   or a code with stray spaces;
+0. the `Host` header must be `127.0.0.1`, `localhost` or `[::1]` (any port),
+   else 403 — this stops DNS rebinding, and applies even with `CRM_AUTH=off`;
+1. a sign-in link — `?token=` (the Settings link; passed through
+   `normalizeToken()`, so a pasted whole link works) or `?once=` (a launcher's
+   one-time code from `createSignInCode()`, good once for two minutes) → set
+   the cookie and redirect to the clean URL, even for a browser that is
+   already signed in, so the secret never stays in the address bar or history;
+2. a valid `crm_auth` cookie → through, cookie refreshed (one-year max age,
+   `httpOnly`, `sameSite: strict`). The cookie holds `sessionValue()`, an HMAC
+   of the token, never the token itself (cookies aren't separated by port);
+   an older cookie holding the token is accepted once and replaced;
 3. otherwise → the `/signin` page (API routes get a 401 instead).
 
-`/api/health` alone is let through without the token (it names the app and
-nothing else) for the launchers. Token comparison is constant-time. `Start CRM.command` opens the app with the
-token applied; `npm run dev` / `npm start` print the sign-in link in the
-terminal (`instrumentation.ts`); the Settings page shows it for signing in
-another browser. The point is not multi-user security — it stops other
+The sign-in form posts to `/api/signin`, so a pasted code never lands in the
+history. `/api/health` and `/api/signin` need no cookie: `/api/health?nonce=`
+answers with `healthProof(nonce)`, an HMAC only a server holding the token can
+make, which `scripts/crm-check.mjs` checks for the launchers. The matcher
+skips only `/_next/static/`; `/favicon.ico` is let through by exact path.
+Every page also gets a Content-Security-Policy that allows nothing off this
+site (no remote images, scripts or requests), plus `nosniff`,
+`Referrer-Policy: no-referrer` and `frame-ancestors 'none'`
+(`next.config.ts`). Token comparison is constant-time. `Start CRM.command` opens the app with a
+one-time code; `npm run dev` / `npm start` print where the token file is (not
+the token: the launcher's log is `data/server.log`); the Settings page shows
+the sign-in link for another browser on this Mac. The data folder, database,
+WAL, token, log, backups and exports are made readable by the owner's account
+only (`tightenPermissions()` in `lib/schema.mjs`, the launcher's `umask 077`). The point is not multi-user security — it stops other
 software on the same machine, and a web page using **DNS rebinding** against
 the loopback address, from reading or changing the CRM. `CRM_AUTH=off` in
 `.env.local` disables it (CI does this). Delete the token file and restart to
@@ -247,8 +263,9 @@ on (expired login, CLI missing).
   describe the owner; and the entire prompt of a write step when Claude is the
   chosen provider (Settings → Where the AI runs, or the coach's own AI — which
   then includes the coach notes folder) or when Ollama is unavailable and the
-  Claude fallback is enabled — that prompt includes the contact roster. Turn
-  the fallback off in Settings if that isn't acceptable.
+  owner turned the Claude fallback on (it is off by default, and never
+  applies to the Coach or to Inbox drafts) — that prompt includes the contact
+  roster.
 - **To wherever backups point:** a daily copy of the whole database goes to the
   backup folder (default `data/backups`; a synced cloud folder only if you set
   one).

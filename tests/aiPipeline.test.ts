@@ -182,7 +182,8 @@ describe("whether the coach can run", () => {
     assert.equal(routeUsable(status({ ollama: { ok: false, reason: "down", installedHint: null, url: "" }, aiUsable: false }), { provider: "claude", model: "small" }), true);
     // Coach on a local model that isn't downloaded, while the app-wide one is fine.
     assert.equal(routeUsable(status({}), { provider: "local", model: "big" }), false);
-    assert.equal(routeUsable(status({ fallbackToClaude: true }), { provider: "local", model: "big" }), true);
+    // The coach never falls back to Claude: only choosing Claude for it sends it there.
+    assert.equal(routeUsable(status({ fallbackToClaude: true }), { provider: "local", model: "big" }), false);
     assert.equal(routeUsable(status({ claude: { ok: false } }), { provider: "claude", model: "small" }), false);
   });
 });

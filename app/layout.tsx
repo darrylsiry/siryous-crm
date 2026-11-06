@@ -7,7 +7,8 @@ export function generateMetadata(): Metadata {
   const owner = loadOwner();
   return {
     title: { default: owner.appName, template: `%s · ${owner.appName}` },
-    description: `Relationship-centered business development for ${owner.configured ? owner.practiceName : "your practice"}`,
+    // Generic: the sign-in page is served before sign-in, so it names nothing about the owner.
+    description: "Relationship-centered business development CRM",
   };
 }
 

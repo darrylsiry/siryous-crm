@@ -48,16 +48,26 @@ function listOf<T extends z.ZodTypeAny>(item: T) {
   }, z.array(item));
 }
 
+/**
+ * A Gmail message or thread id: letters, digits, - and _ only. It is fed back
+ * into later prompts (the "already recorded" list), so it must not be able to
+ * carry words, spaces or punctuation a model could read as instructions.
+ */
+const gmailId = z.preprocess((v) => asString(v)?.trim(), z.string().regex(/^[A-Za-z0-9_-]{1,64}$/));
+/** Text the model returned, cut to a sane size so one message can't flood storage or later prompts. */
+const capped = (n: number) => z.preprocess((v) => asString(v) ?? "", z.string().transform((s) => s.slice(0, n)));
+const capList = (xs: string[]) => xs.slice(0, 100).map((x) => x.slice(0, 320));
+
 /** One message from the Inbox's mailbox listing: null fields → "", a lone address → [address]. */
 const InboxMessageSchema = z.object({
-  id: rstr,
-  thread_id: nstr,
+  id: gmailId,
+  thread_id: z.preprocess((v) => (v == null || v === "" ? null : v), gmailId.nullable()),
   date: nstr,
-  subject: dstr,
-  from: dstr,
-  to: strList,
-  cc: strList,
-  body: dstr,
+  subject: capped(500),
+  from: capped(500),
+  to: strList.transform(capList),
+  cc: strList.transform(capList),
+  body: capped(100_000),
 });
 export type InboxListedMessage = z.output<typeof InboxMessageSchema>;
 
@@ -79,6 +89,9 @@ export function parseInboxListing(v: unknown): { messages: InboxListedMessage[];
 
 const nullableObject = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null), schema.nullable());
+
+/** Intake step 1a: who the paste is about (lib/ai.ts buildIntakeIdentityPrompt). */
+export const IntakeIdentitySchema = z.object({ name: dstr, role: nstr, company: nstr, location: nstr });
 
 export const IntakeAnalysisSchema = z.object({
   person: z.object({

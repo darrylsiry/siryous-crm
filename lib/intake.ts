@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
 import type { IntakeAnalysis } from "./ai";
-import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
+import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { IntakeAnalysisSchema } from "./schemas";
 import { bumpLastTouch, profilePath, slugFor } from "./rules.mjs";
 import { BUCKETS, DEFAULT_CADENCE } from "./db";
@@ -29,7 +29,7 @@ export async function analyzeIntake(formData: FormData) {
 }
 
 export async function discardIntake(id: number) {
-  getDb().prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=?`).run(id);
+  discardDraft(getDb(), "intake", id, ["pending", "analyzing", "ready", "error"]);
   revalidatePath("/", "layout");
   redirect(landing(id, "/intake"));
 }
@@ -45,7 +45,7 @@ export async function intakeToLog(id: number, personSlug: string) {
   const person = db.prepare(`SELECT id FROM people WHERE slug=?`).get(personSlug) as { id: number } | undefined;
   if (!row || !person) redirect(`/intake/${id}`);
   const logId = insertLogDraft(db, { raw: row.raw_text, source: "paste", hintPersonId: person.id });
-  db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('ready','error')`).run(id);
+  discardDraft(db, "intake", id, ["ready", "error"]);
   after(() => processLogDraft(logId));
   revalidatePath("/", "layout");
   redirect(`/log/${logId}`);

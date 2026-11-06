@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb, BUCKETS } from "./db";
 import { COMPANY_TARGET } from "./logHint";
-import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
+import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { isIsoDate, parseDueDate } from "./dates.mjs";
 import { bumpLastTouch, markActionDone, profilePath } from "./rules.mjs";
 import { inboxMessageFor, type Receipt } from "./receipts";
@@ -63,7 +63,7 @@ export async function logToIntake(id: number) {
     | undefined;
   if (!row) redirect("/intake");
   const intakeId = insertIntakeDraft(db, row.fetched_text ?? row.raw_text);
-  db.prepare(`UPDATE log_drafts SET status='discarded' WHERE id=? AND status IN ('error','ready')`).run(id);
+  discardDraft(db, "log", id, ["error", "ready"]);
   after(() => processIntakeDraft(intakeId, false));
   revalidatePath("/", "layout");
   redirect(`/intake/${intakeId}`);
@@ -77,7 +77,7 @@ function landing(draftId: number, fallback: string, receipt = false): string {
 }
 
 export async function discardLog(id: number) {
-  getDb().prepare(`UPDATE log_drafts SET status='discarded' WHERE id=?`).run(id);
+  discardDraft(getDb(), "log", id, ["pending", "analyzing", "ready", "error"]);
   revalidatePath("/", "layout");
   redirect(landing(id, "/log"));
 }

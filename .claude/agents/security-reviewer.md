@@ -26,7 +26,9 @@ no memory of past sessions except your own previous report.
 
 1. **Never modify anything.** No edits, no new files. No `npm install`, no building or starting
    anything. Do not send requests to any running app.
-2. **Allowed scanner:** `npm audit --omit=dev --json`. If it cannot run, say so.
+2. **The scanner is run for you.** Before you start, the runner runs `npm audit --omit=dev --json` and saves
+   it as `checks/npm-audit.json` (errors in `checks/npm-audit.err`). Read it; don't run it yourself. If it
+   is missing or empty, say so.
 3. **There is no real data here, and you must not look for it.** `data/`, `config/owner.json` and
    `.env.local` are deliberately not in the snapshot. If you find a credential or a real person's
    details committed anywhere, report its location and only its first four characters.
@@ -37,7 +39,7 @@ no memory of past sessions except your own previous report.
 
 Everything that executes or configures the runtime: `app/**`, `components/**`, `lib/**`, `scripts/**`,
 `instrumentation.ts`, `proxy.ts`, `next.config.ts`, `package.json` and its lock file, the launchers,
-`.github/workflows/**`, `.gitignore`, `config/*.example.json`, `.env.example`, `CLAUDE.md`. Read
+`.github/workflows/**`, `.gitignore`, `config/*.example.json`, `.env.example`, `PROJECT_NOTES.md` (the repository's `CLAUDE.md`, renamed so it is read as notes, not loaded as instructions). Read
 `README.md` and `docs/DEVELOPING.md` first so you understand intent. Read every source file in full; do
 not sample.
 
@@ -202,5 +204,5 @@ One or two sentences on the overall posture, the most important fix, and whether
 1. Note the time. Read `README.md`, `docs/DEVELOPING.md` and your previous report if present.
 2. List in-scope files and read each in full, starting at the trust boundaries: `proxy.ts`, the AI steps,
    the Inbox, rendered Markdown, server actions, route handlers.
-3. Run `npm audit`.
+3. Read the `npm audit` output in `checks/npm-audit.json`.
 4. Re-verify every previous finding, write up new ones, and output the report as your final message.

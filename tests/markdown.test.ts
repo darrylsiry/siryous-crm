@@ -50,6 +50,11 @@ describe("Markdown sanitisation", () => {
     assert.doesNotMatch(html, /href="[^"]*"[^>]*"2"/);
   });
 
+  test("a protocol-relative link is another site, so it is refused", () => {
+    assert.doesNotMatch(render("[x](//evil.example/a)"), /<a /);
+    assert.doesNotMatch(render("[x](/\\evil.example/a)"), /<a /);
+  });
+
   test("mailto:, tel:, site-relative and anchor links are kept without target=_blank", () => {
     assert.match(render("[m](mailto:someone@example.com)"), /<a href="mailto:someone@example.com">m<\/a>/);
     assert.match(render("[t](tel:+15550100)"), /<a href="tel:\+15550100">t<\/a>/);
@@ -58,8 +63,10 @@ describe("Markdown sanitisation", () => {
     assert.doesNotMatch(render("[p](/people/sam-lee)"), /target=/);
   });
 
-  test("images: only http(s) sources render; others fall back to the alt text", () => {
-    assert.match(render("![logo](https://example.com/logo.png)"), /<img src="https:\/\/example\.com\/logo\.png" alt="logo" loading="lazy">/);
+  test("images are never loaded: an http(s) image becomes a link, anything else its alt text", () => {
+    const img = render("![logo](https://example.com/p.png?d=secret)");
+    assert.doesNotMatch(img, /<img/);
+    assert.match(img, /<a href="https:\/\/example\.com\/p\.png\?d=secret" target="_blank" rel="noopener noreferrer">🖼 logo<\/a>/);
     const bad = render("![alt text](javascript:alert(1))");
     assert.doesNotMatch(bad, /<img/);
     assert.match(bad, /alt text/);

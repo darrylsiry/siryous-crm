@@ -233,8 +233,22 @@ export function ownerAddresses(ownerEmail: string | null | undefined, inboxAddre
  */
 export function sentByOwner(email: Pick<InboxEmail, "from">, ownerEmails: string[]): boolean {
   const owners = new Set(ownerEmails.map((e) => e.trim()).filter(Boolean).map(stripPlusTag));
-  const sender = parseAddresses(email.from)[0];
-  return !!sender && owners.has(stripPlusTag(sender.email));
+  const sender = senderAddress(email.from);
+  return !!sender && owners.has(stripPlusTag(sender));
+}
+
+/**
+ * The one sender address in a From value, read strictly: `Name <addr>` with
+ * no address in the name, or a lone bare address. Anything else (two
+ * addresses, an address dressed up as the display name, as in
+ * `"owner@x.com, y" <attacker@z>`) is null, so it can't pass as the owner.
+ */
+export function senderAddress(from: string): string | null {
+  const s = String(from ?? "").trim();
+  const angled = s.match(/^([^<>]*)<\s*([^\s<>@,;()"]+@[^\s<>@,;()"]+\.[A-Za-z]{2,})\s*>$/);
+  if (angled) return /@/.test(angled[1]) ? null : normEmail(angled[2]);
+  if (/^[^\s<>@,;()"]+@[^\s<>@,;()"]+\.[A-Za-z]{2,}$/.test(s)) return normEmail(s);
+  return null;
 }
 
 // ---------------------------------------------------------------------------

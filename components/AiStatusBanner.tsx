@@ -96,11 +96,9 @@ export default async function AiStatusBanner({
         provider: route.provider,
         model: { ...base.model, name: route.model, ok: base.ollama.ok && modelListed(base.model.available.map((m) => m.name), route.model) },
         aiUsable: routeUsable(base, route),
-        fallingBack:
-          route.provider === "local" &&
-          !(base.ollama.ok && modelListed(base.model.available.map((m) => m.name), route.model)) &&
-          base.fallbackToClaude &&
-          base.claude.ok,
+        // A feature with its own route (the Coach) never falls back to Claude.
+        fallbackToClaude: false,
+        fallingBack: false,
       }
     : base;
   const box = `rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 ${className}`;

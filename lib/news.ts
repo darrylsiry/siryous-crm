@@ -74,7 +74,8 @@ export function newsSubjects(db: Database.Database = getDb()): NewsSubject[] {
   );
   const people = db
     .prepare(
-      `SELECT p.id, p.slug, p.name, p.role_title, p.location, COALESCE(c.name, p.company_note) AS company
+      // The linked company only: the free-text company note is the owner's own words and stays here.
+      `SELECT p.id, p.slug, p.name, p.role_title, p.location, c.name AS company
        FROM people p LEFT JOIN companies c ON c.id = p.company_id ORDER BY p.name`
     )
     .all() as { id: number; slug: string; name: string; role_title: string | null; location: string | null; company: string | null }[];
@@ -234,8 +235,10 @@ async function scanInner(force: boolean): Promise<ScanResult> {
     const since = sinceFor(batch, now);
     try {
       let searched = false;
+      // Search only: this prompt holds a batch of contacts, so the run must not
+      // be able to open (and so send data to) an address a page suggests.
       const text = await runClaudeStream(buildNewsPrompt(batch, since, today, owner.possessive), {
-        allowedTools: TOOLS.web,
+        allowedTools: TOOLS.webSearch,
         timeoutMs: 600_000,
         onEvent: (e) => {
           if (e.t === "search") searched = true;

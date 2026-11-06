@@ -19,14 +19,14 @@
     "mcp": "node scripts/mcp-server.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "^12.11.1",
     "docx": "^9.7.1",
     "marked": "^18.0.6",
-    "next": "^16.2.10",
+    "next": "^16.4.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

@@ -13,24 +13,26 @@ URL="http://127.0.0.1:3000"   # keep 127.0.0.1 — the sign-in cookie is tied to
 export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 export NEXT_TELEMETRY_DISABLED=1
 
-# Is the CRM itself answering (not just something on port 3000)? It identifies
-# itself at /api/health, which needs no sign-in.
-is_up() { curl -s --max-time 2 "$URL/api/health" 2>/dev/null | grep -q '"app":"siryous-crm"'; }
+# Is this CRM answering (not just something on port 3000)? scripts/crm-check.mjs
+# sends a random nonce to /api/health and checks the answer is a proof only a
+# server holding this CRM's token can make. Without Node there is no CRM.
+is_up() { command -v node >/dev/null 2>&1 && node scripts/crm-check.mjs "$URL" >/dev/null 2>&1; }
 # Is anything at all answering on the address?
 port_busy() { curl -s -o /dev/null --max-time 2 "$URL/"; }
 
 # The app is locked to this machine with a private token (README, "Signing
-# in"). Opening it with ?token= signs this browser in once. The token sits next
-# to the database, so ask lib/auth.mjs where the server keeps it, with
-# CRM_DB_PATH taken from this environment or from .env.local (read the way
-# Next.js reads it); data/auth-token if that doesn't work.
+# in"). The browser is signed in with a one-time code that works once, for two
+# minutes (lib/auth.mjs createSignInCode), so the token itself never appears in
+# a URL, the browser's history or this command's arguments. The code is kept
+# next to the database, with CRM_DB_PATH taken from this environment or from
+# .env.local (read the way Next.js reads it). Without one, the plain address
+# opens the sign-in page.
 open_app() {
-  local token_file
-  token_file=$(node -e 'require("@next/env").loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
-import("./lib/auth.mjs").then((m) => console.log(m.tokenPath()));' 2>/dev/null)
-  [ -n "$token_file" ] || token_file="data/auth-token"
-  if [ -f "$token_file" ]; then
-    open "$URL/?token=$(cat "$token_file")"
+  local code
+  code=$(node -e 'require("@next/env").loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
+import("./lib/auth.mjs").then((m) => console.log(m.createSignInCode()));' 2>/dev/null)
+  if [ -n "$code" ]; then
+    open "$URL/?once=$code"
   else
     open "$URL"
   fi
@@ -87,10 +89,13 @@ if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.j
     echo "The CRM was updated — refreshing its components (about a minute)…"
   else
     echo "Installing the app's components (one-time, about a minute)…"
-    FRESH_INSTALL=yes
   fi
-  npm install --no-audit --no-fund || fail "Installing failed — see the messages above." \
+  # npm ci installs exactly what package-lock.json lists, and never rewrites
+  # it. It starts from an empty node_modules, so everything (the database
+  # component included) is freshly built for this Node.
+  npm ci --no-audit --no-fund || fail "Installing failed — see the messages above." \
 "Usually this means no internet connection. Connect and try again."
+  FRESH_INSTALL=yes
 fi
 
 # 2b. Node was updated, or the folder came from another Mac: the database
@@ -123,6 +128,9 @@ fi
 # 4. Start the server in the background; its output goes to data/server.log.
 echo "Starting Siryous CRM…"
 mkdir -p data
+# The data folder, and the log and files the server creates, readable by this account only.
+chmod 700 data 2>/dev/null
+umask 077
 CRM_NO_OPEN=1 nohup npm start > data/server.log 2>&1 &
 
 for i in {1..60}; do

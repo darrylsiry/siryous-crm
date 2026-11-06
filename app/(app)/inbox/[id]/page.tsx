@@ -74,7 +74,7 @@ export default async function InboxMessagePage({
           <dd>{row.date ?? <span className="text-stone-500">(not given)</span>}</dd>
         </dl>
         <pre className="mt-4 whitespace-pre-wrap break-words border-t border-stone-100 pt-4 font-sans text-sm leading-relaxed text-stone-800">
-          {email.body.trim() || "(empty body)"}
+          {email.body.trim() || (row.status === "ignored" ? "(Not kept: ignored mail keeps only its headers.)" : "(empty body)")}
         </pre>
       </section>
 
@@ -125,7 +125,7 @@ export default async function InboxMessagePage({
         ) : row.status === "ignored" ? (
           <p className="text-stone-500">
             {row.route === UNKNOWN_SENDER_ROUTE
-              ? "Ignored — not sent from one of your addresses, so it wasn't passed to the AI. Add the sender under “Your other email addresses” on the Inbox page to accept mail from it, or route this one by hand below."
+              ? "Ignored — not sent from one of your addresses, so it wasn't passed to the AI and its text wasn't kept. To accept mail from that address, add it under “Your other email addresses” on the Inbox page, then forward the email again."
               : "Ignored."}
           </p>
         ) : (
@@ -134,6 +134,7 @@ export default async function InboxMessagePage({
         <InboxRedo
           id={row.id}
           status={row.status}
+          hasText={!!row.body.trim()}
           back="message"
           drafts={[...(row.log_draft_id ? [draftStatus("log_drafts", row.log_draft_id)] : []), ...intakeIds.map((d) => draftStatus("intake_drafts", d))]}
         />

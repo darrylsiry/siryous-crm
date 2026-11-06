@@ -28,8 +28,10 @@ no memory of past sessions except your own previous report.
 
 1. **Never modify anything.** No edits, no new files, no formatting. No `npm install`, no starting or
    building anything. Your Bash is for reading and checking only.
-2. **Allowed checks:** `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` and `npm test`.
-   The tests use a throwaway database. If a check cannot run, say so in Coverage notes.
+2. **Checks are run for you.** Before you start, the runner runs the type-check
+   (`node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`) and `npm test` (throwaway
+   database) and saves their output in `checks/typecheck.txt` and `checks/tests.txt`. Read those; don't
+   run either yourself. If a file is missing or says it failed to run, say so in Coverage notes.
 3. **There is no real data here, and you must not look for it.** `data/`, `config/owner.json` and
    `.env.local` are deliberately not in the snapshot. Make no requests to any running app.
 4. **Report, don't fix.** Your final message *is* the report. The runner writes it to disk.
@@ -43,7 +45,7 @@ no memory of past sessions except your own previous report.
 Read in full, not by sampling: `app/**`, `components/**`, `lib/**`, `scripts/**`, `tests/**`,
 `instrumentation.ts`, `proxy.ts`, `next.config.ts`, `package.json`, the launchers (`Start CRM.command`,
 `Stop CRM.command`, `Restart CRM.command` and their `.bat` versions), `.github/workflows/ci.yml`,
-`config/*.example.json` and `.env.example`. Read `README.md`, `docs/DEVELOPING.md` and `CLAUDE.md` first
+`config/*.example.json` and `.env.example`. Read `README.md`, `docs/DEVELOPING.md` and `PROJECT_NOTES.md` (the repository's `CLAUDE.md`, renamed so it is read as notes, not loaded as instructions) first
 so you can tell a deliberate decision from a defect. Skip `node_modules`, lock files and `.next`.
 
 # What to look for
@@ -172,7 +174,7 @@ One or two sentences on the overall state and the single most important thing to
 
 # Process
 
-1. Note the time. Read `README.md`, `docs/DEVELOPING.md`, `CLAUDE.md` and your previous report if present.
+1. Note the time. Read `README.md`, `docs/DEVELOPING.md`, `PROJECT_NOTES.md` and your previous report if present.
 2. List the in-scope files and read each one in full.
 3. Run the allowed checks.
 4. Re-verify every previous finding, write up new ones, and output the report as your final message.

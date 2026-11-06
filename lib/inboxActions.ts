@@ -73,7 +73,8 @@ export async function ignoreInboxMessage(formData: FormData) {
   if (row) {
     discarded = db.transaction(() => {
       const n = discardDrafts(db, row);
-      db.prepare(`UPDATE inbox_messages SET status='ignored', read_at=COALESCE(read_at, datetime('now')) WHERE id=?`).run(id);
+      // Ignored means not wanted: keep the headers, drop the text.
+      db.prepare(`UPDATE inbox_messages SET status='ignored', body='', read_at=COALESCE(read_at, datetime('now')) WHERE id=?`).run(id);
       return n;
     })();
   }

@@ -312,9 +312,10 @@ export default async function LogReviewPage({
             {resolvable.length > 0 && (
               <section className="space-y-2 rounded-xl border border-green-200 bg-green-50/50 p-5">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-green-800">Close these open to-dos?</h2>
+                <p className="text-xs text-stone-600">The AI thinks these are done. Tick the ones that really are.</p>
                 {resolvable.map((r) => (
                   <label key={r.id} className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" name={`resolve_${r.id}`} defaultChecked className="mt-1" />
+                    <input type="checkbox" name={`resolve_${r.id}`} className="mt-1" />
                     <span>
                       {r.title} <span className="text-xs text-stone-500">· {BUCKETS[r.bucket]?.label ?? r.bucket}</span>
                     </span>

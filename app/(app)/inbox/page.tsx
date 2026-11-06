@@ -303,7 +303,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                     ) : r.status === "ignored" ? (
                       <span className="text-stone-500">
                         {r.route === UNKNOWN_SENDER_ROUTE
-                          ? "Ignored — not sent from one of your addresses (add it under “Your other email addresses” to accept it, or route it by hand below)"
+                          ? "Ignored — not sent from one of your addresses (add it under “Your other email addresses”, then forward it again)"
                           : "Ignored"}
                       </span>
                     ) : (
@@ -314,6 +314,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                     <InboxRedo
                       id={r.id}
                       status={r.status}
+                      hasText={!!r.body.trim()}
                       drafts={[
                         ...(r.log_draft_id ? [statusOf("log_drafts", r.log_draft_id)] : []),
                         ...intakeIds.map((id) => statusOf("intake_drafts", id)),

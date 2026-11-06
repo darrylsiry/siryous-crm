@@ -1,14 +1,25 @@
 node_modules/
 .next/
-data/*.db
-data/*.db-journal
-data/*.db-wal
-data/*.db-shm
-data/server.log
-data/backup.log
-data/backups/
-data/auth-token
+# Everything in data/ is private (the database, backups, logs, the sign-in token and codes, reports).
+data/*
 !data/.gitkeep
+# Private files that could be dropped anywhere: contact exports, databases, backups, mail.
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.vcf
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.bak
+*.mbox
+*.eml
+# Only the example configs are public.
+config/*.json
+!config/*.example.json
 exports/
 *.tsbuildinfo
 .env*

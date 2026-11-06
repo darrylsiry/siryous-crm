@@ -24,8 +24,10 @@ const OUT = path.join(process.cwd(), "exports");
 const stamp = new Date().toISOString().slice(0, 10);
 
 fs.rmSync(OUT, { recursive: true, force: true });
-fs.mkdirSync(path.join(OUT, "people"), { recursive: true });
-fs.mkdirSync(path.join(OUT, "companies"), { recursive: true });
+// The whole CRM in plain text: readable by this account only.
+process.umask(0o077);
+fs.mkdirSync(path.join(OUT, "people"), { recursive: true, mode: 0o700 });
+fs.mkdirSync(path.join(OUT, "companies"), { recursive: true, mode: 0o700 });
 
 const statusText = (row: { status_key: string; status_note: string | null }) => {
   const s = STATUS[row.status_key] ?? STATUS.new;

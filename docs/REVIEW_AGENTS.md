@@ -19,18 +19,25 @@ on your Claude plan: each run reads the whole repository. `REVIEW_MODEL` overrid
 
 1. **Own snapshot.** `scripts/review-run.sh` copies the code to `.review/<agent>/`, with only that agent's
    definition and its own previous report. No other agent's report, definition or mockups, no ledger and no
-   memory are in it. What isn't there can't bias it.
+   memory are in it. What isn't there can't bias it. `CLAUDE.md` goes in as `PROJECT_NOTES.md`, so the
+   agent reads it as notes rather than loading it as instructions.
 2. **Own process.** Each run is a fresh `claude -p` started in the snapshot with a scrubbed environment,
    auto-memory off, project settings only, no MCP servers, no session history, and only Read, Grep, Glob and
    Bash. No tool reaches another agent.
 3. **A guard on every tool call.** `scripts/review-guard.py` refuses paths outside the snapshot, memory and
-   transcripts, starting another agent, requests to any running app, and anything that writes. It fails
-   closed. `tests/reviewGuard.test.ts` checks it.
-4. **The operating system.** On a Mac the run is wrapped in `sandbox-exec`, so the agent and anything it
+   transcripts, starting another agent, requests to any running app, anything that writes, the package
+   manager, running the repository's own scripts, and command substitution. It fails closed.
+   `tests/reviewGuard.test.ts` checks it.
+4. **Checks run outside the agent.** The runner runs the type-check and the tests (code agent) and
+   `npm audit` (security agent) itself, before the agent starts, and puts their output in the snapshot's
+   `checks/` folder. No agent runs a package script or anything that needs the network.
+5. **The operating system.** On a Mac the run is wrapped in `sandbox-exec`, so the agent and anything it
    starts can read only its snapshot and the parts of the home folder its tools need. The repository, memory,
-   transcripts and other tools' credentials are refused. Network stays open, because `npm audit` needs it and
-   the profile can't allow a single host. Elsewhere only the guard applies, and the run says so.
-5. **Results meet only after the agents finish.** The runner saves each final message word for word and folds
+   transcripts and other tools' credentials are refused, and so are writes to the Claude settings, hooks,
+   agents, commands, skills and plugins that would run outside the sandbox later. Network stays open,
+   because the CLI talks to Anthropic and the profile can't allow a single host. Elsewhere only the guard
+   applies, and the run says so.
+6. **Results meet only after the agents finish.** The runner saves each final message word for word and folds
    it into `data/agent-reports/AGENT_LEDGER.json`. Only the App Tests page reads across agents, and no agent
    can reach it.
 
@@ -41,8 +48,11 @@ covers their findings, not their brief.
 
 ## What protects your data
 
-The snapshot is built from `git ls-files`, so anything gitignored can't get in: `data/` (the database,
-backups, the sign-in token), `config/owner.json`, `config/vocab.json`, `.env.local` and `docs/reviews/`.
+The snapshot is built from `git ls-files` (tracked files and new ones), so anything gitignored can't get in:
+all of `data/` (the database, backups, the sign-in token), `config/*.json` other than the examples,
+`.env.local`, `docs/reviews/`, and spreadsheets, databases, backups and mail files anywhere (`*.csv`,
+`*.db`, `*.sqlite`, `*.bak`, …). The runner filters those patterns out again on top of `.gitignore`, in case
+a file was named or placed so that it slipped past.
 What an agent sends to Anthropic is the public code, its own last report and the output of its checks.
 
 Agents never look at a running copy of the app, because yours holds real people's details. So the UX agent

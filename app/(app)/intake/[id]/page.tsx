@@ -84,9 +84,10 @@ export default async function IntakeReviewPage({
           <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-stone-700">{draft.raw_text}</pre>
         </section>
         <form action={retryIntake.bind(null, draft.id)} className="flex flex-wrap items-center gap-3">
+          {/* Unticked: a failed draft may be an email or Log notes that were deliberately run without research. */}
           {claudeAvailable() ? (
             <label className="flex items-center gap-2 text-sm text-stone-600">
-              <input type="checkbox" name="research" value="1" defaultChecked />
+              <input type="checkbox" name="research" value="1" />
               Look them up on the web first
             </label>
           ) : null}
@@ -280,10 +281,10 @@ export default async function IntakeReviewPage({
         {connCandidates.length > 0 && (
           <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested connections</h2>
-            <p className="text-xs text-stone-500">Ticked connections appear as lines on the Map and on both profiles.</p>
+            <p className="text-xs text-stone-500">Suggested by the AI: tick the ones that are real. They appear as lines on the Map and on both profiles.</p>
             {connCandidates.map((c) => (
               <label key={c.person_slug} className="flex items-start gap-2 text-sm">
-                <input type="checkbox" name={`conn_${c.person_slug}`} defaultChecked className="mt-1" />
+                <input type="checkbox" name={`conn_${c.person_slug}`} className="mt-1" />
                 <span>
                   <span className="font-semibold">{c.name}</span>
                   <input type="hidden" name={`conn_label_${c.person_slug}`} value={c.label} />

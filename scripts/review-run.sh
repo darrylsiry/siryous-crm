@@ -51,8 +51,13 @@ CLAUDE_BIN="$(command -v claude || echo "$HOME/.local/bin/claude")"
 mkdir -p "$ROOT/.review/state" "$LOGS"
 
 # Tracked files plus new ones, never ignored ones. Agent definitions are copied one at a time, below.
+# Belt and braces for a private file that slipped past .gitignore: no spreadsheets, databases, backups
+# or config JSON other than the shipped examples, whatever their name.
 repo_files() {
-  git -c core.quotepath=off ls-files -co --exclude-standard | grep -v -E '^\.claude/' | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done
+  git -c core.quotepath=off ls-files -co --exclude-standard | grep -v -E '^\.claude/' \
+    | grep -v -E -i '\.(csv|tsv|xlsx?|sqlite3?|db|db-wal|db-shm|bak|vcf|mbox|eml)$' \
+    | awk '!/^config\/.*\.json$/ || /\.example\.json$/' \
+    | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done
 }
 # What a newcomer meets before the first page: part of the UX agent's first-run flow.
 FIRST_RUN='^(proxy\.ts|instrumentation\.ts|(Start|Stop|Restart) CRM\.command)$'
@@ -62,9 +67,11 @@ scope_files() {
   else repo_files | grep -v -E '^docs/|^(README\.md|LICENSE|CLAUDE\.md)$'; fi
 }
 # What each agent can read. UX judges what users see, so it gets no scripts or tests.
+# CLAUDE.md is never copied under its own name: the agent's CLI would load it as instructions. It goes in
+# as PROJECT_NOTES.md (below), to be read like any other file.
 snapshot_files() {
-  if [ "$KEY" = ux ]; then repo_files | grep -E "^(app|components|lib)/|^(README\.md|CLAUDE\.md|docs/DEVELOPING\.md)$|^config/.*\.example\.json$|$FIRST_RUN"
-  else repo_files; fi
+  if [ "$KEY" = ux ]; then repo_files | grep -E "^(app|components|lib)/|^(README\.md|docs/DEVELOPING\.md)$|^config/.*\.example\.json$|$FIRST_RUN"
+  else repo_files | grep -v -E '^CLAUDE\.md$'; fi
 }
 fingerprint() {  # a hash of the covered files' names and contents
   scope_files | LC_ALL=C sort | tr '\n' '\0' | xargs -0 shasum -a 256 2>/dev/null | shasum -a 256 | cut -c1-8
@@ -89,6 +96,7 @@ rm -rf "$WS"; mkdir -p "$WS/data/agent-reports/$KEY" "$WS/.claude/agents" "$WS/.
 snapshot_files | tr '\n' '\0' | tar --null -T - -cf - | tar -xf - -C "$WS"
 [ -d "$REPORTS/$KEY" ] && cp -R "$REPORTS/$KEY/." "$WS/data/agent-reports/$KEY/"
 cp ".claude/agents/$AGENT.md" "$WS/.claude/agents/"
+[ -f CLAUDE.md ] && cp CLAUDE.md "$WS/PROJECT_NOTES.md"
 cp scripts/review-guard.py "$WS/.claude/hooks/review-guard.py"
 cat > "$WS/.claude/settings.json" <<JSON
 {
@@ -97,8 +105,17 @@ cat > "$WS/.claude/settings.json" <<JSON
     "command": "python3 \"\$CLAUDE_PROJECT_DIR/.claude/hooks/review-guard.py\" $KEY", "timeout": 20 } ] } ] }
 }
 JSON
-# Checks need installed tools. A copy, so nothing in a snapshot leads back to the repository (cheap clones on APFS).
-if [ "$KEY" != ux ]; then cp -cR "$ROOT/node_modules" "$WS/node_modules" 2>/dev/null || cp -R "$ROOT/node_modules" "$WS/node_modules"; fi
+# The checks run here, in the runner, before the agent starts; the agent reads their output in checks/.
+# So the agent never runs package scripts, the package manager or anything with network access itself.
+mkdir -p "$WS/checks"
+if [ "$KEY" = code ]; then
+  cp -cR "$ROOT/node_modules" "$WS/node_modules" 2>/dev/null || cp -R "$ROOT/node_modules" "$WS/node_modules"
+  ( cd "$WS" && node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json ) > "$WS/checks/typecheck.txt" 2>&1; echo "exit code $?" >> "$WS/checks/typecheck.txt"
+  ( cd "$WS" && npm test ) > "$WS/checks/tests.txt" 2>&1; echo "exit code $?" >> "$WS/checks/tests.txt"
+  rm -rf "$WS/node_modules"
+elif [ "$KEY" = security ]; then
+  ( cd "$ROOT" && npm audit --omit=dev --json ) > "$WS/checks/npm-audit.json" 2> "$WS/checks/npm-audit.err"
+fi
 
 FP="$NOW_FP"
 PROMPT="Run your review now, following your instructions in full. The code version is $FP. Return the complete report in the required Markdown format as your final message, with nothing before or after it."
@@ -107,8 +124,9 @@ echo "$KEY: started on code $FP ($(date '+%H:%M')), log $LOG"
 OUT="$LOGS/$KEY-$STAMP.out"
 # The operating system's word on it, not just the guard's: on a Mac the agent's whole process tree can
 # read only the parts of the home folder its tools need, so not the repository (and the database in it),
-# anyone's memory and transcripts, or other tools' credentials. Network stays open: `npm audit` needs it,
-# and the profile language can't allow one host.
+# anyone's memory and transcripts, or other tools' credentials; and it can't write the Claude settings,
+# hooks, agents, commands, skills or plugins that would run outside the sandbox later. Network stays
+# open: the CLI talks to Anthropic, and the profile language can't allow one host.
 SANDBOX=()
 if [ "$(uname)" = Darwin ] && command -v sandbox-exec >/dev/null; then
   PROFILE="$ROOT/.review/state/sandbox-$KEY.sb"
@@ -122,6 +140,9 @@ if [ "$(uname)" = Darwin ] && command -v sandbox-exec >/dev/null; then
 (deny file-read* file-write* (subpath "$HOME/.claude/projects") (literal "$HOME/.claude/history.jsonl"))
 (allow file-read* file-write* (subpath "$WS"))
 (allow file-read* (literal "$ROOT") (literal "$(dirname "$ROOT")") (literal "$ROOT/.review"))
+(deny file-write* (literal "$HOME/.claude/settings.json") (literal "$HOME/.claude/settings.local.json") (literal "$HOME/.claude/CLAUDE.md")
+  (subpath "$HOME/.claude/hooks") (subpath "$HOME/.claude/agents") (subpath "$HOME/.claude/commands") (subpath "$HOME/.claude/skills")
+  (subpath "$HOME/.claude/plugins") (subpath "$HOME/.claude/workflows") (literal "$HOME/.claude.json.backup"))
 SB
   SANDBOX=(sandbox-exec -f "$PROFILE")
 else

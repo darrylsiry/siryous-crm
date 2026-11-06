@@ -3,6 +3,7 @@ import { getDb } from "./db";
 import {
   buildFetchPrompt,
   buildIntakePrompt,
+  buildIntakeIdentityPrompt,
   buildIntakeResearchPrompt,
   buildLogPrompt,
   extractJsonWithRepair,
@@ -13,8 +14,25 @@ import {
 } from "./ai";
 import { applyLogHintFallback, loadLogHint } from "./logHint";
 import { noteProgress, runWithProgress } from "./progress";
-import { IntakeAnalysisSchema, LogAnalysisSchema, validateModelJson } from "./schemas";
+import { IntakeAnalysisSchema, IntakeIdentitySchema, LogAnalysisSchema, validateModelJson } from "./schemas";
 import { RunCancelled } from "./llm";
+import { inboxMessageFor } from "./receipts";
+
+/**
+ * Discard a draft and drop what it held: the pasted or fetched text, the
+ * model's answer and its progress feed. Discarding means "I don't want this
+ * kept", so none of it stays in the database (or in later backups).
+ * `onlyIf`: discard only from these statuses (e.g. not one already saved).
+ * Returns how many rows changed.
+ */
+export function discardDraft(db: Database.Database, kind: "log" | "intake", id: number, onlyIf?: string[]): number {
+  const table = kind === "log" ? "log_drafts" : "intake_drafts";
+  const extra = kind === "log" ? ", fetched_text=NULL" : "";
+  const guard = onlyIf?.length ? ` AND status IN (${onlyIf.map(() => "?").join(",")})` : "";
+  return db
+    .prepare(`UPDATE ${table} SET status='discarded', raw_text='', result_json=NULL, progress=NULL, error=NULL${extra} WHERE id=?${guard}`)
+    .run(id, ...(onlyIf ?? [])).changes;
+}
 
 /** How a Log draft's error starts when nobody it mentions is in the CRM (the draft page offers Intake then). */
 export const NOBODY_FOUND = "Nobody in these notes is in your CRM yet.";
@@ -105,6 +123,8 @@ export async function processLogDraft(draftId: number): Promise<void> {
       | undefined;
     if (!row) return;
     const hint = loadLogHint(db, row.hint_person_id, row.hint_company_id);
+    // A draft from the Inbox runs with nobody watching: it never switches to Claude by itself.
+    const fallback = inboxMessageFor(db, "log", draftId) === null;
     const allowedTools = row.fetched_text ? "" : logFetchTools(row.source);
     // Step 1 (Claude + connector tools, only for Zoom/Meet/Gmail): fetch the content.
     let content = row.fetched_text ?? row.raw_text;
@@ -132,9 +152,10 @@ export async function processLogDraft(draftId: number): Promise<void> {
       json: true,
       timeoutMs: 420_000,
       stillWanted: stillAnalyzing("log_drafts", draftId),
+      fallback,
     });
     const analysis: LogAnalysis = applyLogHintFallback(
-      validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text), text),
+      validateModelJson(LogAnalysisSchema, await extractJsonWithRepair(text, { fallback }), text),
       hint,
       content
     );
@@ -162,19 +183,31 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
     const row = db.prepare(`SELECT raw_text FROM intake_drafts WHERE id=?`).get(draftId) as { raw_text: string } | undefined;
     if (!row) return;
     const raw = row.raw_text;
-    // Step 1 (optional, Claude + web): research digest. A failure here is
-    // not fatal — the analysis proceeds from the paste alone and says so.
+    // A draft from the Inbox runs with nobody watching: it never switches to Claude by itself.
+    const fallback = inboxMessageFor(db, "intake", draftId) === null;
+    // Step 1 (optional): research digest. 1a, on this Mac: who the paste is
+    // about. 1b, Claude + web: research that public identity only — the paste
+    // itself never goes to a session that can reach the web. A failure here
+    // is not fatal — the analysis proceeds from the paste alone and says so.
     let digest: string | null = null;
     if (research) {
       try {
+        const idText = await runWithProgress("intake", draftId, buildIntakeIdentityPrompt(raw), {
+          json: true,
+          stillWanted: stillAnalyzing("intake_drafts", draftId),
+          fallback,
+        });
+        const who = IntakeIdentitySchema.parse(await extractJsonWithRepair(idText, { fallback }));
+        if (!who.name.trim()) throw new Error("couldn't tell who the text is about, so there was nothing to look up.");
         digest =
           (
-            await runWithProgress("intake", draftId, buildIntakeResearchPrompt(raw), {
+            await runWithProgress("intake", draftId, buildIntakeResearchPrompt({ ...who, name: who.name.trim() }), {
               allowedTools: TOOLS.web,
               timeoutMs: 300_000,
             })
           ).trim() || null;
       } catch (err) {
+        if (err instanceof RunCancelled) throw err;
         noteProgress(
           "intake",
           draftId,
@@ -187,8 +220,9 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
     const text = await runWithProgress("intake", draftId, buildIntakePrompt(raw, digest), {
       json: true,
       stillWanted: stillAnalyzing("intake_drafts", draftId),
+      fallback,
     });
-    const analysis: IntakeAnalysis = validateModelJson(IntakeAnalysisSchema, await extractJsonWithRepair(text), text);
+    const analysis: IntakeAnalysis = validateModelJson(IntakeAnalysisSchema, await extractJsonWithRepair(text, { fallback }), text);
     if (research && !digest) {
       analysis.confidence_flags = [
         "Web research was unavailable for this run — nothing here was verified online.",

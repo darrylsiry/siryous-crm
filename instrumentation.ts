@@ -5,17 +5,19 @@ export async function register() {
     const { startBackupLoop } = await import("./lib/backup.mjs");
     const { startInboxLoop } = await import("./lib/inbox");
     const { startNewsLoop } = await import("./lib/news");
-    const { authEnabled, signInUrl, tokenPath, wasJustCreated } = await import("./lib/auth.mjs");
+    const { authEnabled, createSignInCode, tokenPath, wasJustCreated } = await import("./lib/auth.mjs");
     const db = getDb();
 
     if (authEnabled()) {
       const port = process.env.PORT || "3000";
-      const url = signInUrl(`http://127.0.0.1:${port}`);
       const firstRun = wasJustCreated();
+      // The sign-in code itself is never printed: this output goes to data/server.log.
       const rule = "─".repeat(72);
-      console.log(`\n${rule}\nOPEN THIS LINK to use the CRM (it signs you in):\n${url}\n${rule}`);
-      console.log(`[auth] sign-in code file: ${tokenPath()} (CRM_AUTH=off disables sign-in)`);
-      if (firstRun) openInBrowser(url);
+      console.log(
+        `\n${rule}\nTo use the CRM, double-click Start CRM, or open http://127.0.0.1:${port}/signin and paste the code from\n${tokenPath()}\n${rule}`
+      );
+      console.log("[auth] CRM_AUTH=off disables sign-in");
+      if (firstRun) openInBrowser(`http://127.0.0.1:${port}/?once=${createSignInCode()}`);
     } else {
       console.log("[auth] CRM_AUTH=off — no access token required");
     }

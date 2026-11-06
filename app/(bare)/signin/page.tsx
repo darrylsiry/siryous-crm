@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Sign in" };
+
 /**
  * Shown to a browser that has no sign-in cookie (see proxy.ts). The normal
  * path in is the launcher, which opens the app with the token already in the
@@ -27,7 +29,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           code from <code>data/auth-token</code> — or just double-click Start CRM.
         </p>
       ) : null}
-      <form method="get" action="/" className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
+      <form method="post" action="/api/signin" className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
         <label className="block text-xs font-medium text-stone-600">
           Sign-in link or code
           <input

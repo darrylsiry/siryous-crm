@@ -104,7 +104,7 @@ export function RestoreNote() {
     <>
       There is no undo: restore from a backup in
       <code className="mx-1 break-all rounded bg-stone-100 px-1 py-0.5 text-xs">{dir}</code>
-      if this was a mistake (
+      if this was a mistake. Those backups also keep what you delete until they age out after 30 days (
       <Link href="/settings#backups" className="font-medium text-indigo-700 hover:underline">
         backup status
       </Link>

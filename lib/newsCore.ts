@@ -84,7 +84,7 @@ SUBJECTS (ref | kind | name | context):
 ${lines}
 
 HOW:
-- Run at least one web search per subject: the quoted name plus a distinguishing detail from its context (employer, industry, city). Open a result with WebFetch when you need to confirm the date or who it is about.
+- Run at least one web search per subject: the quoted name plus a distinguishing detail from its context (employer, industry, city). Work from the search results themselves (titles, snippets, dates, sources); you can't open pages, so when a result doesn't make the date or who it is about clear, leave it out.
 - Include an item ONLY when it is clearly about THAT subject: the same person (employer, role or location match the context) or the same company — not a namesake. When unsure, leave it out. Most subjects will have no news; that is expected.
 - LARGE organisations (public companies, global banks and corporations, big investment firms): include a story only if it names one of the contacts listed in the context, or concerns the business area the context describes (its industry, a deal, fund, unit or product line). Skip their general corporate news — earnings, share price, executive pay, and news from unrelated divisions or regions.
 - News means: articles, press releases, announcements (funding, M&A, appointments and job moves, launches, partnerships, results, awards, regulatory or legal actions), interviews, podcasts, conference talks, bylined articles.

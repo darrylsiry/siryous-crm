@@ -355,7 +355,8 @@ export default async function PersonPage({
               {opps.length
                 ? ` ${opps.length === 1 ? "The 1 deal" : `The ${opps.length} deals`} linked here will be kept but no longer linked to a person.`
                 : ""}{" "}
-              Outreach drafts are kept, unlinked. <RestoreNote />
+              Outreach drafts are kept, unlinked. Kept as they are: emails in the Inbox, Log drafts, Coach conversations and news stories
+              that mention them. <RestoreNote />
             </p>
             <form action={deletePerson.bind(null, p.id)}>
               <ConfirmButton

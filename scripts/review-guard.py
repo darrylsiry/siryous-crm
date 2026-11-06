@@ -25,12 +25,10 @@ SECRET_FILE = re.compile(r"(^|/)(\.env(\.[^/]*)?|crm\.db(-wal|-shm)?|auth-token|
 SECRET_ALLOWED = re.compile(r"(^|/)\.env\.example$")
 OUTSIDE_ROOTS = r"Users|home|private|tmp|var|etc|root|Volumes|Library|System|Applications|opt"
 
-# What each agent may run that the read-only rules would otherwise refuse.
-PERMITTED = {
-    "code": [r"\bnpx\s+tsc\s+--noEmit\b[^|;&]*", r"\bnpm\s+test\b", r"\bnpm\s+run\s+typecheck\b"],
-    "security": [r"\bnpm\s+audit\b[^|;&]*"],
-    "ux": [],
-}
+# What each agent may run that the read-only rules would otherwise refuse: nothing. The runner runs the
+# type-check, the tests and npm audit itself and puts their output in checks/ (scripts/review-run.sh), so
+# no agent ever runs a package script, the package manager or anything that reaches the network.
+PERMITTED = {"code": [], "security": [], "ux": []}
 
 
 def refuse(reason):
@@ -104,6 +102,17 @@ def check_bash(root, agent, cmd):
         refuse("the review agents write nothing.")
     if re.search(r"(^|[;&|(]\s*|\bsudo\s+|\bxargs\s+(-[^ ]+\s+)*)(rm|rmdir|mv|cp|ln|mkdir|touch|truncate|chmod|chown|chgrp|install|mkfs|kill|killall|pkill|shutdown|reboot|launchctl|crontab|open)\b", rest):
         refuse("the command changes files or the system.")
+    if re.search(r"\bfind\b[^|;&]*\s-(delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b", rest):
+        refuse("find may only list files here.")
+    if re.search(r"\b(perl|ruby)\b[^|;&]*\s-[a-zA-Z]*i", rest):
+        refuse("in-place editing is not allowed.")
+    if re.search(r"\$\(|`", unquoted):
+        refuse("command substitution hides what the command runs.")
+    # Running the repository's own code is the runner's job (checks/), never the agent's: a file in the
+    # snapshot could be planted to run inside the review.
+    if re.search(r"(^|[;&|(]\s*)(node|tsx|ts-node|bun|deno)\s+(?!-)[^\s|;&]+|(^|[;&|(]\s*)python3?\s+(?!-)[^\s|;&]+", rest) or re.search(
+        r"\b(require|import)\(\s*\\?[\"']\.", rest):
+        refuse("running the repository's code is not part of the review (the runner's checks are in checks/).")
     if re.search(r"\bgit\s+(-[^ ]+\s+)*(add|commit|push|pull|fetch|merge|rebase|reset|checkout|switch|restore|stash|cherry-pick|revert|clean|rm|mv|tag|filter-branch|gc|prune|worktree|submodule|am|apply|init|clone)\b", rest):
         refuse("the command changes version control.")
     if re.search(r"\b(npm|pnpm|yarn|bun)\s+(-[^ ]+\s+)*\w|\bnpx\s|\bpip3?\s|\buv\s|\bpoetry\s|\bbrew\s|\bdocker\b|\bfly(ctl)?\s|\bgh\s", rest):

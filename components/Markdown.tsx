@@ -1,18 +1,16 @@
 import { marked } from "marked";
+import { isExternal, safeHref } from "@/lib/safeHref";
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** Only http(s), mailto, tel, and site-relative links are rendered as links. */
-const safeHref = (href: string | null | undefined) => {
-  const h = String(href ?? "").trim();
-  if (/^(https?:|mailto:|tel:)/i.test(h) || h.startsWith("/") || h.startsWith("#")) return h;
-  return null;
-};
-
 // Content rendered here comes from models, fetched emails/transcripts, and
 // pasted text — never trust raw HTML from it. Escape HTML blocks/inlines and
-// refuse javascript:/data: URLs, everything else renders as normal markdown.
+// refuse javascript:/data:/protocol-relative URLs (lib/safeHref.ts), and never
+// load a remote image by itself: an image URL written by a steered model could
+// carry CRM data off the machine the moment the page renders, so an image is
+// shown as a link the owner can choose to open. (The CSP in next.config.ts
+// blocks remote images as well.)
 marked.use({
   renderer: {
     html({ text }) {
@@ -22,13 +20,14 @@ marked.use({
       const safe = safeHref(href);
       const inner = this.parser.parseInline(tokens);
       if (!safe) return inner;
-      const external = /^https?:/i.test(safe);
+      const external = isExternal(safe);
       return `<a href="${escapeHtml(safe)}"${title ? ` title="${escapeHtml(title)}"` : ""}${external ? ' target="_blank" rel="noopener noreferrer"' : ""}>${inner}</a>`;
     },
     image({ href, title, text }) {
       const safe = safeHref(href);
-      if (!safe || !/^https?:/i.test(safe)) return escapeHtml(text);
-      return `<img src="${escapeHtml(safe)}" alt="${escapeHtml(text)}"${title ? ` title="${escapeHtml(title)}"` : ""} loading="lazy">`;
+      if (!safe || !isExternal(safe)) return escapeHtml(text);
+      const label = escapeHtml(text || "image");
+      return `<a href="${escapeHtml(safe)}"${title ? ` title="${escapeHtml(title)}"` : ""} target="_blank" rel="noopener noreferrer">🖼 ${label}</a>`;
     },
   },
 });

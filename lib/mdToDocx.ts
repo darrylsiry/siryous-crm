@@ -13,6 +13,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
+import { safeHref } from "./safeHref";
 
 /**
  * Convert a Markdown prep brief into an editable Word document. Covers what
@@ -48,13 +49,26 @@ function inlineRuns(
         out.push(new TextRun({ text: (t as Tokens.Codespan).text, font: "Courier New", ...style }));
         break;
       case "link": {
+        // Only web, mail and phone links become hyperlinks (lib/safeHref.ts);
+        // a file:, javascript: or site-relative link is just its text.
         const link = t as Tokens.Link;
-        out.push(
-          new ExternalHyperlink({
-            link: link.href,
-            children: [new TextRun({ text: link.text || link.href, style: "Hyperlink", ...style })],
-          })
-        );
+        const href = safeHref(link.href);
+        if (href && /^(https?:|mailto:|tel:)/i.test(href)) {
+          out.push(
+            new ExternalHyperlink({
+              link: href,
+              children: [new TextRun({ text: link.text || href, style: "Hyperlink", ...style })],
+            })
+          );
+        } else {
+          out.push(...inlineRuns(link.tokens, style));
+        }
+        break;
+      }
+      case "image": {
+        // Never embed or fetch a remote image; keep its description.
+        const img = t as Tokens.Image;
+        out.push(new TextRun({ text: img.text || "image", ...style }));
         break;
       }
       case "br":

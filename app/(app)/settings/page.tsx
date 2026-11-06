@@ -265,7 +265,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <span>
               <span className="font-medium">On this Mac (private)</span>
               <span className="block text-xs text-stone-500">
-                Your contacts and notes never leave this machine. Claude is used only for steps that need Gmail, Calendar, Zoom, Drive, or the web.
+                Your contacts and notes stay on this machine (unless you tick the Claude fallback below). Claude is used only for steps that need Gmail,
+                Calendar, Zoom, Drive or the web, and those are given only what that step needs.
               </span>
             </span>
           </label>
@@ -283,7 +284,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <label className="mt-2 flex items-start gap-2 text-sm">
             <input type="checkbox" name="fallback" value="1" defaultChecked={s.fallbackToClaude} className="mt-1" />
             <span>
-              If the AI on this Mac isn&apos;t available, use Claude instead (sends the request to Anthropic)
+              If the AI on this Mac isn&apos;t available, use Claude instead (sends the whole request, including contacts and notes, to Anthropic;
+              never for the Coach or for drafts made from Inbox emails, and the AI pages warn first)
               {ai.claude.ok ? null : (
                 <span className="block text-xs text-amber-800">Claude isn&apos;t set up on this Mac, so this has no effect right now.</span>
               )}
@@ -344,7 +346,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               Let the coach read my own notes
               <span className="block text-xs text-stone-500">
                 A folder of your notes on your strengths, pitfalls and goals (Markdown, text or Word files). The coach holds you to
-                what is in them. Only ever read on this Mac; nothing in it is copied anywhere.
+                what is in them. Read on this Mac; they go to Anthropic only if you choose Claude for the coach above.
               </span>
             </span>
           </label>

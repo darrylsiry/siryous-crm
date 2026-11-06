@@ -92,7 +92,16 @@ export function runWithProgress(
   kind: ProgressKind,
   id: number,
   prompt: string,
-  opts: { allowedTools?: string; timeoutMs?: number; json?: boolean; provider?: Provider; model?: string; stillWanted?: () => boolean } = {}
+  opts: {
+    allowedTools?: string;
+    timeoutMs?: number;
+    json?: boolean;
+    provider?: Provider;
+    model?: string;
+    stillWanted?: () => boolean;
+    /** false: no Claude fallback for this step (see runModel). */
+    fallback?: boolean;
+  } = {}
 ): Promise<string> {
   const table = PROGRESS_TABLES[kind];
   const db = getDb();
@@ -117,6 +126,7 @@ export function runWithProgress(
     model: opts.model,
     stillWanted: opts.stillWanted,
     signal,
+    fallback: opts.fallback,
   });
 }
 

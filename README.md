@@ -252,8 +252,10 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   drafts). Only
   email sent from your own addresses (the one in `config/owner.json`, plus any
   you list under **Your other email addresses**) is acted on: anyone can write
-  to a plus-address, so mail from anyone else is listed as ignored and never
-  reaches the AI unless you route it by hand. To set it
+  to a plus-address, so the mailbox search itself asks only for mail from your
+  addresses — anyone else's isn't fetched or read by any AI — and anything that
+  still arrives from another sender is listed as ignored unless you route it by
+  hand. To set it
   up, open **Inbox**, enter the address under **Your CRM address**, tick
   **Check automatically** and click **Save** — nothing is checked until you do.
 - **📰 News Feed (AI, needs Claude)** — once a day, Claude searches the web
@@ -368,7 +370,8 @@ isn't enough.
    it never sees your passwords.
 
 Once Claude is installed, Intake's **Look them up on the web first** box is
-ticked by default — untick it for anything you'd rather not send (see below).
+ticked by default. It sends only the person's name, role, employer and
+location (read on this Mac first), never what you pasted (see below).
 The News Feed stays off until you turn it on. The **Intake** page tells you if
 the Claude tool can't be found. If a Claude
 step fails mid-run, the CRM carries on with what it has locally and says so in
@@ -384,20 +387,23 @@ This matters, so here it is plainly:
 - **To Anthropic (through your own Claude login), only when you use a Claude
   step:**
   - Intake with the **Look them up on the web first** box ticked (it is ticked
-    by default once Claude is installed): the text you pasted.
+    by default once Claude is installed): the person's name, role, employer and
+    location, which the AI on this Mac picks out of your paste first. Never the
+    paste itself.
   - Log with the **Zoom / Gmail / Google Meet** source: your request, and the
     transcript or email thread Claude fetched on your behalf (for Google Meet,
     Claude first looks the meeting up on your Google Calendar, then finds its
     "Notes by Gemini" doc in Google Drive — so Gemini note-taking has to have
     been on for that meeting).
   - Inbox: each mailbox check is a Claude run that searches Gmail for mail
-    delivered to your CRM address and returns those messages. The routing
-    and the drafting then happen on this Mac.
+    delivered to your CRM address from your own addresses, and returns those
+    messages. The routing and the drafting then happen on this Mac.
   - News Feed (only once you turn it on, then daily, or when you click "Check
     now"): for each person, their name, role, employer and location;
     for each company, its name, industry, headquarters, website and the names
     of up to three of your contacts there, plus your first name. Never your
-    notes, interaction log or deals. This run can only search and read the web.
+    notes, interaction log or deals. This run can only search the web: it
+    can't open pages, so nothing it reads can make it send that list anywhere.
   - Prep's calendar/email check: the other person's name, company, role, the
     date you last spoke, your noted next step and any focus you typed — never
     your profile notes or interaction log. If you let Prep pick the meeting
@@ -406,10 +412,11 @@ This matters, so here it is plainly:
     events to people. Prep's web check: only their public name, role and
     company. These are two separate, walled-off requests so that a session
     that reads your email never also has a way to send anything out.
-  - **If Ollama isn't running** and the "If the AI on this Mac isn't
-    available, use Claude instead" box in Settings is ticked (it is by
-    default): the whole request for that step, which includes your list of
-    contacts. Untick that box if that isn't acceptable to you — runs will then
+  - **If Ollama isn't running** and you ticked "If the AI on this Mac isn't
+    available, use Claude instead" in Settings (it is off unless you turn it
+    on): the whole request for that step — your contact list, and for Prep the
+    person's notes and interaction log. The AI pages warn you before you start.
+    It never applies to the Coach or to drafts made from Inbox emails, which
     wait for Ollama instead.
   - **If you choose Claude** under Settings → **Where the AI runs**, or as the
     AI the Coach uses: the whole request for every such step — including your
@@ -418,13 +425,21 @@ This matters, so here it is plainly:
     name and practice description from `config/owner.json`.
 - **To wherever you point backups:** a daily copy of the whole database goes
   into the backup folder (see below). That is only a cloud folder if you chose
-  one.
+  one, and the copies are not encrypted.
+- **To another computer, if you point Settings → Ollama URL at one:** every
+  request the local model would get, over your network, unencrypted.
 
 Claude runs with a fixed, read-only set of tools: it can search and read, and
 it cannot send email, change your calendar, run anything on your Mac, or read
 your files. The CRM enforces this itself on every run, whatever you may have
-allowed Claude Code to do in your own settings. Nothing any AI produces is saved into the CRM until you have
-reviewed it.
+allowed Claude Code to do in your own settings. Nothing the CRM's own AI
+features produce is saved until you have reviewed it. The exception is the
+Claude Desktop connection (MCP, see "For developers"): what you ask Claude
+Desktop to change is written straight away, and a replaced profile section is
+kept in the database's section history.
+
+Text that came from an email, a transcript or the web is shown as text: links
+open only when you click them, and images are never loaded by themselves.
 
 ## Where your data lives, and backups
 
@@ -472,9 +487,11 @@ nothing else uses them. If you connected Claude Desktop, remove the
 
 The CRM is locked to the Mac it runs on. When it first starts it creates a
 private link (a long random code) and only browsers that have opened that link
-once can use it. This is what stops other programs on the Mac — or a web page
-you happen to visit — from reading or changing your CRM. There is no password
-to remember:
+once can use it. This is what stops web pages you visit, and programs that
+talk to the CRM over the network, from reading or changing it. (Software
+running as you on this Mac could still read the files in `data/` directly;
+the CRM keeps them readable by your account only.) There is no password to
+remember:
 
 - **Start CRM.command** always opens the CRM already signed in.
 - **To sign in a second browser on this Mac** (or after clearing your

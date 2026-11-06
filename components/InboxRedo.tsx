@@ -13,6 +13,7 @@ export default function InboxRedo({
   status,
   drafts,
   back,
+  hasText = true,
 }: {
   id: number;
   status: string;
@@ -20,9 +21,18 @@ export default function InboxRedo({
   drafts: string[];
   /** "message" to come back to the email's own page. */
   back?: "message";
+  /** false for ignored mail, which keeps its headers only: there is nothing to route. */
+  hasText?: boolean;
 }) {
   const saved = drafts.length > 0 && drafts.every((d) => d === "confirmed");
   if (saved) return null;
+  if (!hasText) {
+    return (
+      <p className="text-xs text-stone-500">
+        Its text wasn&apos;t kept (ignored mail keeps only its headers, for 30 days). To record it, forward it again from one of your addresses.
+      </p>
+    );
+  }
   const ready = drafts.some((d) => d === "ready");
   const routed = status === "routed";
   const Redo = ({ as, label, what }: { as: "log" | "intake"; label: string; what: string }) => (

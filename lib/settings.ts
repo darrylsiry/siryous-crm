@@ -4,6 +4,7 @@ import path from "path";
 import { getDb } from "./db";
 import { loadOwner } from "./owner.mjs";
 import { DEFAULT_COACH_TONE, isCoachTone, type CoachTone } from "./coachTone";
+import { isIP } from "node:net";
 
 /**
  * App settings stored in the database (key/value), editable on /settings.
@@ -23,7 +24,8 @@ export interface AiSettings {
 
 export const AI_DEFAULTS: AiSettings = {
   provider: process.env.AI_PROVIDER === "claude" ? "claude" : "local",
-  fallbackToClaude: (process.env.AI_FALLBACK ?? "claude") !== "none",
+  // Off unless chosen: falling back sends the whole request (contacts, notes) to Anthropic.
+  fallbackToClaude: (process.env.AI_FALLBACK ?? "none") === "claude",
   ollamaUrl: (process.env.LOCAL_LLM_URL ?? "http://127.0.0.1:11434").replace(/\/$/, ""),
   model: process.env.LOCAL_LLM_MODEL ?? "gemma4:26b",
   numCtx: Number(process.env.LOCAL_LLM_NUM_CTX) || 32768,
@@ -68,7 +70,9 @@ export function getAiSettings(): AiSettings {
   return {
     provider: provider === "claude" || provider === "local" ? provider : d.provider,
     fallbackToClaude: fallback === null ? d.fallbackToClaude : fallback !== "none",
-    ollamaUrl: (getSetting("ai.ollama_url") ?? d.ollamaUrl).replace(/\/$/, ""),
+    // Checked when used, not only when saved: a stored value or LOCAL_LLM_URL that
+    // fails the guard falls back to this Mac rather than being called.
+    ollamaUrl: checkedOllamaUrl(getSetting("ai.ollama_url") ?? d.ollamaUrl),
     model: getSetting("ai.model") ?? d.model,
     numCtx: numCtx > 0 ? numCtx : d.numCtx,
     temperature: temperature !== null && !Number.isNaN(Number(temperature)) ? Number(temperature) : d.temperature,
@@ -94,6 +98,13 @@ export function getLocalKeepAlive(): string {
  * roster and dossiers, so it must never be pointable at the open internet
  * by anyone who can reach the settings page.
  */
+const OLLAMA_ON_THIS_MAC = "http://127.0.0.1:11434";
+
+function checkedOllamaUrl(raw: string): string {
+  const v = validateOllamaUrl(raw);
+  return v.ok ? v.url : OLLAMA_ON_THIS_MAC;
+}
+
 export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok: false; reason: string } {
   let u: URL;
   try {
@@ -105,16 +116,15 @@ export function validateOllamaUrl(raw: string): { ok: true; url: string } | { ok
   if (u.username || u.password || u.search || u.hash)
     return { ok: false, reason: "the address should be just the computer's name or number and port, like http://mini.local:11434 (no credentials, query or fragment)" };
   const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  // Address ranges apply only to real IP addresses ("10.attacker.example" is a
+  // name, not 10.x); a name is accepted only for this Mac or the local network.
+  const ipKind = isIP(host);
   const isPrivate =
-    host === "localhost" ||
-    host.endsWith(".local") ||
-    host === "::1" ||
-    /^127\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    /^fe80:/i.test(host) ||
-    /^f[cd][0-9a-f]{2}:/i.test(host);
+    ipKind === 4
+      ? /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+      : ipKind === 6
+        ? host === "::1" || /^fe80:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)
+        : host === "localhost" || /^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host);
   if (!isPrivate && process.env.LOCAL_LLM_ALLOW_REMOTE !== "1") {
     return {
       ok: false,

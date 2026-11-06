@@ -107,12 +107,12 @@ function probeOllama(url: string): Promise<Probe> {
 
 /**
  * Can a step routed to `route` (Settings → Coach can send the coach somewhere
- * else than everything else) run right now?
+ * else than everything else) run right now? Such a step never falls back to
+ * Claude: it goes there only when Claude is its chosen route.
  */
 export function routeUsable(status: AiStatus, route: { provider: Provider; model: string }): boolean {
   if (route.provider === "claude") return status.claude.ok;
-  const modelOk = status.ollama.ok && modelListed(status.model.available.map((m) => m.name), route.model);
-  return modelOk || (status.fallbackToClaude && status.claude.ok);
+  return status.ollama.ok && modelListed(status.model.available.map((m) => m.name), route.model);
 }
 
 export async function getAiStatus(): Promise<AiStatus> {

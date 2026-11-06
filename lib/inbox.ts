@@ -1,8 +1,8 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
 import { buildInboxFetchPrompt, claudeBin, extractJsonWithRepair, runClaudeStream, TOOLS, type InboxFetchedMessage } from "./ai";
-import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
-import { inboxCheckDue, intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
+import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
+import { inboxCheckDue, intakeInputFor, logInputFor, ownerAddresses, primaryParticipant, routeEmail, sentByOwner, stripPlusTag, type InboxEmail, type Participant, type RosterEntry } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
 import { parseInboxListing } from "./schemas";
@@ -18,9 +18,10 @@ import { shared } from "./serverState";
  * confirms the drafts, exactly as with a paste.
  *
  * Only email whose From is one of the owner's addresses (owner.json's, the
- * CRM address, inbox.extra_owner_emails) is routed; anything else is stored
- * as ignored with route 'unknown sender' and never reaches the model unless
- * the owner routes it by hand.
+ * CRM address, inbox.extra_owner_emails) is routed. The mailbox search itself
+ * asks only for mail from those addresses, so other mail isn't fetched; one
+ * that slips through anyway is stored as ignored, route 'unknown sender',
+ * headers only. Ignored mail is purged after IGNORED_KEEP_DAYS.
  *
  * Settings (key/value, edited on /inbox): inbox.address, inbox.enabled,
  * inbox.poll_minutes, inbox.extra_owner_emails, and the status keys
@@ -82,6 +83,14 @@ export function inboxOwnerEmails(s: InboxSettings = getInboxSettings()): string[
 // Polling
 // ---------------------------------------------------------------------------
 
+/** Ignored mail (headers only) is deleted after this many days. */
+const IGNORED_KEEP_DAYS = 30;
+
+/** Delete ignored mail older than IGNORED_KEEP_DAYS: it was never wanted. */
+export function purgeIgnoredMail(db: Database.Database = getDb()): number {
+  return db.prepare(`DELETE FROM inbox_messages WHERE status='ignored' AND created_at < datetime('now', ?)`).run(`-${IGNORED_KEEP_DAYS} days`).changes;
+}
+
 /** After a capped check that stored new mail, the next one runs this soon (the loop ticks every minute). */
 const FOLLOW_UP_MS = 2 * 60_000;
 /** Ids sent as "already recorded" in the fetch prompt, at most. */
@@ -138,6 +147,7 @@ async function pollInboxInner(): Promise<PollResult> {
   }
   setSetting("inbox.last_attempt_at", new Date().toISOString());
   setSetting("inbox.follow_up_at", null);
+  purgeIgnoredMail(db);
   try {
     const since = new Date();
     if (s.lastPollAt) since.setTime(new Date(s.lastPollAt).getTime() - LOOKBACK_DAYS * 86_400_000);
@@ -150,7 +160,9 @@ async function pollInboxInner(): Promise<PollResult> {
         .all(isoDate(since), MAX_SEEN_IDS) as { gmail_id: string }[]
     ).map((r) => r.gmail_id);
     let reachedGmail = false;
-    const text = await runClaudeStream(buildInboxFetchPrompt(s.address, gmailDate(since), seen, INBOX_MAX_PER_POLL), {
+    // The owner's addresses, with and without plus-tags, filter the search itself.
+    const fromAddrs = [...new Set(inboxOwnerEmails(s).flatMap((e) => [e, stripPlusTag(e)]))];
+    const text = await runClaudeStream(buildInboxFetchPrompt(s.address, gmailDate(since), seen, INBOX_MAX_PER_POLL, fromAddrs), {
       model: INBOX_MODEL,
       allowedTools: TOOLS.gmailRead,
       timeoutMs: 300_000,
@@ -177,7 +189,8 @@ async function pollInboxInner(): Promise<PollResult> {
         continue;
       }
       if (!sentByOwner(m, owners)) {
-        db.prepare(`UPDATE inbox_messages SET status='ignored', route=? WHERE id=?`).run(UNKNOWN_SENDER_ROUTE, stored);
+        // A stranger's message: keep the headers (so it isn't fetched again), not its text.
+        db.prepare(`UPDATE inbox_messages SET status='ignored', route=?, body='' WHERE id=?`).run(UNKNOWN_SENDER_ROUTE, stored);
         result.ignored++;
         continue;
       }
@@ -289,10 +302,10 @@ function roster(db: Database.Database): RosterEntry[] {
 export function discardDrafts(db: Database.Database, row: InboxRow): number {
   let n = 0;
   if (row.log_draft_id) {
-    n += db.prepare(`UPDATE log_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(row.log_draft_id).changes;
+    n += discardDraft(db, "log", row.log_draft_id, ["analyzing", "ready", "error"]);
   }
   for (const id of parseIds(row.intake_draft_ids)) {
-    n += db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(id).changes;
+    n += discardDraft(db, "intake", id, ["analyzing", "ready", "error"]);
   }
   return n;
 }

@@ -20,7 +20,8 @@ rem so another program on port 3000 is never mistaken for it.
 set "OTHER_ON_PORT=no"
 where curl >nul 2>nul
 if not errorlevel 1 (
-  curl -s --max-time 2 %URL%/api/health 2>nul | findstr /c:"siryous-crm" >nul && goto :open
+  rem scripts\crm-check.mjs proves it is this CRM (a keyed answer only this CRM's token can make).
+  where node >nul 2>nul && node scripts\crm-check.mjs %URL% >nul 2>nul && goto :open
   curl -s -o NUL --max-time 2 %URL%/ && set "OTHER_ON_PORT=yes"
 )
 if "%OTHER_ON_PORT%"=="yes" echo Another program is answering on port 3000 ^(it isn't the CRM^) -- trying to start the CRM beside it...
@@ -69,7 +70,9 @@ if "%NEED_INSTALL%"=="no" (
 )
 if "%NEED_INSTALL%"=="yes" (
   echo Installing the app's components ^(one-time, about a minute^)...
-  call npm install --no-audit --no-fund
+  rem npm ci installs exactly what package-lock.json lists, and never rewrites it.
+  call npm ci --no-audit --no-fund
+  set "FRESH_INSTALL=yes"
   if errorlevel 1 (
     echo.
     echo Installing failed -- see the messages above. Usually this means no internet connection.
@@ -131,7 +134,7 @@ if errorlevel 1 (
 )
 for /l %%i in (1,1,60) do (
   timeout /t 1 /nobreak >nul
-  curl -s --max-time 2 %URL%/api/health 2>nul | findstr /c:"siryous-crm" >nul && goto :open
+  node scripts\crm-check.mjs %URL% >nul 2>nul && goto :open
 )
 echo.
 if "%OTHER_ON_PORT%"=="yes" (
@@ -147,19 +150,19 @@ exit /b 1
 
 :open
 rem The app is locked to this machine with a private token (README, "Signing
-rem in"). Opening it with ?token= signs this browser in once. The token sits next
-rem to the database, so ask lib\auth.mjs where the server keeps it, with
-rem CRM_DB_PATH taken from the environment or from .env.local (read the way
-rem Next.js reads it); data\auth-token if that doesn't work.
-set "TOKEN_FILE="
-for /f "delims=" %%t in ('node -e "require('@next/env').loadEnvConfig(process.cwd(), false, { info() {}, error() {} }); import('./lib/auth.mjs').then(function (m) { console.log(m.tokenPath()) })" 2^>nul') do set "TOKEN_FILE=%%t"
-if not defined TOKEN_FILE set "TOKEN_FILE=data\auth-token"
-if not exist "%TOKEN_FILE%" (
+rem in"). The browser is signed in with a one-time code that works once, for
+rem two minutes (lib\auth.mjs createSignInCode), so the token itself never
+rem appears in a URL or the browser's history. The code is kept next to the
+rem database, with CRM_DB_PATH taken from the environment or from .env.local
+rem (read the way Next.js reads it). Without one, the plain address opens the
+rem sign-in page.
+set "CODE="
+for /f "delims=" %%t in ('node -e "require('@next/env').loadEnvConfig(process.cwd(), false, { info() {}, error() {} }); import('./lib/auth.mjs').then(function (m) { console.log(m.createSignInCode()) })" 2^>nul') do set "CODE=%%t"
+if not defined CODE (
   start "" "%URL%"
   goto :opened
 )
-set /p TOKEN=<"%TOKEN_FILE%"
-start "" "%URL%/?token=%TOKEN%"
+start "" "%URL%/?once=%CODE%"
 :opened
 echo Running at %URL% -- you can close this window.
 echo The server keeps running in the minimised "Siryous CRM server" window; close it or run Stop CRM.bat to stop.

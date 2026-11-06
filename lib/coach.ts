@@ -177,6 +177,7 @@ function generateAdvice(sessionId: number, weekStart: string, kind: "weekly" | "
       const md = await runWithProgress("coach", sessionId, buildCoachAdvicePrompt(weekStart, kind), {
         timeoutMs: 420_000,
         ...getCoachSettings().route,
+        fallback: false,
       });
       if (!md.trim()) throw new Error("Empty advice returned.");
       db.prepare(`UPDATE coach_sessions SET advice_md=?, status='ready', error=NULL WHERE id=?`).run(
@@ -303,7 +304,8 @@ export async function sendCoachMessage(formData: FormData): Promise<{ ok: boolea
   let ok = false;
   try {
     const history = loadMessages(sessionId);
-    const route = getCoachSettings().route;
+    // The Coach reaches Claude only when it is chosen for it (Settings → Coach), never as a fallback.
+    const route = { ...getCoachSettings().route, fallback: false };
     const raw = await runModel(
       buildCoachReplyPrompt(session.week_start, session.advice_md!, history, message, session.kind),
       { json: true, timeoutMs: 300_000, ...route }
@@ -342,7 +344,8 @@ export async function endCoachSession(formData: FormData): Promise<{ ok: boolean
 
   let ok = false;
   try {
-    const route = getCoachSettings().route;
+    // The Coach reaches Claude only when it is chosen for it (Settings → Coach), never as a fallback.
+    const route = { ...getCoachSettings().route, fallback: false };
     const raw = await runModel(
       buildCoachSummaryPrompt(session.week_start, session.advice_md!, loadMessages(sessionId), session.kind),
       { json: true, timeoutMs: 300_000, ...route }

@@ -23,11 +23,10 @@ describe("review guard", { skip: !python }, () => {
       ["code", "cat lib/db.ts"],
       ["code", "grep -rn getDb lib | wc -l"],
       ["code", "date '+%Y-%m-%d %H:%M'"],
-      ["code", "npm test 2>&1 | tail -5"],
-      ["code", "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"],
-      ["code", "npx tsc --noEmit"],
+      ["code", "cat checks/tests.txt | tail -5"],
       ["code", "ls data/agent-reports/code"],
-      ["security", "npm audit --omit=dev --json | head -c 20000"],
+      ["security", "head -c 20000 checks/npm-audit.json"],
+      ["code", "node -e \"console.log(1+1)\""],
       ["ux", "sed -n 1,40p app/globals.css"],
     ]) {
       assert.equal(bash(agent, cmd), true, `${agent}: ${cmd}`);
@@ -87,11 +86,27 @@ describe("review guard", { skip: !python }, () => {
     for (const tool of ["Write", "Edit", "Agent", "WebFetch", "SendMessage", "CronCreate"]) assert.equal(allowed("code", tool, {}), false, tool);
   });
 
-  test("each agent gets only its own checks", () => {
-    assert.equal(bash("ux", "npm test"), false);
-    assert.equal(bash("ux", "npm audit"), false);
-    assert.equal(bash("code", "npm audit"), false);
-    assert.equal(bash("security", "npm test"), false);
+  test("no agent runs checks, package scripts or the repository's code: the runner does (checks/)", () => {
+    for (const agent of ["code", "security", "ux"]) {
+      for (const cmd of [
+        "npm test",
+        "npm audit",
+        "npm audit fix",
+        "npx tsc --noEmit",
+        "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+        "node scripts/agent-ledger.ts",
+        "python3 scripts/review-save.py",
+        "node -e \"require('./lib/db')\"",
+      ]) {
+        assert.equal(bash(agent, cmd), false, `${agent}: ${cmd}`);
+      }
+    }
+  });
+
+  test("closes the gaps a deny-list leaves: find -delete, in-place perl, command substitution", () => {
+    for (const cmd of ["find . -name x -delete", "find . -exec rm {} \\;", "perl -pi -e s/a/b/ lib/x", "cat $(echo lib/db.ts)", "cat `echo x`"]) {
+      assert.equal(bash("code", cmd), false, cmd);
+    }
   });
 
   test("fails closed", () => {

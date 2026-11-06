@@ -33,7 +33,8 @@ export interface OllamaModel {
 
 /** List the models Ollama has pulled. Throws if Ollama is unreachable. */
 export async function listLocalModels(url = getAiSettings().ollamaUrl): Promise<OllamaModel[]> {
-  const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(3000) });
+  // redirect: "error" — the guarded address is the one called, never one it points elsewhere.
+  const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(3000), redirect: "error" });
   if (!res.ok) throw new Error(`Ollama answered ${res.status} at ${url}`);
   const body = (await res.json()) as {
     models?: { name: string; size?: number; modified_at?: string; details?: { parameter_size?: string; quantization_level?: string; family?: string } }[];
@@ -240,6 +241,7 @@ async function runLocalStreamNow(
   try {
     res = await fetch(`${LOCAL.ollamaUrl}/api/chat`, {
       method: "POST",
+      redirect: "error",
       headers: { "content-type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
