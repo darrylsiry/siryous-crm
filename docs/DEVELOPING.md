@@ -47,7 +47,7 @@ npm start          # next start -H 127.0.0.1
 
 The server binds to **127.0.0.1 only** (both `dev` and `start` pass
 `-H 127.0.0.1`). Use `127.0.0.1`, not `localhost`, in the browser: the access
-cookie is host-scoped and the startup log prints a `127.0.0.1` sign-in link.
+cookie is host-scoped and the launchers open a `127.0.0.1` sign-in link.
 
 ### The launchers
 
@@ -146,30 +146,40 @@ except static assets) checks, in order:
 
 0. the `Host` header must be `127.0.0.1`, `localhost` or `[::1]` (any port),
    else 403 — this stops DNS rebinding, and applies even with `CRM_AUTH=off`;
-1. a sign-in link — `?token=` (the Settings link; passed through
-   `normalizeToken()`, so a pasted whole link works) or `?once=` (a launcher's
-   one-time code from `createSignInCode()`, good once for two minutes) → set
-   the cookie and redirect to the clean URL, even for a browser that is
-   already signed in, so the secret never stays in the address bar or history;
-2. a valid `crm_auth` cookie → through, cookie refreshed (one-year max age,
-   `httpOnly`, `sameSite: strict`). The cookie holds `sessionValue()`, an HMAC
-   of the token, never the token itself (cookies aren't separated by port);
-   an older cookie holding the token is accepted once and replaced;
+1. a sign-in link — `?token=` (passed through `normalizeToken()`, so a
+   pasted whole link works) or `?once=` (a one-time code from
+   `createSignInCode()`, good once for two minutes: the launchers and
+   Settings → **Make a sign-in link** use these) → start a session and
+   redirect to the clean URL, so the secret never stays in the address bar or
+   history. A browser that already has a session keeps it and is just
+   redirected;
+2. a current session cookie (`crm_auth`, `httpOnly`, `sameSite: strict`) →
+   through. Each sign-in gets its own session (`createSession()`): a random
+   id, signed with an HMAC of the token, listed with its expiry in
+   `data/sessions.json` (0600). The cookie never holds the token (cookies
+   aren't separated by port). A session ends 30 days after its last use
+   (`touchSession()` extends it, at most once a day), when Settings → **Sign
+   out other browsers** runs (`endOtherSessions()`), or when the token
+   changes. A cookie from before sessions, holding the token itself, signs in
+   once and is swapped for a session;
 3. otherwise → the `/signin` page (API routes get a 401 instead).
 
 The sign-in form posts to `/api/signin`, so a pasted code never lands in the
 history. `/api/health` and `/api/signin` need no cookie: `/api/health?nonce=`
 answers with `healthProof(nonce)`, an HMAC only a server holding the token can
 make, which `scripts/crm-check.mjs` checks for the launchers. The matcher
-skips only `/_next/static/`; `/favicon.ico` is let through by exact path.
+skips only `/_next/static/`; `/favicon.ico` gets an empty 204 from the proxy
+itself (the app has no icon, and the page that would answer instead shows the
+sidebar's counts).
 Every page also gets a Content-Security-Policy that allows nothing off this
 site (no remote images, scripts or requests), plus `nosniff`,
 `Referrer-Policy: no-referrer` and `frame-ancestors 'none'`
 (`next.config.ts`). Token comparison is constant-time. `Start CRM.command` opens the app with a
 one-time code; `npm run dev` / `npm start` print where the token file is (not
-the token: the launcher's log is `data/server.log`); the Settings page shows
-the sign-in link for another browser on this Mac. The data folder, database,
-WAL, token, log, backups and exports are made readable by the owner's account
+the token: the launcher's log is `data/server.log`); the Settings page makes
+one-time links for another browser on this Mac and never shows the token. The
+data folder, database, WAL, token, sessions, log, backups and exports are made
+readable by the owner's account
 only (`tightenPermissions()` in `lib/schema.mjs`, the launcher's `umask 077`). The point is not multi-user security — it stops other
 software on the same machine, and a web page using **DNS rebinding** against
 the loopback address, from reading or changing the CRM. `CRM_AUTH=off` in
@@ -201,7 +211,7 @@ and server actions share them however Next.js bundles those entries.
 | Log     | paste: none · Zoom / Gmail / Meet (Calendar to identify the meeting, then Drive for its notes doc): retrieve the transcript or thread | write the interaction-log entries |
 | Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
-| Inbox   | Gmail search/read: messages delivered to the CRM address since the last check (on a schedule, or "Check now"), on Haiku. A check must actually reach Gmail to count, and `inboxCheckDue()` in `lib/inboxRoute.ts` sets the pace: `inbox.poll_minutes` while the owner is using the app, every four hours otherwise | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
+| Inbox   | Two Gmail runs on Haiku, each limited by `scripts/gmail-guard.mjs` (a PreToolUse hook passed with `--settings`): first the messages delivered to the CRM address since the last check, as headers only (metadata views, never a subject or text); then `get_message` for the owner's own messages, by id. Anyone else's is stored as ignored, headers only. Mail Gmail labels SENT is `verified` (only then is a note at its top read as instructions). Runs on a schedule, or "Check now". A check must actually reach Gmail to count, and `inboxCheckDue()` in `lib/inboxRoute.ts` sets the pace: `inbox.poll_minutes` while the owner is using the app, every four hours otherwise | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
 | News Feed | web search/fetch only, ~10 contacts per run, daily once turned on (opt-in; `news.enabled`) | none — Claude returns the stories as JSON; `lib/newsCore.ts` validates and de-duplicates them |
 
 If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
@@ -248,10 +258,13 @@ on (expired login, CLI missing).
 
 - **Nothing**, for a run that stays on the local model — the database, the
   prompts and the results never leave the box.
-- **To Anthropic (via your Claude login):** the pasted text when Intake's
-  "research on the web" box is ticked; your request plus the retrieved
+- **To Anthropic (via your Claude login):** the name, role, employer and
+  location picked out of the paste on this Mac (`researchableIdentity()` drops
+  anything that doesn't look like one) when Intake's "research on the web" box
+  is ticked, never the paste; your request plus the retrieved
   transcript/thread for Log's Zoom/Meet/Gmail sources; for the Inbox, the CRM
-  address and the messages Claude finds there; the counterparty's name,
+  address, the headers of the mail delivered there, and the text of the
+  owner's own messages only; the counterparty's name,
   company, role, last-touch date, next action and your typed focus for Prep's
   Calendar/Gmail step — plus, in auto mode (no person chosen), the roster's
   slugs, names, roles, companies, statuses and tags so it can match calendar

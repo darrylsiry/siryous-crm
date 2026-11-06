@@ -266,7 +266,7 @@ export default async function PersonPage({
             <p>
               Deleting <strong className="text-stone-800">{p.name}</strong> permanently removes the profile,{" "}
               {interactions.length === 1 ? "its 1 logged interaction" : `its ${interactions.length} logged interactions`}, all of this
-              person&apos;s to-dos (open and done), their meeting briefs, and any connections to other people.
+              person&apos;s to-dos (open and done), their meeting briefs, any connections to other people, and earlier versions of their profile text.
               {opps.length
                 ? ` ${opps.length === 1 ? "The 1 deal" : `The ${opps.length} deals`} linked here will be kept but no longer linked to a person.`
                 : ""}{" "}

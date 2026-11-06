@@ -8,21 +8,42 @@ import { inboxCheckDue } from "../lib/inboxRoute";
 import { getDb } from "../lib/db";
 import { getSetting, noteAppActivity, setSetting } from "../lib/settings";
 
-// A stand-in for the Claude CLI: records its arguments and prompt, then prints
-// whatever stream-json this test wrote. Real poll code, no tokens spent.
-const argsFile = path.join(tmp.dir, "args.txt");
-const promptFile = path.join(tmp.dir, "prompt.txt");
-const outFile = path.join(tmp.dir, "out.jsonl");
-const bin = path.join(tmp.dir, "fake-claude");
-fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argsFile}"\ncat > "${promptFile}"\ncat "${outFile}"\n`, { mode: 0o755 });
+// A stand-in for the Claude CLI: records its arguments and prompt for each of
+// the poll's two runs (headers, then bodies), then prints whatever stream-json
+// this test wrote for that run. Real poll code, no tokens spent.
+const file = (name: string) => path.join(tmp.dir, name);
+const bin = file("fake-claude");
+fs.writeFileSync(
+  bin,
+  `#!/bin/sh
+cat > "${file("prompt-now.txt")}"
+if grep -q "call get_message once for each" "${file("prompt-now.txt")}"; then step=bodies; else step=headers; fi
+printf '%s\\n' "$@" > "${tmp.dir}/args-$step.txt"
+mv "${file("prompt-now.txt")}" "${tmp.dir}/prompt-$step.txt"
+cat "${tmp.dir}/out-$step.jsonl"
+`,
+  { mode: 0o755 }
+);
 process.env.CLAUDE_BIN = bin;
+// Drafts that routed mail starts run in the background: a closed port makes them fail fast, offline.
+setSetting("ai.ollama_url", "http://127.0.0.1:9");
 
 const searched = JSON.stringify({
   type: "assistant",
   message: { content: [{ type: "tool_use", name: "mcp__claude_ai_Gmail__search_threads", input: { query: "x" } }] },
 });
+const opened = JSON.stringify({
+  type: "assistant",
+  message: { content: [{ type: "tool_use", name: "mcp__claude_ai_Gmail__get_message", input: { messageId: "x" } }] },
+});
 const result = (text: string) => JSON.stringify({ type: "result", result: text, is_error: false });
-const cli = (...lines: string[]) => fs.writeFileSync(outFile, lines.join("\n") + "\n");
+/** What the headers run prints. */
+const cli = (...lines: string[]) => fs.writeFileSync(file("out-headers.jsonl"), lines.join("\n") + "\n");
+/** What the bodies run prints. */
+const cliBodies = (...lines: string[]) => fs.writeFileSync(file("out-bodies.jsonl"), lines.join("\n") + "\n");
+const promptOf = (step: "headers" | "bodies") => fs.readFileSync(file(`prompt-${step}.txt`), "utf8");
+const argsOf = (step: "headers" | "bodies") => fs.readFileSync(file(`args-${step}.txt`), "utf8").split("\n");
+const flag = (args: string[], name: string) => args[args.indexOf(name) + 1];
 
 after(() => tmp.cleanup());
 
@@ -31,6 +52,8 @@ describe("pollInbox", () => {
     for (const k of ["inbox.last_poll_at", "inbox.last_attempt_at", "inbox.last_error", "inbox.follow_up_at"]) setSetting(k, null);
     getDb().prepare(`DELETE FROM inbox_messages`).run();
     setSetting("inbox.address", "me+crm@example.com");
+    cliBodies(opened, result('{"messages": []}'));
+    for (const f of ["prompt-bodies.txt", "args-bodies.txt"]) fs.rmSync(file(f), { force: true });
   });
 
   test("a check that reached Gmail and found nothing is a success", async () => {
@@ -41,12 +64,16 @@ describe("pollInbox", () => {
     assert.ok(getSetting("inbox.last_attempt_at"));
   });
 
-  test("runs on the cheap model and tells it to load the Gmail tools", async () => {
+  test("runs on the cheap model, tells it to load the Gmail tools, and lists headers only", async () => {
     cli(searched, result('{"messages": []}'));
     await pollInbox();
-    const args = fs.readFileSync(argsFile, "utf8").split("\n");
-    assert.equal(args[args.indexOf("--model") + 1], "haiku");
-    assert.match(fs.readFileSync(promptFile, "utf8"), /^The tools for this task load on demand.*mcp__claude_ai_Gmail__search_threads/);
+    const args = argsOf("headers");
+    assert.equal(flag(args, "--model"), "haiku");
+    assert.equal(flag(args, "--allowedTools"), "mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread");
+    assert.match(flag(args, "--settings"), /gmail-guard\.mjs' 'headers'/);
+    assert.match(promptOf("headers"), /^The tools for this task load on demand.*mcp__claude_ai_Gmail__search_threads/);
+    assert.match(promptOf("headers"), /THREAD_VIEW_METADATA_ONLY/);
+    assert.ok(!fs.existsSync(file("args-bodies.txt")), "nothing of the owner's to read, so no second run");
   });
 
   test("an answer that never touched Gmail is an error, even when it parses as an empty mailbox", async () => {
@@ -71,9 +98,7 @@ describe("pollInbox", () => {
     const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({
       id: `cap-${i}`,
       date: "2026-11-02",
-      subject: `Note ${i}`,
       from: "Someone <someone@elsewhere.example>",
-      body: "hello",
     }));
     cli(searched, result(JSON.stringify({ messages })));
     const r = await pollInbox();
@@ -86,7 +111,7 @@ describe("pollInbox", () => {
     assert.equal(due(now), false, "not straight away");
     assert.equal(due(now + 3 * 60_000), true, "but within a few minutes, not hours");
     await pollInbox();
-    const prompt = fs.readFileSync(promptFile, "utf8");
+    const prompt = promptOf("headers");
     assert.match(prompt, /after:2026\/10\/30/, "the next check still looks back from the old date");
     assert.match(prompt, /\bcap-0\b/, "and skips what the first one stored");
   });
@@ -97,7 +122,7 @@ describe("pollInbox", () => {
     const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, subject, body, date, status) VALUES (?, 's', 'b', ?, 'ignored')`);
     // More stored mail inside the window than one check returns.
     for (let i = 0; i < 80; i++) insert.run(`old-${i}`, "2026-11-01");
-    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `old-${i}`, date: "2026-11-03", subject: "s", body: "b" }));
+    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `old-${i}`, date: "2026-11-03", from: "s@x.example" }));
     cli(searched, result(JSON.stringify({ messages })));
     const r = await pollInbox();
     assert.equal(r.capped, false);
@@ -105,7 +130,7 @@ describe("pollInbox", () => {
     assert.equal(getSetting("inbox.follow_up_at"), null, "no follow-up");
     assert.equal(getSetting("inbox.last_poll_at"), "2026-11-05T00:00:00.000Z", "the next look-back starts at the newest returned day");
     // Every stored id in the window was offered as already recorded, not just the newest 60.
-    const prompt = fs.readFileSync(promptFile, "utf8");
+    const prompt = promptOf("headers");
     assert.match(prompt, /\bold-0\b/);
     assert.match(prompt, /\bold-79\b/);
   });
@@ -116,7 +141,7 @@ describe("pollInbox", () => {
     const db = getDb();
     const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, subject, body, status) VALUES (?, 's', 'b', 'ignored')`);
     for (let i = 0; i < INBOX_MAX_PER_POLL; i++) insert.run(`undated-${i}`);
-    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `undated-${i}`, subject: "s", body: "b" }));
+    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `undated-${i}`, from: "s@x.example" }));
     cli(searched, result(JSON.stringify({ messages })));
     const r = await pollInbox();
     assert.equal(getSetting("inbox.last_poll_at"), before, "not moved to now");
@@ -130,9 +155,9 @@ describe("pollInbox", () => {
       result(
         JSON.stringify({
           messages: [
-            { id: "odd-1", subject: "Hi", from: "A <a@x.example>", to: "Me <me+crm@example.com>", cc: null, body: "hello" },
-            { id: "odd-2", subject: null, from: "B <b@x.example>", to: ["me+crm@example.com"], body: "there", thread_id: null },
-            { subject: "no id", body: "lost" },
+            { id: "odd-1", from: "A <a@x.example>", to: "Me <me+crm@example.com>", cc: null, labels: null },
+            { id: "odd-2", from: "B <b@x.example>", to: ["me+crm@example.com"], thread_id: null },
+            { from: "no id" },
           ],
         })
       )
@@ -143,6 +168,59 @@ describe("pollInbox", () => {
     assert.equal(r.dropped, 1);
     const row = getDb().prepare(`SELECT recipients FROM inbox_messages WHERE gmail_id='odd-1'`).get() as { recipients: string };
     assert.deepEqual(JSON.parse(row.recipients), { to: ["Me <me+crm@example.com>"], cc: [] });
+  });
+
+  describe("only the owner's own messages are ever read (SEC-003, SEC-002)", () => {
+    const me = "Me <me+crm@example.com>";
+    const header = (id: string, from: string, labels: string[]) => ({ id, thread_id: "t1", date: "2026-11-05", from, to: ["me+crm@example.com"], cc: [], labels });
+    const body = (id: string, from: string) => ({ id, thread_id: "t1", date: "2026-11-05", subject: "Catch-up", from, to: ["me+crm@example.com"], cc: [], body: "Notes from the call." });
+    const row = (id: string) =>
+      getDb().prepare(`SELECT status, route, subject, body, verified, log_draft_id FROM inbox_messages WHERE gmail_id=?`).get(id) as
+        | { status: string; route: string | null; subject: string; body: string; verified: number | null; log_draft_id: number | null }
+        | undefined;
+
+    test("a stranger's reply-all in a thread the owner copied is kept as headers and never read", async () => {
+      cli(searched, result(JSON.stringify({ messages: [header("own-1", me, ["SENT", "INBOX"]), header("reply-1", "Pat <pat@x.example>", ["INBOX"])] })));
+      cliBodies(opened, result(JSON.stringify({ messages: [body("own-1", me)] })));
+      const r = await pollInbox();
+      assert.equal(r.error, null);
+      assert.deepEqual([r.routed, r.ignored], [1, 1]);
+      // The reading step was asked for the owner's message only, and the guard allows only that id.
+      assert.match(promptOf("bodies"), /\bown-1\b/);
+      assert.doesNotMatch(promptOf("bodies"), /reply-1/);
+      const args = argsOf("bodies");
+      assert.equal(flag(args, "--allowedTools"), "mcp__claude_ai_Gmail__get_message");
+      assert.match(flag(args, "--settings"), /'bodies' 'own-1'"/);
+      assert.deepEqual({ ...row("reply-1") }, { status: "ignored", route: "unknown sender", subject: "", body: "", verified: null, log_draft_id: null });
+      assert.equal(row("own-1")?.status, "routed");
+      assert.equal(row("own-1")?.verified, 1);
+    });
+
+    test("a reading whose sender disagrees with the headers is kept out", async () => {
+      cli(searched, result(JSON.stringify({ messages: [header("own-2", me, ["SENT"])] })));
+      cliBodies(opened, result(JSON.stringify({ messages: [body("own-2", "Mallory <m@evil.example>")] })));
+      const r = await pollInbox();
+      assert.deepEqual([r.routed, r.ignored], [0, 1]);
+      assert.equal(row("own-2")?.status, "ignored");
+      assert.equal(row("own-2")?.body, "");
+    });
+
+    test("owner mail Gmail didn't file as Sent is logged as data only", async () => {
+      cli(searched, result(JSON.stringify({ messages: [header("own-3", me, ["INBOX"]), header("own-4", me, ["SENT"])] })));
+      cliBodies(opened, result(JSON.stringify({ messages: [body("own-3", me), body("own-4", me)] })));
+      await pollInbox();
+      const content = (id: string) =>
+        (getDb().prepare(`SELECT fetched_text FROM log_drafts WHERE id=?`).get(row(id)!.log_draft_id) as { fetched_text: string }).fetched_text;
+      assert.match(content("own-3"), /\(unverified\)/);
+      assert.match(content("own-4"), /\(verified\)/);
+    });
+
+    test("a message the reading step didn't return isn't stored, so the next check lists it again", async () => {
+      cli(searched, result(JSON.stringify({ messages: [header("own-5", me, ["SENT"])] })));
+      cliBodies(opened, result('{"messages": []}'));
+      await pollInbox();
+      assert.equal(row("own-5"), undefined);
+    });
   });
 
   test("before the attempt key existed, the last success stands in for it", () => {
@@ -197,8 +275,6 @@ describe("open Inbox items", () => {
 
 describe("redoing an email keeps what was saved (CR-042)", () => {
   test("no second Log draft once one is saved, and Redo as Intake keeps the link to it", () => {
-    // Drafts start in the background: point them at a closed port so they fail fast, offline.
-    setSetting("ai.ollama_url", "http://127.0.0.1:9");
     const db = getDb();
     db.prepare(`DELETE FROM inbox_messages`).run();
     const id = Number(

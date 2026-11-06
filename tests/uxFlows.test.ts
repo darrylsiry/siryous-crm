@@ -9,6 +9,8 @@ import {
   addActionItem,
   clearNextStep,
   createPerson,
+  deleteCompany,
+  deletePerson,
   logTouch,
   setOutreachStatus,
   tickActionItem,
@@ -187,6 +189,15 @@ describe("profile edits", () => {
     for (const bad of ["//evil.example/x", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "people", "", undefined]) {
       assert.equal(localPath(bad), undefined, String(bad));
     }
+  });
+
+  test("deleting a person or company deletes the earlier profile text kept for them (SEC-015)", async () => {
+    const add = db.prepare(`INSERT INTO section_history (entity, entity_id, section, value) VALUES (?, 1, 'notes', 'old text')`);
+    add.run("person");
+    add.run("company");
+    await run(() => deletePerson(1));
+    await run(() => deleteCompany(1));
+    assert.equal(one<{ n: number }>(`SELECT COUNT(*) n FROM section_history`).n, 0);
   });
 
   test("Add person keeps the phone", async () => {

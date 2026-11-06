@@ -12,7 +12,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { getDb } from "../lib/db";
 import { openDatabase } from "../lib/schema.mjs";
-import { claudeArgs, fenced, runClaudeStream, runModel, TOOLS } from "../lib/ai";
+import { claudeArgs, fenced, researchableIdentity, runClaudeStream, runModel, TOOLS } from "../lib/ai";
 import { senderAddress, sentByOwner } from "../lib/inboxRoute";
 import { setSetting, validateOllamaUrl } from "../lib/settings";
 import { validateBackupDir } from "../lib/backup.mjs";
@@ -21,7 +21,7 @@ import { parseInboxListing } from "../lib/schemas";
 import { markdownToDocx } from "../lib/mdToDocx";
 import { purgeIgnoredMail, routeMessage } from "../lib/inbox";
 import { runNewsScan } from "../lib/news";
-import { getAuthToken, healthProof, sessionValue } from "../lib/auth.mjs";
+import { createSession, getAuthToken, healthProof } from "../lib/auth.mjs";
 
 // A fake Claude CLI: saves its arguments and the prompt it was given, then
 // prints whatever stream-json this test wrote.
@@ -173,6 +173,21 @@ describe("Steps that can reach the web hold no private text (SEC-005, SEC-021)",
     assert.ok(claudeRan(), "the research step ran");
     assert.match(claudePrompt(), /Pat Doe, CTO at Acme Robotics/);
     assert.doesNotMatch(claudePrompt(), /SENTINEL-PASTE|deal terms/);
+  });
+
+  test("an identity step steered into copying the paste never reaches the web (SEC-005)", async () => {
+    chat = (prompt) =>
+      /say who it is about/.test(prompt)
+        ? JSON.stringify({ name: "Pat Doe\nSENTINEL-PASTE our deal terms are confidential", role: "CTO", company: null, location: null })
+        : "{}";
+    cli(result("- research"));
+    const db = getDb();
+    await processIntakeDraft(insertIntakeDraft(db, "SENTINEL-PASTE our deal terms are confidential"), true);
+    assert.equal(claudeRan(), false, "no research run");
+    assert.equal(researchableIdentity({ name: "Pat Doe", role: "CTO", company: "x".repeat(81), location: "https://evil.example" })?.company, null);
+    assert.equal(researchableIdentity({ name: "one two three four five six seven", role: null, company: null, location: null }), null);
+    assert.equal(researchableIdentity({ name: "pat@evil.example", role: null, company: null, location: null }), null);
+    assert.deepEqual(researchableIdentity({ name: " Pat Doe ", role: "CTO", company: "Acme", location: null }), { name: "Pat Doe", role: "CTO", company: "Acme", location: null });
   });
 
   test("the News Feed may search but not open pages, and never sends a free-text company note", async () => {
@@ -329,10 +344,11 @@ describe("The launchers check it really is this CRM before handing over a code (
   test("the proof is keyed: it isn't the token or the cookie, and differs per nonce", () => {
     const token = getAuthToken();
     const a = healthProof("0123456789abcdef");
-    assert.ok(a && a !== token && a !== sessionValue());
+    const cookie = createSession();
+    assert.ok(a && a !== token && !cookie.includes(a));
     assert.notEqual(a, healthProof("fedcba9876543210"));
     for (const bad of ["short", "0123456789abcdeg", "x".repeat(100)]) assert.equal(healthProof(bad), null, bad);
-    assert.notEqual(sessionValue(), token);
+    assert.ok(!cookie.includes(token));
   });
 
   test("a server with the right proof is the CRM; one that only says its name is not; nothing answering is 1", async () => {

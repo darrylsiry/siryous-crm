@@ -6,7 +6,7 @@ import path from "node:path";
 import { tmp } from "./helpers/tempdb";
 import { NextRequest } from "next/server";
 import proxy, { config } from "../proxy";
-import { AUTH_COOKIE, createSignInCode, getAuthToken, healthProof, sessionValue } from "../lib/auth.mjs";
+import { AUTH_COOKIE, createSession, createSignInCode, endOtherSessions, getAuthToken, healthProof, sessionFor } from "../lib/auth.mjs";
 
 // NextURL normalises loopback hosts (127.x, ::1) to "localhost", so redirects come back on this origin.
 const ORIGIN = "http://localhost:3000";
@@ -16,7 +16,7 @@ let session = "";
 before(() => {
   delete process.env.CRM_AUTH;
   token = getAuthToken();
-  session = sessionValue();
+  session = createSession();
 });
 after(() => tmp.cleanup());
 
@@ -29,6 +29,12 @@ function request(pathAndQuery: string, opts: { cookie?: string; host?: string } 
 
 function setCookie(res: Response): string {
   return res.headers.get("set-cookie") ?? "";
+}
+
+/** The session a response's Set-Cookie starts, if it is a current one. */
+function newSession(res: Response): string | null {
+  const value = setCookie(res).match(new RegExp(`^${AUTH_COOKIE}=([^;]+);`))?.[1];
+  return value && sessionFor(value) ? value : null;
 }
 
 describe("proxy (access control)", () => {
@@ -56,13 +62,14 @@ describe("proxy (access control)", () => {
     assert.equal(res.status, 307);
     assert.equal(res.headers.get("location"), `${ORIGIN}/people/sam-lee?tab=log`);
     const cookie = setCookie(res);
-    // The cookie carries a value derived from the token, never the token itself.
-    assert.match(cookie, new RegExp(`^${AUTH_COOKIE}=${session};`));
+    // The cookie names a new session of its own, never the token, and lasts 30 days from use.
+    const started = newSession(res);
+    assert.ok(started && started !== session);
     assert.doesNotMatch(cookie, new RegExp(token.replace(/[-_]/g, "\\$&")));
     assert.match(cookie, /HttpOnly/i);
     assert.match(cookie, /SameSite=strict/i);
     assert.match(cookie, /Path=\//);
-    assert.match(cookie, /Max-Age=31536000/);
+    assert.match(cookie, /Max-Age=2592000/);
   });
 
   test("?token=good on the root → redirect to a bare /", () => {
@@ -85,13 +92,23 @@ describe("proxy (access control)", () => {
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("location"), null);
     assert.match(setCookie(res), new RegExp(`^${AUTH_COOKIE}=${session};`));
-    assert.match(setCookie(res), /Max-Age=31536000/);
+    assert.match(setCookie(res), /Max-Age=2592000/);
   });
 
-  test("a cookie from before (the token itself) still works once, and is replaced by the derived value", () => {
+  test("a cookie from before sessions (the token itself) still works once, and is swapped for a session", () => {
     const res = proxy(request("/people", { cookie: token }));
     assert.equal(res.status, 200);
-    assert.match(setCookie(res), new RegExp(`^${AUTH_COOKIE}=${session};`));
+    assert.ok(newSession(res));
+  });
+
+  test("a signed cookie whose session has ended, or a forged one, doesn't sign in (SEC-009)", () => {
+    const other = createSession();
+    assert.equal(proxy(request("/people", { cookie: other })).status, 200);
+    endOtherSessions(sessionFor(session));
+    assert.equal(proxy(request("/people", { cookie: other })).status, 307, "signed out from another browser");
+    assert.equal(proxy(request("/people", { cookie: session })).status, 200, "the browser that asked stays in");
+    const [id] = session.split(".");
+    assert.equal(proxy(request("/people", { cookie: `${id}.forged` })).status, 307);
   });
 
   test("good cookie on an API path → 200", () => {
@@ -102,6 +119,7 @@ describe("proxy (access control)", () => {
     const res = proxy(request(`/people?token=${encodeURIComponent(token)}`, { cookie: session }));
     assert.equal(res.status, 307);
     assert.equal(res.headers.get("location"), `${ORIGIN}/people`);
+    assert.equal(setCookie(res), "", "it keeps its session");
     // Even a wrong ?token= with a good cookie just lands on the clean page.
     assert.equal(proxy(request(`/people?token=stale`, { cookie: session })).headers.get("location"), `${ORIGIN}/people`);
   });
@@ -111,7 +129,7 @@ describe("proxy (access control)", () => {
     const first = proxy(request(`/?once=${code}`));
     assert.equal(first.status, 307);
     assert.equal(first.headers.get("location"), `${ORIGIN}/`);
-    assert.match(setCookie(first), new RegExp(`^${AUTH_COOKIE}=${session};`));
+    assert.ok(newSession(first));
     const again = proxy(request(`/?once=${code}`));
     assert.equal(again.headers.get("location"), `${ORIGIN}/signin?bad=1`);
   });
@@ -136,8 +154,10 @@ describe("proxy (access control)", () => {
     assert.equal(healthProof("not hex"), null);
   });
 
-  test("paths that only look like the favicon still need sign-in", () => {
-    assert.equal(proxy(request("/favicon.ico")).status, 200);
+  test("the favicon gets an empty answer, never the app; paths that only look like it still need sign-in (SEC-011)", () => {
+    const icon = proxy(request("/favicon.ico"));
+    assert.equal(icon.status, 204);
+    assert.equal(icon.headers.get("x-middleware-next"), null, "answered here, not passed on to the app");
     assert.equal(proxy(request("/favicon.icoX")).status, 307);
     assert.equal(proxy(request("/favicon.ico/x")).status, 307);
   });
@@ -153,7 +173,7 @@ describe("proxy (access control)", () => {
     const res = proxy(request(`/?token=${encodeURIComponent(token)}`, { cookie: "stale" }));
     assert.equal(res.status, 307);
     assert.equal(res.headers.get("location"), `${ORIGIN}/`);
-    assert.match(setCookie(res), new RegExp(`^${AUTH_COOKIE}=${session};`));
+    assert.ok(newSession(res), "a new session replaces the stale cookie");
   });
 
   test("CRM_AUTH=off → everything passes without a cookie", () => {

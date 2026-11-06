@@ -5,6 +5,7 @@ import {
   buildIntakePrompt,
   buildIntakeIdentityPrompt,
   buildIntakeResearchPrompt,
+  researchableIdentity,
   buildLogPrompt,
   extractJsonWithRepair,
   FETCH_NOT_FOUND,
@@ -209,11 +210,11 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
           stillWanted: stillAnalyzing("intake_drafts", draftId),
           fallback,
         });
-        const who = IntakeIdentitySchema.parse(await extractJsonWithRepair(idText, { fallback }));
-        if (!who.name.trim()) throw new Error("couldn't tell who the text is about, so there was nothing to look up.");
+        const who = researchableIdentity(IntakeIdentitySchema.parse(await extractJsonWithRepair(idText, { fallback })));
+        if (!who) throw new Error("couldn't tell cleanly who the text is about (a name of a few words), so nothing was looked up.");
         digest =
           (
-            await runWithProgress("intake", draftId, buildIntakeResearchPrompt({ ...who, name: who.name.trim() }), {
+            await runWithProgress("intake", draftId, buildIntakeResearchPrompt(who), {
               allowedTools: TOOLS.web,
               timeoutMs: 300_000,
             })

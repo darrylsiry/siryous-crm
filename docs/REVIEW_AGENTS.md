@@ -26,17 +26,20 @@ on your Claude plan: each run reads the whole repository. `REVIEW_MODEL` overrid
    Bash. No tool reaches another agent.
 3. **A guard on every tool call.** `scripts/review-guard.py` refuses paths outside the snapshot, memory and
    transcripts, starting another agent, requests to any running app, anything that writes, the package
-   manager, running the repository's own scripts, and command substitution. It fails closed.
-   `tests/reviewGuard.test.ts` checks it.
+   manager, command substitution, the `security` (Keychain) tool, and running code of any kind: an
+   interpreter or shell may only print its version, so no inline `-e`/`-c`, piped or heredoc code,
+   sourced files or repository scripts. It fails closed. `tests/reviewGuard.test.ts` checks it.
 4. **Checks run outside the agent.** The runner runs the type-check and the tests (code agent) and
    `npm audit` (security agent) itself, before the agent starts, and puts their output in the snapshot's
    `checks/` folder. No agent runs a package script or anything that needs the network.
 5. **The operating system.** On a Mac the run is wrapped in `sandbox-exec`, so the agent and anything it
    starts can read only its snapshot and the parts of the home folder its tools need. The repository, memory,
-   transcripts and other tools' credentials are refused, and so are writes to the Claude settings, hooks,
-   agents, commands, skills and plugins that would run outside the sandbox later. Network stays open,
-   because the CLI talks to Anthropic and the profile can't allow a single host. Elsewhere only the guard
-   applies, and the run says so.
+   transcripts, scheduled tasks and other tools' credentials are refused, and nothing in the home folder can
+   be written except caches: not `~/.claude` or `~/.claude.json` (settings, hooks, agents, MCP servers),
+   which would run outside the sandbox later. Two things stay open because the CLI needs them: reading
+   `~/Library/Keychains`, where its login is (the guard refuses the `security` tool), and the network (the
+   CLI talks to Anthropic, and the profile can't allow a single host). Elsewhere only the guard applies, and
+   the run says so.
 6. **Results meet only after the agents finish.** The runner saves each final message word for word and folds
    it into `data/agent-reports/AGENT_LEDGER.json`. Only the App Tests page reads across agents, and no agent
    can reach it.

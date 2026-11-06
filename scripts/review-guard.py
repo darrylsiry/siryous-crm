@@ -90,6 +90,9 @@ def check_bash(root, agent, cmd):
             refuse("another agent's report is off limits.")
     if re.search(r"(^|[;&|(]\s*|\bxargs\s+)claude\b|\bosascript\b|\bprintenv\b|(^|[;&|]\s*)env(\s*$|\s*[;&|])|/proc/", scrubbed):
         refuse("no starting other agents, no scripting the desktop, no dumping the environment.")
+    # The OS profile must let the CLI read the Keychain (its login is there), so the tool that reads it is refused.
+    if re.search(r"(^|[;&|(]\s*|\bxargs\s+(-[^ ]+\s+)*|\bsudo\s+)(security|keychain|dscl|defaults)\b", scrubbed):
+        refuse("credentials and system settings are off limits.")
     if re.search(r"(^|[\s/'\"])\.env(\.(?!example)\w+)?(\s|$|'|\")|(^|[\s/'\"])(owner|vocab)\.json\b|\bcrm\.db\b|\bauth-token\b|\bserver\.log\b|\bdata/backups\b|\bdocs/reviews\b", scrubbed):
         refuse("private data and secret files are off limits.")
 
@@ -108,11 +111,20 @@ def check_bash(root, agent, cmd):
         refuse("in-place editing is not allowed.")
     if re.search(r"\$\(|`", unquoted):
         refuse("command substitution hides what the command runs.")
-    # Running the repository's own code is the runner's job (checks/), never the agent's: a file in the
-    # snapshot could be planted to run inside the review.
-    if re.search(r"(^|[;&|(]\s*)(node|tsx|ts-node|bun|deno)\s+(?!-)[^\s|;&]+|(^|[;&|(]\s*)python3?\s+(?!-)[^\s|;&]+", rest) or re.search(
-        r"\b(require|import)\(\s*\\?[\"']\.", rest):
+    # Running code is the runner's job (checks/), never the agent's: a file in the snapshot could be planted
+    # to run inside the review, and inline code (-e, -c, a heredoc, a pipe) is a deny-list's blind spot. So an
+    # interpreter may only say its version.
+    interp = r"(node|nodejs|tsx|ts-node|bun|deno|python[0-9.]*|ruby|perl|php|lua|Rscript|swift|osascript|jxa|(ba|z|da|k|c|tc|fi)?sh|source)"
+    lead = r"(^|[;&|(]\s*|\bxargs\s+(-[^ ]+\s+)*|\b(exec|time|nice|nohup|command|sudo)\s+|\benv\s+([A-Za-z_]+=\S*\s+)*)"
+    if re.search(lead + r"\.\s+\S", rest):
+        refuse("running code is not part of the review (the runner's checks are in checks/).")
+    for m in re.finditer(lead + r"(\S*/)?" + interp + r"\b([^|;&]*)", rest):
+        if not re.fullmatch(r"\s*(--version|-v|-V)\s*", m.group(m.lastindex)):
+            refuse("running code is not part of the review (the runner's checks are in checks/).")
+    if re.search(r"\b(require|import)\(\s*\\?[\"']\.", rest):
         refuse("running the repository's code is not part of the review (the runner's checks are in checks/).")
+    if re.search(r"\bawk\b[^|;&]*(\bsystem\s*\(|\|\s*\\?[\"']|>\s*\\?[\"'])", rest):
+        refuse("awk may only read here.")
     if re.search(r"\bgit\s+(-[^ ]+\s+)*(add|commit|push|pull|fetch|merge|rebase|reset|checkout|switch|restore|stash|cherry-pick|revert|clean|rm|mv|tag|filter-branch|gc|prune|worktree|submodule|am|apply|init|clone)\b", rest):
         refuse("the command changes version control.")
     if re.search(r"\b(npm|pnpm|yarn|bun)\s+(-[^ ]+\s+)*\w|\bnpx\s|\bpip3?\s|\buv\s|\bpoetry\s|\bbrew\s|\bdocker\b|\bfly(ctl)?\s|\bgh\s", rest):
@@ -121,7 +133,7 @@ def check_bash(root, agent, cmd):
     if re.search(r"\bcurl\b|\bwget\b|\bssh\b|\bscp\b|\brsync\b|\bnc\b|\bncat\b|\btelnet\b|\bftp\b", rest):
         refuse("this agent reviews code and makes no requests: the owner's running copy holds real people's details.")
     if re.search(r"\b(python3?|node|ruby|perl|php)\b", rest) and re.search(
-        r"open\([^()]*(,|mode=)\s*\\?[\"'](w|a|x|r\+)|write_text|writeFile|unlink|rename\(|rmSync|rmdir|os\.remove|os\.system|shutil|subprocess|child_process|socket|urllib|requests|https?\.request|fetch\(", rest):
+        r"open\([^()]*(,|mode=)\s*\\?[\"'](w|a|x|r\+)|write_(text|bytes)|writeFile|appendFile|copyFile|cpSync|createWriteStream|unlink|rename\(|rmSync|rmdir|os\.remove|os\.system|shutil|subprocess|child_process|socket|urllib|requests|https?\.(request|get)|http\.client|fetch\(", rest):
         refuse("a script that writes files or reaches the network.")
 
 

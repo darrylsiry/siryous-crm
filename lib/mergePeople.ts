@@ -72,6 +72,9 @@ export function mergePeople(db: Database.Database, dupSlug: string, keepSlug: st
       const n = db.prepare(`UPDATE ${table} SET ${col}=? WHERE ${col}=?`).run(keep.id, dup.id).changes;
       if (n) receipt.push(`${table}.${col}: moved ${n}`);
     }
+    // Section history is keyed by entity and id, with no foreign key: move it too.
+    const h = db.prepare(`UPDATE section_history SET entity_id=? WHERE entity='person' AND entity_id=?`).run(keep.id, dup.id).changes;
+    if (h) receipt.push(`section_history: moved ${h}`);
     // Only the kept person's connections can have changed: a link between the
     // two profiles is now a self-link, and a contact both knew is now a pair
     // twice. Keep the oldest row of each pair and every label it had.

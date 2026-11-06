@@ -190,12 +190,17 @@ export function routeEmail(email: InboxEmail, roster: RosterEntry[], ownerEmails
  * The text the Log model gets: metadata header lines (the same shape the
  * Zoom/Meet/Gmail retrieval step produces) followed by the message.
  */
-export function logInputFor(email: InboxEmail, date: string | null): string {
+/** The SOURCE line's two endings: buildLogPrompt reads a note at the top as instructions only after the first. */
+export const EMAIL_VERIFIED = "sent from the owner's own Gmail account (verified)";
+export const EMAIL_UNVERIFIED = "says it is from the owner, but Gmail didn't file it as sent from the owner's account (unverified)";
+
+/** `verified`: Gmail filed the email as Sent from the owner's own account (see buildLogPrompt). */
+export function logInputFor(email: InboxEmail, date: string | null, verified = false): string {
   return [
     `TITLE: ${cleanSubject(email.subject) || "(no subject)"}`,
     `DATE: ${date ?? "unknown"}`,
     `PARTICIPANTS: ${[email.from, ...email.to, ...email.cc].filter(Boolean).join("; ")}`,
-    `SOURCE: email forwarded to the CRM address`,
+    `SOURCE: email forwarded to the CRM address, ${verified ? EMAIL_VERIFIED : EMAIL_UNVERIFIED}`,
     `CONTENT:`,
     email.body.trim(),
   ].join("\n");

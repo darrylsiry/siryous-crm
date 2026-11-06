@@ -236,7 +236,7 @@ export default async function CompanyPage({
           <p>
             Deleting <strong className="text-stone-800">{c.name}</strong> permanently removes the company
             profile, the {companyOnlyInteractions === 1 ? "1 interaction" : `${companyOnlyInteractions} interactions`} logged
-            on the company itself (not on a person), and any to-dos filed against the company alone.
+            on the company itself (not on a person), any to-dos filed against the company alone, and earlier versions of its profile text.
             {people.length
               ? ` ${people.length === 1 ? "The 1 linked contact keeps" : `The ${people.length} linked contacts keep`} their profiles and interaction logs, just without a company.`
               : ""}

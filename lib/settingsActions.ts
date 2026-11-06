@@ -10,6 +10,8 @@ import type { FormResult } from "./actions";
 import fs from "node:fs";
 import path from "node:path";
 import { loadOwner, OWNER_FORM_FIELDS, resetOwner } from "./owner.mjs";
+import { cookies } from "next/headers";
+import { AUTH_COOKIE, createSignInCode, endOtherSessions, sessionFor } from "./auth.mjs";
 
 /**
  * Settings → About you: write the owner's name, practice and email into
@@ -102,4 +104,18 @@ export async function saveAiSettings(_prev: FormResult, formData: FormData): Pro
   if (backupChanged || getSetting("backup.last_error")) await ensureDailyBackup(getDb());
   revalidatePath("/settings");
   redirect("/settings?saved=1");
+}
+
+/**
+ * Settings → Access: a link that signs one more browser on this Mac in. It
+ * holds a one-time code (good once, for two minutes), never the token.
+ */
+export async function makeSignInLink(): Promise<string> {
+  return `http://127.0.0.1:${process.env.PORT || "3000"}/?once=${createSignInCode()}`;
+}
+
+/** Settings → Access: end every sign-in but this browser's own (a lost laptop, a copied cookie). */
+export async function signOutOtherBrowsers() {
+  endOtherSessions(sessionFor((await cookies()).get(AUTH_COOKIE)?.value));
+  redirect("/settings?signedout=1#access");
 }

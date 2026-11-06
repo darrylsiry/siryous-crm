@@ -71,6 +71,30 @@ const InboxMessageSchema = z.object({
 });
 export type InboxListedMessage = z.output<typeof InboxMessageSchema>;
 
+/** One message from the Inbox's headers listing (step 1): no subject, no text. */
+const InboxHeaderSchema = z.object({
+  id: gmailId,
+  thread_id: z.preprocess((v) => (v == null || v === "" ? null : v), gmailId.nullable()),
+  date: nstr,
+  from: capped(500),
+  to: strList.transform(capList),
+  cc: strList.transform(capList),
+  labels: strList.transform((xs) => xs.slice(0, 50).map((x) => x.slice(0, 64))),
+});
+export type InboxHeaderListed = z.output<typeof InboxHeaderSchema>;
+
+/** The headers listing, each entry checked on its own like parseInboxListing; null when it isn't a listing. */
+export function parseInboxHeaders(v: unknown): { messages: InboxHeaderListed[]; dropped: number } | null {
+  const list = v && typeof v === "object" ? (v as { messages?: unknown }).messages : undefined;
+  if (!Array.isArray(list)) return null;
+  const messages: InboxHeaderListed[] = [];
+  for (const m of list) {
+    const r = InboxHeaderSchema.safeParse(m);
+    if (r.success) messages.push(r.data);
+  }
+  return { messages, dropped: list.length - messages.length };
+}
+
 /**
  * The mailbox listing, each message checked on its own: one the model wrote
  * oddly is dropped and counted rather than failing the whole check. null when

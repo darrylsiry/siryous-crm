@@ -5,13 +5,14 @@ import { getAiStatus } from "@/lib/aiStatus";
 import { getDb } from "@/lib/db";
 import { backupHealth } from "@/lib/backup.mjs";
 import { loadOwner } from "@/lib/owner.mjs";
-import { authEnabled, signInUrl } from "@/lib/auth.mjs";
+import { authEnabled, SESSION_DAYS } from "@/lib/auth.mjs";
+import SignInLink from "@/components/SignInLink";
+import { signOutOtherBrowsers } from "@/lib/settingsActions";
 import { saveAiSettings, saveOwnerProfile } from "@/lib/settingsActions";
 import { getInboxSettings } from "@/lib/inbox";
 import KeepTypedForm from "@/components/KeepTypedForm";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
-import CopyButton from "@/components/CopyButton";
 import { OLLAMA_SITE } from "@/components/AiStatusBanner";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,12 @@ const label = "block text-xs font-medium text-stone-600";
 const h2 = "text-sm font-semibold uppercase tracking-wide text-stone-500";
 const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
-  const { saved, error } = await searchParams;
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ saved?: string; error?: string; signedout?: string }>;
+}) {
+  const { saved, error, signedout } = await searchParams;
   const s = getAiSettings();
   const ai = await getAiStatus();
   const models = ai.model.available;
@@ -37,8 +42,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // The coach's AI choice as one select value: "default" | "claude" | "local:<model>".
   const coachAiValue = coach.provider === "claude" ? "claude" : coach.provider === "local" && coach.model ? `local:${coach.model}` : "default";
   const coachModelListed = !coach.model || models.some((m) => m.name === coach.model || m.name === `${coach.model}:latest`);
-  const port = process.env.PORT || "3000";
-  const link = signInUrl(`http://127.0.0.1:${port}`);
   const isMac = process.platform === "darwin";
   const inboxAddress = getInboxSettings().address;
 
@@ -63,20 +66,29 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-stone-200 bg-white p-5">
+      <section id="access" className="scroll-mt-4 rounded-xl border border-stone-200 bg-white p-5">
         <h2 className={h2}>Access</h2>
         {authEnabled() ? (
-          <div className="mt-2 space-y-2 text-sm text-stone-700">
-            <p>This browser is signed in. To sign in another browser on this Mac (or after clearing cookies), open this link there:</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <a href={link} className="min-w-0 flex-1 break-all rounded bg-stone-100 px-2 py-1 font-mono text-xs text-indigo-700 underline">
-                {link}
-              </a>
-              <CopyButton text={link} />
-            </div>
+          <div className="mt-2 space-y-3 text-sm text-stone-700">
+            <p>
+              This browser is signed in, and stays signed in while you use it ({SESSION_DAYS} days after your last visit). To sign
+              in another browser on this Mac, make a link and open it there:
+            </p>
+            <SignInLink />
+            {signedout ? (
+              <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-800">
+                Every other browser is signed out. This one stays signed in.
+              </p>
+            ) : null}
+            <form action={signOutOtherBrowsers} className="flex flex-wrap items-center gap-2">
+              <button className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:border-red-300 hover:text-red-700">
+                Sign out other browsers
+              </button>
+              <span className="text-xs text-stone-500">Ends every sign-in except this one.</span>
+            </form>
             <p className="text-xs text-stone-500">
-              Anyone with this link can open your CRM — treat it like a password. To get a new one, delete the file{" "}
-              <code>data/auth-token</code> in the CRM folder and restart the CRM.
+              The sign-in token itself is in the file <code>data/auth-token</code> in the CRM folder; the sign-in page also accepts
+              it. To replace it, delete that file and restart the CRM: every browser is then signed out.
             </p>
             <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-700">
               <b>On your phone?</b> This link only works in browsers on this Mac — the CRM runs here, not on the internet. From your

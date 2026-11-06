@@ -124,9 +124,12 @@ echo "$KEY: started on code $FP ($(date '+%H:%M')), log $LOG"
 OUT="$LOGS/$KEY-$STAMP.out"
 # The operating system's word on it, not just the guard's: on a Mac the agent's whole process tree can
 # read only the parts of the home folder its tools need, so not the repository (and the database in it),
-# anyone's memory and transcripts, or other tools' credentials; and it can't write the Claude settings,
-# hooks, agents, commands, skills or plugins that would run outside the sandbox later. Network stays
-# open: the CLI talks to Anthropic, and the profile language can't allow one host.
+# anyone's memory and transcripts, or other tools' credentials; and it can write nothing in the home
+# folder but caches, so nothing in ~/.claude or ~/.claude.json (settings, hooks, agents, MCP servers,
+# scheduled tasks) that would run outside the sandbox later. The CLI needs no more (tested 2026-11-06).
+# Two things stay open, because the CLI can't work without them: reading ~/Library/Keychains (its
+# login lives there; the guard refuses the `security` tool) and the network (the CLI talks to
+# Anthropic, and the profile language can't allow one host; the guard refuses network tools).
 SANDBOX=()
 if [ "$(uname)" = Darwin ] && command -v sandbox-exec >/dev/null; then
   PROFILE="$ROOT/.review/state/sandbox-$KEY.sb"
@@ -135,14 +138,11 @@ if [ "$(uname)" = Darwin ] && command -v sandbox-exec >/dev/null; then
 (allow default)
 (deny file-read* file-write* (subpath "$HOME"))
 (allow file-read-metadata (literal "$HOME") (literal "$(dirname "$HOME")"))
-(allow file-read* file-write* (subpath "$HOME/.claude") (regex #"^$HOME/\.claude\.json") (subpath "$HOME/.npm") (subpath "$HOME/.cache") (subpath "$HOME/Library/Caches"))
-(allow file-read* (subpath "$HOME/.local") (subpath "$HOME/Library/Keychains") (subpath "$HOME/Library/Preferences") (literal "$HOME/.gitconfig"))
-(deny file-read* file-write* (subpath "$HOME/.claude/projects") (literal "$HOME/.claude/history.jsonl"))
+(allow file-read* (subpath "$HOME/.claude") (regex #"^$HOME/\.claude\.json") (subpath "$HOME/.local") (subpath "$HOME/Library/Keychains") (subpath "$HOME/Library/Preferences") (literal "$HOME/.gitconfig"))
+(allow file-read* file-write* (subpath "$HOME/.npm") (subpath "$HOME/.cache") (subpath "$HOME/Library/Caches"))
+(deny file-read* file-write* (subpath "$HOME/.claude/projects") (subpath "$HOME/.claude/scheduled-tasks") (literal "$HOME/.claude/history.jsonl"))
 (allow file-read* file-write* (subpath "$WS"))
 (allow file-read* (literal "$ROOT") (literal "$(dirname "$ROOT")") (literal "$ROOT/.review"))
-(deny file-write* (literal "$HOME/.claude/settings.json") (literal "$HOME/.claude/settings.local.json") (literal "$HOME/.claude/CLAUDE.md")
-  (subpath "$HOME/.claude/hooks") (subpath "$HOME/.claude/agents") (subpath "$HOME/.claude/commands") (subpath "$HOME/.claude/skills")
-  (subpath "$HOME/.claude/plugins") (subpath "$HOME/.claude/workflows") (literal "$HOME/.claude.json.backup"))
 SB
   SANDBOX=(sandbox-exec -f "$PROFILE")
 else

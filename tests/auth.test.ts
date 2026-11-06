@@ -5,7 +5,18 @@ import fs from "node:fs";
 import path from "node:path";
 // Must come first: lib/auth.mjs derives the token file from CRM_DB_PATH.
 import { dbPath, tmp } from "./helpers/tempdb";
-import { AUTH_COOKIE, COOKIE_MAX_AGE, authEnabled, getAuthToken, signInUrl, tokenMatches, tokenPath } from "../lib/auth.mjs";
+import {
+  AUTH_COOKIE,
+  COOKIE_MAX_AGE,
+  authEnabled,
+  createSession,
+  endOtherSessions,
+  getAuthToken,
+  sessionFor,
+  tokenMatches,
+  tokenPath,
+  touchSession,
+} from "../lib/auth.mjs";
 
 after(() => tmp.cleanup());
 
@@ -77,12 +88,38 @@ describe("tokenMatches", () => {
   });
 });
 
-describe("signInUrl / authEnabled / constants", () => {
-  test("signInUrl embeds the token on the default and a custom origin", () => {
-    const token = getAuthToken();
-    assert.equal(signInUrl(), `http://127.0.0.1:3000/?token=${encodeURIComponent(token)}`);
-    assert.equal(signInUrl("http://localhost:4000"), `http://localhost:4000/?token=${encodeURIComponent(token)}`);
+describe("sign-in sessions (SEC-009)", () => {
+  const DAY = 86_400_000;
+
+  test("each sign-in gets its own session, signed with the token but never holding it", () => {
+    const a = createSession();
+    const b = createSession();
+    assert.notEqual(a, b);
+    assert.ok(sessionFor(a) && sessionFor(b));
+    assert.ok(!a.includes(getAuthToken()));
+    assert.equal(sessionFor(`${a.split(".")[0]}.x`), null, "the signature must match");
+    assert.equal(sessionFor("not a session"), null);
   });
+
+  test("a session ends 30 days after its last use, and use extends it", () => {
+    const t0 = Date.now();
+    const s = createSession(t0);
+    const id = sessionFor(s, t0)!;
+    assert.equal(sessionFor(s, t0 + 31 * DAY), null, "unused for 31 days");
+    touchSession(id, t0 + 20 * DAY);
+    assert.equal(sessionFor(s, t0 + 31 * DAY), id, "used on day 20, so good until day 50");
+  });
+
+  test("signing out other browsers ends every session but the asking one's", () => {
+    const mine = createSession();
+    const other = createSession();
+    endOtherSessions(sessionFor(mine));
+    assert.ok(sessionFor(mine));
+    assert.equal(sessionFor(other), null);
+  });
+});
+
+describe("authEnabled / constants", () => {
 
   test("authEnabled reads CRM_AUTH at call time", () => {
     const saved = process.env.CRM_AUTH;
@@ -103,6 +140,6 @@ describe("signInUrl / authEnabled / constants", () => {
 
   test("cookie constants", () => {
     assert.equal(AUTH_COOKIE, "crm_auth");
-    assert.equal(COOKIE_MAX_AGE, 365 * 24 * 60 * 60);
+    assert.equal(COOKIE_MAX_AGE, 30 * 24 * 60 * 60);
   });
 });

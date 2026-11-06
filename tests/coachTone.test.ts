@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { COACH_TONES, coachToneChoices, coachToneSpec, DEFAULT_COACH_TONE, isCoachTone } from "../lib/coachTone";
 import { getCoachSettings, setSetting, validateContextDir } from "../lib/settings";
-import { buildCoachAdvicePrompt, buildCoachReplyPrompt, buildCoachSummaryPrompt, sessionLabel } from "../lib/coachai";
+import { buildCoachAdvicePrompt, buildCoachReplyPrompt, buildCoachSummaryPrompt, mondayOf, sessionLabel } from "../lib/coachai";
 import { getDb } from "../lib/db";
 
 after(() => {
@@ -165,6 +165,15 @@ describe("coach AI route", () => {
     setSetting("coach.provider", "gpt");
     assert.equal(getCoachSettings().provider, null, "unknown provider is ignored");
     setSetting("coach.provider", null);
+  });
+});
+
+describe("the Coach reads the CRM as data (SEC-008)", () => {
+  test("the snapshot, which can quote emails, sits inside a data fence", () => {
+    const p = buildCoachAdvicePrompt(mondayOf(new Date()), "weekly");
+    const tag = p.match(/<<<CRM DATA ([0-9a-f]{8})>>>/)?.[1];
+    assert.ok(tag, "fenced");
+    assert.ok(p.lastIndexOf(`<<<END ${tag}>>>`) > p.indexOf("Interactions logged this week"));
   });
 });
 

@@ -50,11 +50,15 @@ describe("mergePeople: profile and attached records", () => {
       db.prepare(`INSERT INTO interactions (person_id, date, summary) VALUES (?, '2026-06-15', 'coffee')`).run(dup);
       db.prepare(`INSERT INTO interactions (person_id, date, summary) VALUES (?, '2026-03-01', 'intro call')`).run(keep);
       db.prepare(`INSERT INTO action_items (title, person_id) VALUES ('send deck', ?)`).run(dup);
+      db.prepare(`INSERT INTO section_history (entity, entity_id, section, value) VALUES ('person', ?, 'notes', 'old text')`).run(dup);
 
       const res = mergePeople(db, "alex-rivera-2", "alex-rivera");
       assert.equal(res.dryRun, false);
       assert.ok(res.receipt.includes("interactions.person_id: moved 1"));
       assert.ok(res.receipt.includes("action_items.person_id: moved 1"));
+      // Section history has no foreign key, so it is moved by hand (CR-052).
+      assert.ok(res.receipt.includes("section_history: moved 1"));
+      assert.equal(count(db, `SELECT COUNT(*) AS n FROM section_history WHERE entity='person' AND entity_id=?`, keep), 1);
 
       assert.equal(count(db, `SELECT COUNT(*) AS n FROM people WHERE id=?`, dup), 0);
       assert.equal(count(db, `SELECT COUNT(*) AS n FROM interactions WHERE person_id=?`, keep), 2);

@@ -136,6 +136,8 @@ export async function deletePerson(id: number) {
       .all(id) as { company_id: number; d: string }[];
     db.prepare(`DELETE FROM action_items WHERE person_id=?`).run(id);
     db.prepare(`DELETE FROM briefs WHERE person_id=?`).run(id);
+    // Earlier text of their sections that Claude Desktop replaced goes too (no foreign key to do it).
+    db.prepare(`DELETE FROM section_history WHERE entity='person' AND entity_id=?`).run(id);
     db.prepare(`DELETE FROM people WHERE id=?`).run(id);
     for (const c of companies) recomputeLastTouch("companies", "company_id", c.company_id, c.d);
   })();
@@ -155,6 +157,7 @@ export async function deleteCompany(id: number) {
   db.transaction(() => {
     db.prepare(`DELETE FROM interactions WHERE company_id=? AND person_id IS NULL`).run(id);
     db.prepare(`DELETE FROM action_items WHERE company_id=? AND person_id IS NULL`).run(id);
+    db.prepare(`DELETE FROM section_history WHERE entity='company' AND entity_id=?`).run(id);
     db.prepare(`DELETE FROM companies WHERE id=?`).run(id);
   })();
   revalidatePath("/", "layout");

@@ -1,7 +1,7 @@
 import "./helpers/tempdb";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { buildInboxFetchPrompt, claudeArgs, connectorPreamble, TOOLS } from "../lib/ai";
+import { buildInboxBodiesPrompt, buildInboxHeadersPrompt, claudeArgs, connectorPreamble, gmailGuardSettings, TOOLS } from "../lib/ai";
 
 const flag = (args: string[], name: string) => {
   const i = args.indexOf(name);
@@ -85,14 +85,32 @@ describe("connectorPreamble", () => {
   });
 });
 
-describe("buildInboxFetchPrompt", () => {
-  test("searches delivered, to and cc at once, so one match can't hide another", () => {
-    const p = buildInboxFetchPrompt("me+crm@example.com", "2026/10/01", []);
+describe("the Inbox's two Gmail runs", () => {
+  test("the listing searches delivered, to and cc at once, so one match can't hide another", () => {
+    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01", []);
     assert.ok(p.includes("{deliveredto:me+crm@example.com to:me+crm@example.com cc:me+crm@example.com} after:2026/10/01"));
     assert.doesNotMatch(p, /if it returns nothing/);
   });
 
-  test("opens every thread: a new message can sit in a thread whose id is already recorded", () => {
-    assert.match(buildInboxFetchPrompt("me+crm@example.com", "2026/10/01", ["abc123"]), /always call get_thread/);
+  test("the listing opens every thread, in the metadata view only", () => {
+    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01", ["abc123"]);
+    assert.match(p, /call get_thread with messageFormat "METADATA_ONLY", even if its thread id appears/);
+    assert.match(p, /view "THREAD_VIEW_METADATA_ONLY"/);
+    assert.doesNotMatch(p, /body|PLAIN_TEXT|get_message/);
+  });
+
+  test("the reading step names its ids and only get_message", () => {
+    const p = buildInboxBodiesPrompt(["m1", "m2"]);
+    assert.match(p, /call get_message once for each of these message ids.*: m1, m2/s);
+    assert.doesNotMatch(p, /search_threads|get_thread/);
+  });
+
+  test("the guard is installed as a hook on every MCP call, with only well-formed ids", () => {
+    const hooks = JSON.parse(gmailGuardSettings({ step: "bodies", ids: ["abc123", "x; rm -rf ~", "def_456"] })).hooks.PreToolUse;
+    assert.equal(hooks[0].matcher, "mcp__.*");
+    const command: string = hooks[0].hooks[0].command;
+    assert.match(command, /gmail-guard\.mjs' 'bodies' 'abc123,def_456'$/);
+    assert.ok(claudeArgs("haiku", TOOLS.gmailHeaders, { step: "headers" }).includes("--settings"));
+    assert.ok(!claudeArgs("haiku", TOOLS.gmailRead).includes("--settings"), "other Gmail runs are unchanged");
   });
 });

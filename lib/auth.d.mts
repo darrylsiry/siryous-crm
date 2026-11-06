@@ -6,10 +6,13 @@ export function getAuthToken(): string;
 /** True when getAuthToken() had to generate the token in this process (first run). */
 export function wasJustCreated(): boolean;
 export function tokenMatches(candidate: unknown): boolean;
-export function signInUrl(origin?: string): string;
 export function normalizeToken(raw: string | null | undefined): string;
-export function sessionValue(): string;
-export function sessionMatches(candidate: unknown): boolean;
+export const SESSION_DAYS: number;
+export function createSession(now?: number): string;
+export function sessionFor(candidate: unknown, now?: number): string | null;
+export function touchSession(id: string, now?: number): void;
+export function endOtherSessions(keepId: string | null): void;
+export function legacyCookie(candidate: unknown): boolean;
 export function cookieOptions(): { httpOnly: boolean; sameSite: "strict"; path: string; maxAge: number };
 export function healthProof(nonce: unknown): string | null;
 export function createSignInCode(): string;

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
 import { getDb, VOCAB } from "./db";
-import { rosterBlock } from "./ai";
+import { fenced, rosterBlock } from "./ai";
 import { followUps } from "./queries";
 import { effectiveBucketSql } from "./rules.mjs";
 import { loadOwner } from "./owner.mjs";
@@ -302,7 +302,7 @@ ${spec.checkin(O).replace("{DATE}", longDate(today))}`
 ${profileBlock()}
 Today is ${today}. Below is the complete, factual snapshot of ${O.possessive} CRM: this week's activity and the current state of their entire book of business.
 
-${weekSnapshot(weekStart, kind)}
+${fenced("CRM DATA", weekSnapshot(weekStart, kind))}
 
 ${structure}
 
@@ -351,10 +351,10 @@ ${adviceMd}
 ---
 
 Fresh data snapshot for reference:
-${weekSnapshot(weekStart, kind)}
+${fenced("CRM DATA", weekSnapshot(weekStart, kind))}
 
 ROSTER SLUGS (for linking new actions to people):
-${rosterBlock(`${newMessage}\n${history.slice(-6).map((m) => m.content_md).join("\n")}`)}
+${fenced("CRM ROSTER", rosterBlock(`${newMessage}\n${history.slice(-6).map((m) => m.content_md).join("\n")}`))}
 
 Conversation so far:
 ${transcriptOf(history) || "(no messages yet)"}
@@ -393,10 +393,10 @@ ${adviceMd}
 ---
 
 Fresh data snapshot for reference (open action ids are current):
-${weekSnapshot(weekStart, kind)}
+${fenced("CRM DATA", weekSnapshot(weekStart, kind))}
 
 ROSTER SLUGS (for linking new actions to people):
-${rosterBlock(history.map((m) => m.content_md).join("\n"))}
+${fenced("CRM ROSTER", rosterBlock(history.map((m) => m.content_md).join("\n")))}
 
 Session conversation:
 ${transcriptOf(history) || `(${O.first} did not discuss anything — the advice was read only.)`}

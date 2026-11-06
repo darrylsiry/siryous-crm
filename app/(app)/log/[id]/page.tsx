@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getDb, BUCKETS } from "@/lib/db";
 import type { LogAnalysis, ProgressEvent } from "@/lib/ai";
 import { confirmLog, discardLog, logToIntake, retryLog, retryLogOn, saveLogAsTyped } from "@/lib/logmeeting";
-import { NOBODY_FOUND } from "@/lib/drafts";
+import { draftFromInbox, NOBODY_FOUND } from "@/lib/drafts";
 import { readReceipt, receiptLine } from "@/lib/receipts";
 import { isIsoDate, parseDueDate, todayLocal } from "@/lib/dates.mjs";
 import Markdown from "@/components/Markdown";
@@ -53,6 +53,8 @@ export default async function LogReviewPage({
       }
     | undefined;
   if (!draft) notFound();
+  // What an email suggested is offered unticked: its text may have been written to steer the AI.
+  const fromInbox = draftFromInbox(db, "log", draft.id);
   const today = todayLocal();
   // Where the draft was opened from, so every state of this page can link back.
   const origin = draft.hint_person_id
@@ -327,11 +329,12 @@ export default async function LogReviewPage({
             {a.suggested_actions?.length > 0 && (
               <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested follow-ups</h2>
+                {fromInbox ? <p className="text-xs text-stone-500">From an email, so none is ticked: tick the ones you want.</p> : null}
                 {a.suggested_actions.map((s, i) => {
                   const parsed = s.due ? (isIsoDate(s.due) ? s.due : parseDueDate(s.due)) : null;
                   return (
                     <div key={i} className="flex items-start gap-2 text-sm">
-                      <input type="checkbox" name={`action_${i}`} defaultChecked aria-label={`Add: ${s.title}`} className="mt-2.5" />
+                      <input type="checkbox" name={`action_${i}`} defaultChecked={!fromInbox} aria-label={`Add: ${s.title}`} className="mt-2.5" />
                       <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
                         <input name={`action_title_${i}`} defaultValue={s.title} aria-label="To-do" className={`${input.replace("mt-1 ", "")} sm:col-span-2`} />
                         <SearchSelect

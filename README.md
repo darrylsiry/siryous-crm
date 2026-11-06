@@ -254,11 +254,15 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   unsaved drafts rather than adding more; a saved Log entry stays, and isn't
   offered again) or ignores it (discarding its unsaved drafts). Only
   email sent from your own addresses (the one in `config/owner.json`, plus any
-  you list under **Your other email addresses**) is acted on: anyone can write
-  to a plus-address, so the mailbox search itself asks only for mail from your
-  addresses — anyone else's isn't fetched or read by any AI — and anything that
-  still arrives from another sender is listed as ignored unless you route it by
-  hand. To set it
+  you list under **Your other email addresses**) is read or acted on: anyone
+  can write to a plus-address. Each check first lists the new messages by
+  sender, recipients and date only (no subject or text), then reads just your
+  own, by message id; a guard on the Gmail connector blocks every other kind of
+  call. So anyone else's message, a reply-all in a thread you copied the CRM
+  on included, isn't read by any AI: it is listed as ignored, headers only.
+  A note you write at the top of an email is followed as your instruction
+  ("log this on Sam") only when Gmail filed the email as sent from your own
+  account; from your other addresses it is read as context. To set it
   up, open **Inbox**, enter the address under **Your CRM address**, tick
   **Check automatically** and click **Save** — nothing is checked until you do.
 - **📰 News Feed (AI, needs Claude)** — once a day, Claude searches the web
@@ -398,9 +402,11 @@ This matters, so here it is plainly:
     Claude first looks the meeting up on your Google Calendar, then finds its
     "Notes by Gemini" doc in Google Drive — so Gemini note-taking has to have
     been on for that meeting).
-  - Inbox: each mailbox check is a Claude run that searches Gmail for mail
-    delivered to your CRM address from your own addresses, and returns those
-    messages. The routing and the drafting then happen on this Mac.
+  - Inbox: each mailbox check is two Claude runs. The first lists the mail
+    delivered to your CRM address by sender, recipients, date and Gmail label,
+    never a subject or any text. The second reads only the messages that are
+    from your own addresses. The routing and the drafting then happen on this
+    Mac.
   - News Feed (only once you turn it on, then daily, or when you click "Check
     now"): for each person, their name, role, employer and location;
     for each company, its name, industry, headquarters, website and the names
@@ -499,12 +505,15 @@ remember:
 - **Start CRM.command** always opens the CRM already signed in.
 - **To sign in a second browser on this Mac** (or after clearing your
   browser's cookies), open **Settings → Access** in a browser that is signed
-  in and copy the **sign-in link** into the other browser, or paste it into
-  the box on the sign-in page. The contents of the file `data/auth-token` work
-  in the box too.
-- **"That didn't match":** the link or code was copied incompletely. Copy it
-  again in full, or just double-click **Start CRM.command**, which signs the
-  browser in for you.
+  in, click **Make a sign-in link** and open that link in the other browser
+  within two minutes: it works once. Or paste the contents of the file
+  `data/auth-token` into the box on the sign-in page.
+- **Staying signed in:** each browser stays signed in while you use it, and
+  is signed out after 30 days without a visit. **Sign out other browsers** on
+  the same page ends every sign-in but the one you are using.
+- **"That didn't match":** the code was copied incompletely, or a one-time
+  link was used already or is more than two minutes old. Make a new one, or
+  just double-click **Start CRM.command**, which signs the browser in for you.
 - **On your phone:** the CRM runs on this Mac, so its pages don't open on a
   phone. Email your CRM address instead (see **Inbox**) — for example
   "#log Called Sam. Next step: proposal Friday." — and review the draft when

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getDb, STATUS, STRENGTHS, BUCKETS } from "@/lib/db";
 import type { IntakeAnalysis, ProgressEvent } from "@/lib/ai";
 import { confirmIntake, discardIntake, intakeToLog, retryIntake } from "@/lib/intake";
+import { draftFromInbox } from "@/lib/drafts";
 import { readReceipt, receiptLine } from "@/lib/receipts";
 import { isIsoDate, parseDueDate, todayLocal } from "@/lib/dates.mjs";
 import { stateWord } from "@/lib/stateWords";
@@ -45,6 +46,8 @@ export default async function IntakeReviewPage({
     | { id: number; raw_text: string; result_json: string | null; status: string; error: string | null; progress: string | null }
     | undefined;
   if (!draft) notFound();
+  // What an email suggested is offered unticked: its text may have been written to steer the AI.
+  const fromInbox = draftFromInbox(db, "intake", draft.id);
 
   if (draft.status === "analyzing" || draft.status === "pending") {
     let events: ProgressEvent[] = [];
@@ -298,11 +301,12 @@ export default async function IntakeReviewPage({
         {a.suggested_actions?.length > 0 && (
           <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested to-dos</h2>
+            {fromInbox ? <p className="text-xs text-stone-500">From an email, so none is ticked: tick the ones you want.</p> : null}
             {a.suggested_actions.map((s, i) => {
               const parsed = s.due ? (isIsoDate(s.due) ? s.due : parseDueDate(s.due)) : null;
               return (
                 <div key={i} className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" name={`action_${i}`} defaultChecked aria-label={`Add: ${s.title}`} className="mt-2.5" />
+                  <input type="checkbox" name={`action_${i}`} defaultChecked={!fromInbox} aria-label={`Add: ${s.title}`} className="mt-2.5" />
                   <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(10rem,1fr)_9.5rem]">
                     <input name={`action_title_${i}`} defaultValue={s.title} aria-label="To-do" className={input.replace("mt-1 ", "")} />
                     <input

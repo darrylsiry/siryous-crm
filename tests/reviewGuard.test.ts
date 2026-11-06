@@ -26,7 +26,8 @@ describe("review guard", { skip: !python }, () => {
       ["code", "cat checks/tests.txt | tail -5"],
       ["code", "ls data/agent-reports/code"],
       ["security", "head -c 20000 checks/npm-audit.json"],
-      ["code", "node -e \"console.log(1+1)\""],
+      ["code", "node --version"],
+      ["code", "grep -rn \"node\" lib | head"],
       ["ux", "sed -n 1,40p app/globals.css"],
     ]) {
       assert.equal(bash(agent, cmd), true, `${agent}: ${cmd}`);
@@ -106,6 +107,32 @@ describe("review guard", { skip: !python }, () => {
   test("closes the gaps a deny-list leaves: find -delete, in-place perl, command substitution", () => {
     for (const cmd of ["find . -name x -delete", "find . -exec rm {} \\;", "perl -pi -e s/a/b/ lib/x", "cat $(echo lib/db.ts)", "cat `echo x`"]) {
       assert.equal(bash("code", cmd), false, cmd);
+    }
+  });
+
+  test("runs no code at all: no inline scripts, piped or heredoc code, shells or sourcing; no Keychain tool (SEC-016)", () => {
+    for (const cmd of [
+      "node -e \"require('fs').appendFileSync(require('os').homedir()+'/.claude.json', 'x')\"",
+      "node -e 1",
+      "node -p 1+1",
+      "python3 -c \"print(1)\"",
+      "echo 'print(1)' | python3",
+      "python3 <<EOF\nprint(1)\nEOF",
+      "/usr/bin/python3 -c 1",
+      "env FOO=1 node -e 1",
+      "xargs -0 node",
+      "bash scripts/review-run.sh",
+      "sh -x x.sh",
+      "source x.sh",
+      ". ./x.sh",
+      "security find-generic-password -s x -w",
+      "awk 'BEGIN{system(\"id\")}' /dev/null",
+      "awk '{print > \"x\"}' lib/db.ts",
+    ]) {
+      assert.equal(bash("security", cmd), false, cmd);
+    }
+    for (const cmd of ["python3 --version", "awk '{print $1}' lib/db.ts | head", "grep -rn 'security' lib | head", "ls ./lib"]) {
+      assert.equal(bash("security", cmd), true, cmd);
     }
   });
 
