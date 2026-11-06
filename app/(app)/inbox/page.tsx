@@ -319,6 +319,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                         ...(r.log_draft_id ? [statusOf("log_drafts", r.log_draft_id)] : []),
                         ...intakeIds.map((id) => statusOf("intake_drafts", id)),
                       ]}
+                      logSaved={!!r.log_draft_id && statusOf("log_drafts", r.log_draft_id) === "confirmed"}
                     />
                   </div>
                 </li>

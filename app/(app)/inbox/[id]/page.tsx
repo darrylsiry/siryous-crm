@@ -137,6 +137,7 @@ export default async function InboxMessagePage({
           hasText={!!row.body.trim()}
           back="message"
           drafts={[...(row.log_draft_id ? [draftStatus("log_drafts", row.log_draft_id)] : []), ...intakeIds.map((d) => draftStatus("intake_drafts", d))]}
+          logSaved={!!row.log_draft_id && draftStatus("log_drafts", row.log_draft_id) === "confirmed"}
         />
       </section>
     </div>

@@ -29,7 +29,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { openDatabase } from "../lib/schema.mjs";
 import { loadOwner } from "../lib/owner.mjs";
 import { loadVocab, kindList, stageList, bucketList, keepWarmSql } from "../lib/vocab.mjs";
-import { parseDueDate } from "../lib/dates.mjs";
+import { isIsoDate, parseDueDate, todayLocal } from "../lib/dates.mjs";
 import {
   slugFor, applyStatusCadence, bumpLastTouch as bumpTouch, effectiveBucketSql, markActionDone,
   likeNeedle, likeAnySql, LIKE_ESCAPE, PEOPLE_SEARCH_COLUMNS, COMPANY_SEARCH_COLUMNS,
@@ -331,7 +331,9 @@ server.registerTool(
     if (person && !p) return fail(`${whyNot("person", person)}.`);
     if (company && !c) return fail(`${whyNot("company", company)}.`);
     if (!p && !c) return fail("Provide person and/or company.");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail("date must be YYYY-MM-DD.");
+    // A real date only: an impossible one (2026-13-05) would sort above every real date and freeze last touch.
+    if (!isIsoDate(date)) return fail("date must be a real date, YYYY-MM-DD.");
+    if (date > todayLocal()) return fail("That date is in the future; log an interaction once it has happened.");
     db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`)
       .run(p?.id ?? null, c?.id ?? null, date, channel ?? null, summary);
     if (p) bumpLastTouch("people", p.id, date);
@@ -596,7 +598,7 @@ server.registerTool(
       db.prepare(`UPDATE action_items SET status='open', completed_at=NULL WHERE id=?`).run(id);
       return text(`Reopened [id ${id}] "${row.title}".`);
     }
-    markActionDone(db, id);
+    if (!markActionDone(db, id)) return text(`[id ${id}] "${row.title}" was already done; its completion date is unchanged.`);
     return text(`Completed [id ${id}] "${row.title}".`);
   }
 );

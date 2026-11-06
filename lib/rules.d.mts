@@ -3,7 +3,7 @@ export function slugify(name: string): string;
 export function slugFor(name: string, kind: "person" | "company"): string;
 export function profilePath(table: "people" | "companies", slug: string): string;
 export function effectiveBucketSql(alias?: string): string;
-export function markActionDone(db: Database.Database, id: number): void;
+export function markActionDone(db: Database.Database, id: number): number;
 export function bumpLastTouch(db: Database.Database, table: "people" | "companies", id: number, date: string): void;
 export function applyStatusCadence(
   db: Database.Database,

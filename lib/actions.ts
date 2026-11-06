@@ -291,7 +291,7 @@ export async function addInteraction(formData: FormData) {
   const date = String(formData.get("date") ?? "").trim();
   const channel = String(formData.get("channel") ?? "").trim() || null;
   const summary = String(formData.get("summary") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !summary || (!personId && !companyId)) return;
+  if (!isIsoDate(date) || !summary || (!personId && !companyId)) return;
   db.prepare(
     `INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`
   ).run(personId, companyId, date, channel, summary);

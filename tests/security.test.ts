@@ -16,10 +16,10 @@ import { claudeArgs, fenced, runClaudeStream, runModel, TOOLS } from "../lib/ai"
 import { senderAddress, sentByOwner } from "../lib/inboxRoute";
 import { setSetting, validateOllamaUrl } from "../lib/settings";
 import { validateBackupDir } from "../lib/backup.mjs";
-import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft } from "../lib/drafts";
+import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft } from "../lib/drafts";
 import { parseInboxListing } from "../lib/schemas";
 import { markdownToDocx } from "../lib/mdToDocx";
-import { purgeIgnoredMail } from "../lib/inbox";
+import { purgeIgnoredMail, routeMessage } from "../lib/inbox";
 import { runNewsScan } from "../lib/news";
 import { getAuthToken, healthProof, sessionValue } from "../lib/auth.mjs";
 
@@ -225,6 +225,45 @@ describe("Unattended runs never switch to Claude by themselves (SEC-006)", () =>
       setSetting("ai.model", "stub");
     }
   });
+
+  test("drafts made from an Inbox email don't switch, even on their very first run (CR-040)", async () => {
+    const db = getDb();
+    const settle = async (table: string, id: number) => {
+      for (let i = 0; i < 100; i++) {
+        const r = db.prepare(`SELECT status, error FROM ${table} WHERE id=?`).get(id) as { status: string; error: string | null };
+        if (r.status !== "analyzing") return r;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      throw new Error(`${table} ${id} never finished`);
+    };
+    setSetting("ai.model", "not-pulled");
+    cli(result('{"entries": []}'));
+    try {
+      for (const force of ["log", "intake"] as const) {
+        const msg = Number(
+          db
+            .prepare(`INSERT INTO inbox_messages (gmail_id, subject, sender, recipients, body, status) VALUES (?, 'Catch-up', 'Pat <pat@elsewhere.example>', '{}', 'SENTINEL-MAIL notes', 'new')`)
+            .run(`cr040-${force}`).lastInsertRowid
+        );
+        routeMessage(db, msg, force);
+        const row = db.prepare(`SELECT log_draft_id, intake_draft_ids FROM inbox_messages WHERE id=?`).get(msg) as {
+          log_draft_id: number | null;
+          intake_draft_ids: string | null;
+        };
+        const [table, id] = force === "log" ? ["log_drafts", row.log_draft_id!] : ["intake_drafts", (JSON.parse(row.intake_draft_ids!) as number[])[0]];
+        assert.equal((db.prepare(`SELECT origin FROM ${table} WHERE id=?`).get(id) as { origin: string }).origin, "inbox");
+        const done = await settle(table, id);
+        assert.equal(done.status, "error", force);
+        assert.match(done.error ?? "", /doesn't switch to Claude by itself/, force);
+      }
+      assert.equal(claudeRan(), false, "nothing from the email went to Claude");
+      // A hand-over keeps the rule: the new draft is marked as from the Inbox too.
+      assert.equal(draftFromInbox(db, "intake", insertIntakeDraft(db, "x", "inbox")), true);
+      assert.equal(draftFromInbox(db, "intake", insertIntakeDraft(db, "x")), false);
+    } finally {
+      setSetting("ai.model", "stub");
+    }
+  });
 });
 
 describe("Untrusted text is fenced so it can't close its own fence (SEC-008)", () => {
@@ -359,6 +398,23 @@ describe("Claude Desktop's MCP tools mark stored text as data and keep replaced 
     } finally {
       db.close();
     }
+  });
+
+  test("log_interaction refuses impossible and future dates, so last touch can't freeze (CR-041)", async () => {
+    const call = (date: string) =>
+      client.callTool({ name: "log_interaction", arguments: { person: "ivy-intel", date, channel: "call", summary: "Caught up." } });
+    for (const date of ["2026-13-05", "2026-02-30", "2999-01-01"]) {
+      const r = await call(date);
+      assert.equal(r.isError, true, date);
+    }
+    const db = new Database(mcpDb, { readonly: true });
+    try {
+      assert.equal((db.prepare(`SELECT last_touch FROM people WHERE slug='ivy-intel'`).get() as { last_touch: string | null }).last_touch, null);
+      assert.equal((db.prepare(`SELECT COUNT(*) n FROM interactions`).get() as { n: number }).n, 0);
+    } finally {
+      db.close();
+    }
+    assert.match(textOf(await call("2026-01-15")), /Logged 2026-01-15/);
   });
 });
 

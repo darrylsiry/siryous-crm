@@ -13,7 +13,7 @@
  *   LOCAL_LLM_NUM_CTX  context window (tokens)  default 32768
  *   LOCAL_LLM_TEMPERATURE                       default 0.3
  *   AI_PROVIDER        local | claude           default local
- *   AI_FALLBACK        claude | none            default claude
+ *   AI_FALLBACK        claude | none            default none
  */
 import type { ProgressEvent } from "./ai";
 import { getAiSettings, getLocalKeepAlive, type Provider } from "./settings";

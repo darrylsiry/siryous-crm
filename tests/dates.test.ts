@@ -121,6 +121,11 @@ describe("todayLocal / isIsoDate", () => {
     assert.equal(isIsoDate("2026-07-17"), true);
     assert.equal(isIsoDate("2026-7-17"), false);
     assert.equal(isIsoDate("2026-13-01"), false);
+    // Days a month doesn't have, which Date.parse accepts (CR-041).
+    assert.equal(isIsoDate("2026-02-30"), false);
+    assert.equal(isIsoDate("2025-02-29"), false);
+    assert.equal(isIsoDate("2024-02-29"), true);
+    assert.equal(isIsoDate("2026-04-31"), false);
     assert.equal(isIsoDate(null), false);
     assert.equal(isIsoDate(20260717), false);
   });

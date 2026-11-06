@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { COACH_TONES, coachToneChoices, coachToneSpec, DEFAULT_COACH_TONE, isCoachTone } from "../lib/coachTone";
 import { getCoachSettings, setSetting, validateContextDir } from "../lib/settings";
-import { buildCoachAdvicePrompt, buildCoachReplyPrompt, buildCoachSummaryPrompt } from "../lib/coachai";
+import { buildCoachAdvicePrompt, buildCoachReplyPrompt, buildCoachSummaryPrompt, sessionLabel } from "../lib/coachai";
 import { getDb } from "../lib/db";
 
 after(() => {
@@ -165,5 +165,14 @@ describe("coach AI route", () => {
     setSetting("coach.provider", "gpt");
     assert.equal(getCoachSettings().provider, null, "unknown provider is ignored");
     setSetting("coach.provider", null);
+  });
+});
+
+describe("check-in labels (CR-045)", () => {
+  test("a check-in is labelled with the local day of its UTC time", () => {
+    const stored = "2026-11-06 03:30:00";
+    const day = new Date(`${stored.replace(" ", "T")}Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    assert.equal(sessionLabel({ week_start: "2026-11-02", kind: "checkin", created_at: stored }), `Check-in — ${day}`);
+    assert.equal(sessionLabel({ week_start: "2026-11-02", kind: "weekly", created_at: stored }), "Week of November 2, 2026");
   });
 });

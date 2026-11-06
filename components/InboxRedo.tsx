@@ -6,7 +6,8 @@ const btn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs fon
 /**
  * An email's "More ▾" menu: route it again as Log or Intake, or ignore it,
  * with what each does said in the menu. Not offered once every draft from the
- * email is saved (a redo would log it twice); replacing a ready draft asks first.
+ * email is saved, and no "Redo as Log" once its Log draft is saved (either
+ * would log it twice); replacing a ready draft asks first.
  */
 export default function InboxRedo({
   id,
@@ -14,6 +15,7 @@ export default function InboxRedo({
   drafts,
   back,
   hasText = true,
+  logSaved = false,
 }: {
   id: number;
   status: string;
@@ -23,6 +25,8 @@ export default function InboxRedo({
   back?: "message";
   /** false for ignored mail, which keeps its headers only: there is nothing to route. */
   hasText?: boolean;
+  /** Its Log draft is saved: the entries are in the CRM, so it can't be logged again. */
+  logSaved?: boolean;
 }) {
   const saved = drafts.length > 0 && drafts.every((d) => d === "confirmed");
   if (saved) return null;
@@ -54,15 +58,17 @@ export default function InboxRedo({
         {routed ? "Wrong guess? More ▾" : "Route it ▾"}
       </summary>
       <div className="mt-2 space-y-2 rounded-lg border border-stone-200 bg-white p-3">
-        <Redo
-          as="log"
-          label={routed ? "Redo as Log" : "Route as Log"}
-          what="Draft log entries for the people already in your CRM (one more model run). Its unsaved drafts are discarded."
-        />
+        {logSaved ? null : (
+          <Redo
+            as="log"
+            label={routed ? "Redo as Log" : "Route as Log"}
+            what="Draft log entries for the people already in your CRM (one more model run). Its unsaved drafts are discarded."
+          />
+        )}
         <Redo
           as="intake"
           label={routed ? "Redo as Intake" : "Route as Intake"}
-          what="Draft a new profile for the person it's about (one more model run). Its unsaved drafts are discarded."
+          what={`Draft a new profile for the person it's about (one more model run). Its unsaved drafts are discarded${logSaved ? "; the log entries you saved stay" : ""}.`}
         />
         {status !== "ignored" ? (
           <form action={ignoreInboxMessage} className="flex items-start gap-2">

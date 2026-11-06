@@ -209,7 +209,11 @@ async function pollInboxInner(): Promise<PollResult> {
     } else if (full) {
       // A full answer of mail already stored (the model ignored the skip list):
       // move the look-back up to the newest of it instead of asking again.
-      setSetting("inbox.last_poll_at", lookBackPast(messages, s.lastPollAt).toISOString());
+      // With no dates to go by it stays put, rather than jumping to now and
+      // skipping mail in the window that was never fetched.
+      const past = lookBackPast(messages, s.lastPollAt);
+      if (!past) throw new Error("Gmail's answer gave no dates for its messages, so the next check looks back from the same point instead of skipping ahead.");
+      setSetting("inbox.last_poll_at", past.toISOString());
     } else {
       setSetting("inbox.last_poll_at", new Date().toISOString());
     }
@@ -223,12 +227,14 @@ async function pollInboxInner(): Promise<PollResult> {
 
 /**
  * The last_poll_at that makes the next look-back start at the newest of these
- * messages' dates (never earlier than it already is, never in the future).
+ * messages' dates (never earlier than it already is, never in the future);
+ * null when none of them has a date.
  */
-function lookBackPast(messages: InboxFetchedMessage[], lastPollAt: string | null): Date {
+function lookBackPast(messages: InboxFetchedMessage[], lastPollAt: string | null): Date | null {
   const now = Date.now();
   const newest = messages.map((m) => m.date).filter((d): d is string => !!d).sort().at(-1);
-  let t = newest ? Date.parse(`${newest}T00:00:00Z`) + LOOKBACK_DAYS * 86_400_000 : now;
+  if (!newest) return null;
+  let t = Date.parse(`${newest}T00:00:00Z`) + LOOKBACK_DAYS * 86_400_000;
   const current = Date.parse(lastPollAt ?? "");
   if (Number.isFinite(current)) t = Math.max(t, current);
   return new Date(Math.min(t, now));
@@ -345,34 +351,45 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
     const pending = parsePeople(row.pending_people);
     const person = pending.find((p) => p.email === who.toLowerCase());
     if (!person) return;
-    const draftId = insertIntakeDraft(db, intakeInputFor(email, person, row.date, owners));
-    void processIntakeDraft(draftId, false);
+    const draftId = insertIntakeDraft(db, intakeInputFor(email, person, row.date, owners), "inbox");
     db.prepare(`UPDATE inbox_messages SET intake_draft_ids=?, pending_people=?, note=? WHERE id=?`).run(
       JSON.stringify([...parseIds(row.intake_draft_ids), draftId]),
       JSON.stringify(pending.filter((p) => p.email !== person.email)),
       [row.note, `Intake: ${person.name ?? person.email}`].filter(Boolean).join(" · "),
       id
     );
+    void processIntakeDraft(draftId, false);
     return;
   }
 
+  // Saved drafts stay linked to their email through a redo, and a saved Log
+  // draft is never made again: that would log the same email twice.
+  const draftStatus = (table: "log_drafts" | "intake_drafts", draftId: number) =>
+    (db.prepare(`SELECT status FROM ${table} WHERE id=?`).get(draftId) as { status: string } | undefined)?.status;
+  const savedLog = row.log_draft_id && draftStatus("log_drafts", row.log_draft_id) === "confirmed" ? row.log_draft_id : null;
+  const savedIntakes = force ? parseIds(row.intake_draft_ids).filter((d) => draftStatus("intake_drafts", d) === "confirmed") : [];
+  if (force === "log" && savedLog) return;
   if (force) discardDrafts(db, row);
   const route = routeEmail(email, roster(db), owners, force);
   const notes: string[] = [];
   let logDraftId: number | null = null;
-  const intakeIds: number[] = [];
+  const intakeIds: number[] = [...savedIntakes];
   let pending: Participant[] = [];
+  // Drafts start only once the email row records them (and each carries origin "inbox" anyway).
+  const starts: (() => Promise<void>)[] = [];
 
   try {
-    if (route.mode === "log" || route.mode === "both") {
+    if ((route.mode === "log" || route.mode === "both") && !savedLog) {
       const hint = route.known.length === 1 ? (db.prepare(`SELECT id FROM people WHERE slug=?`).get(route.known[0].slug) as { id: number } | undefined) : undefined;
       logDraftId = insertLogDraft(db, {
         raw: `Email to the CRM address: ${email.subject || "(no subject)"}${route.known.length ? ` — about ${route.known.map((k) => k.name).join(", ")}` : ""}`,
         source: "email",
         content: logInputFor(email, row.date),
         hintPersonId: hint?.id ?? null,
+        origin: "inbox",
       });
-      void processLogDraft(logDraftId);
+      const started = logDraftId;
+      starts.push(() => processLogDraft(started));
       notes.push(route.known.length ? `Log: ${route.known.map((k) => k.name).join(", ")}` : "Log: nobody matched by address — the model will look for roster names in the text");
     }
     if (route.mode === "intake" || route.mode === "both") {
@@ -383,9 +400,9 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
       // draft from the whole email.
       const primary = primaryParticipant(email, route.unknown);
       const raw = primary ? intakeInputFor(email, primary, row.date, owners) : `Email subject: ${email.subject}\nFrom: ${email.from}\n\n${email.body}`;
-      const draftId = insertIntakeDraft(db, raw);
+      const draftId = insertIntakeDraft(db, raw, "inbox");
       intakeIds.push(draftId);
-      void processIntakeDraft(draftId, false);
+      starts.push(() => processIntakeDraft(draftId, false));
       pending = route.unknown.filter((p) => p.email !== primary?.email);
       notes.push(`Intake: ${primary ? (primary.name ?? primary.email) : "from the email text"}`);
     } else {
@@ -396,12 +413,13 @@ export function routeMessage(db: Database.Database, id: number, force: "log" | "
       `UPDATE inbox_messages SET status='routed', route=?, log_draft_id=?, intake_draft_ids=?, pending_people=?, note=?, error=NULL WHERE id=?`
     ).run(
       route.forced ? `${route.mode} (tagged)` : route.mode,
-      logDraftId,
+      logDraftId ?? savedLog,
       intakeIds.length ? JSON.stringify(intakeIds) : null,
       pending.length ? JSON.stringify(pending) : null,
       notes.join(" · "),
       id
     );
+    for (const start of starts) void start();
   } catch (err) {
     db.prepare(`UPDATE inbox_messages SET status='error', error=? WHERE id=?`).run(err instanceof Error ? err.message : String(err), id);
   }
@@ -464,8 +482,26 @@ export interface OpenInboxItem {
  */
 export function openInboxItems(limit = 100): OpenInboxItem[] {
   const db = getDb();
-  // Filter to what is still open first, then apply the limit: resolved mail mustn't crowd out an older open one.
-  const rows = db.prepare(`SELECT * FROM inbox_messages WHERE status <> 'ignored' ORDER BY id DESC`).all() as InboxRow[];
+  // Filter to what is still open in SQL, then apply the limit: resolved mail
+  // mustn't crowd out an older open one. Headers only: this runs on every
+  // sidebar refresh, and a stored body can be 100,000 characters.
+  const openDraft = `(${[...OPEN_DRAFT].map((st) => `'${st}'`).join(",")})`;
+  const rows = db
+    .prepare(
+      `SELECT m.id, m.subject, m.sender, m.date, m.created_at, m.status, m.log_draft_id, m.intake_draft_ids
+       FROM inbox_messages m
+       WHERE m.status <> 'ignored' AND (
+         m.status <> 'routed'
+         OR EXISTS (SELECT 1 FROM log_drafts d WHERE d.id = m.log_draft_id AND d.status IN ${openDraft})
+         OR EXISTS (
+           SELECT 1 FROM json_each(CASE WHEN json_valid(m.intake_draft_ids) THEN m.intake_draft_ids ELSE '[]' END) j
+           JOIN intake_drafts d ON d.id = j.value
+           WHERE d.status IN ${openDraft}
+         )
+       )
+       ORDER BY m.id DESC LIMIT ?`
+    )
+    .all(limit) as Pick<InboxRow, "id" | "subject" | "sender" | "date" | "created_at" | "status" | "log_draft_id" | "intake_draft_ids">[];
   const logStatus = db.prepare(`SELECT status FROM log_drafts WHERE id=?`);
   const intakeStatus = db.prepare(`SELECT status FROM intake_drafts WHERE id=?`);
   const out: OpenInboxItem[] = [];

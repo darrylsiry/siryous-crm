@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb, BUCKETS } from "./db";
 import { COMPANY_TARGET } from "./logHint";
-import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
+import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { isIsoDate, parseDueDate } from "./dates.mjs";
 import { bumpLastTouch, markActionDone, profilePath } from "./rules.mjs";
 import { inboxMessageFor, type Receipt } from "./receipts";
@@ -62,7 +62,8 @@ export async function logToIntake(id: number) {
     | { raw_text: string; fetched_text: string | null }
     | undefined;
   if (!row) redirect("/intake");
-  const intakeId = insertIntakeDraft(db, row.fetched_text ?? row.raw_text);
+  // An email's text stays an email's text: the new draft keeps the no-Claude rule.
+  const intakeId = insertIntakeDraft(db, row.fetched_text ?? row.raw_text, draftFromInbox(db, "log", id) ? "inbox" : null);
   discardDraft(db, "log", id, ["error", "ready"]);
   after(() => processIntakeDraft(intakeId, false));
   revalidatePath("/", "layout");
@@ -154,7 +155,7 @@ export async function confirmLog(formData: FormData) {
 /** The confirmation's writes, run inside one transaction. Returns where to go next, or null when nothing was done. */
 function writeLog(db: ReturnType<typeof getDb>, draftId: number, formData: FormData): string | null {
   const date = String(formData.get("date") ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!isIsoDate(date)) return null;
   const channel = str(formData, "channel");
 
   let firstTarget: string | null = null;
@@ -218,8 +219,8 @@ function writeLog(db: ReturnType<typeof getDb>, draftId: number, formData: FormD
   for (const [key] of formData.entries()) {
     const m = key.match(/^resolve_(\d+)$/);
     if (!m) continue;
-    markActionDone(db, Number(m[1]));
-    receipt.closed++;
+    // One ticked off elsewhere since the draft was made keeps its date and isn't counted again.
+    receipt.closed += markActionDone(db, Number(m[1]));
   }
 
   // Suggested follow-ups: checkbox action_<i>, fields action_title_<i>, action_bucket_<i>,

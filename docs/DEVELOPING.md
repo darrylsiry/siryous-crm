@@ -65,7 +65,7 @@ non-technical users, so keep it boring and idempotent. In order it:
    `/opt/homebrew/bin` and `~/.local/bin`) and that Node's major version is
    22–26 (`NODE_MIN`/`NODE_MAX`, kept in step with `engines`), with a
    nodejs.org pointer if not;
-3. runs `npm install --no-audit --no-fund` when `node_modules` is missing or
+3. runs `npm ci --no-audit --no-fund` when `node_modules` is missing or
    `package-lock.json` is newer than `node_modules/.package-lock.json`; then,
    unless that was a fresh install, runs `npm rebuild better-sqlite3` when
    `node -v` differs from the version recorded in

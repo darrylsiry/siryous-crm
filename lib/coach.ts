@@ -236,8 +236,7 @@ export async function startCheckinSession() {
   const sessionId = Number(
     db
       .prepare(
-        `INSERT INTO coach_sessions (week_start, kind, status, created_at)
-         VALUES (?, 'checkin', 'analyzing', datetime('now','localtime'))`
+        `INSERT INTO coach_sessions (week_start, kind, status) VALUES (?, 'checkin', 'analyzing')`
       )
       .run(weekStart).lastInsertRowid
   );

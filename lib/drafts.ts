@@ -82,6 +82,8 @@ export interface LogDraftInput {
    * the Claude retrieval step is skipped and the local model logs from this.
    */
   content?: string | null;
+  /** "inbox": made from a mail-in email, so it never switches to Claude by itself. */
+  origin?: "inbox" | null;
 }
 
 export function insertLogDraft(db: Database.Database, input: LogDraftInput): number {
@@ -89,14 +91,15 @@ export function insertLogDraft(db: Database.Database, input: LogDraftInput): num
   return Number(
     db
       .prepare(
-        `INSERT INTO log_drafts (source, raw_text, fetched_text, status, hint_person_id, hint_company_id) VALUES (?,?,?,'analyzing',?,?)`
+        `INSERT INTO log_drafts (source, raw_text, fetched_text, status, hint_person_id, hint_company_id, origin) VALUES (?,?,?,'analyzing',?,?,?)`
       )
       .run(
         input.source,
         input.raw,
         input.content ?? null,
         hint?.kind === "person" ? input.hintPersonId : null,
-        hint?.kind === "company" ? input.hintCompanyId : null
+        hint?.kind === "company" ? input.hintCompanyId : null,
+        input.origin ?? null
       ).lastInsertRowid
   );
 }
@@ -124,7 +127,7 @@ export async function processLogDraft(draftId: number): Promise<void> {
     if (!row) return;
     const hint = loadLogHint(db, row.hint_person_id, row.hint_company_id);
     // A draft from the Inbox runs with nobody watching: it never switches to Claude by itself.
-    const fallback = inboxMessageFor(db, "log", draftId) === null;
+    const fallback = !draftFromInbox(db, "log", draftId);
     const allowedTools = row.fetched_text ? "" : logFetchTools(row.source);
     // Step 1 (Claude + connector tools, only for Zoom/Meet/Gmail): fetch the content.
     let content = row.fetched_text ?? row.raw_text;
@@ -173,8 +176,17 @@ export async function processLogDraft(draftId: number): Promise<void> {
 // Intake
 // ---------------------------------------------------------------------------
 
-export function insertIntakeDraft(db: Database.Database, raw: string): number {
-  return Number(db.prepare(`INSERT INTO intake_drafts (raw_text, status) VALUES (?, 'analyzing')`).run(raw).lastInsertRowid);
+/** `origin` "inbox": made from a mail-in email, so it never switches to Claude by itself. */
+export function insertIntakeDraft(db: Database.Database, raw: string, origin: "inbox" | null = null): number {
+  return Number(db.prepare(`INSERT INTO intake_drafts (raw_text, status, origin) VALUES (?, 'analyzing', ?)`).run(raw, origin).lastInsertRowid);
+}
+
+/** Whether a draft came from a mail-in email: recorded on it, or (for older drafts) linked from the email. */
+export function draftFromInbox(db: Database.Database, kind: "log" | "intake", draftId: number): boolean {
+  const row = db.prepare(`SELECT origin FROM ${kind === "log" ? "log_drafts" : "intake_drafts"} WHERE id=?`).get(draftId) as
+    | { origin: string | null }
+    | undefined;
+  return row?.origin === "inbox" || inboxMessageFor(db, kind, draftId) !== null;
 }
 
 export async function processIntakeDraft(draftId: number, research: boolean): Promise<void> {
@@ -184,7 +196,7 @@ export async function processIntakeDraft(draftId: number, research: boolean): Pr
     if (!row) return;
     const raw = row.raw_text;
     // A draft from the Inbox runs with nobody watching: it never switches to Claude by itself.
-    const fallback = inboxMessageFor(db, "intake", draftId) === null;
+    const fallback = !draftFromInbox(db, "intake", draftId);
     // Step 1 (optional): research digest. 1a, on this Mac: who the paste is
     // about. 1b, Claude + web: research that public identity only — the paste
     // itself never goes to a session that can reach the web. A failure here

@@ -7,6 +7,7 @@ import { followUps } from "./queries";
 import { effectiveBucketSql } from "./rules.mjs";
 import { loadOwner } from "./owner.mjs";
 import { bucketList } from "./vocab.mjs";
+import { localDateOf } from "./dates.mjs";
 import { getCoachSettings } from "./settings";
 import { coachToneSpec, type CoachTone } from "./coachTone";
 
@@ -40,7 +41,8 @@ export function weekLabel(weekStart: string): string {
 /** Display label for a session: weekly → "Week of …", check-in → "Check-in — …". */
 export function sessionLabel(s: { week_start: string; kind?: string | null; created_at?: string | null }): string {
   if ((s.kind ?? "weekly") === "checkin") {
-    return `Check-in — ${longDate((s.created_at ?? s.week_start).slice(0, 10))}`;
+    // created_at is UTC (SQLite's default): the label shows the day it was here.
+    return `Check-in — ${longDate(s.created_at ? localDateOf(s.created_at) : s.week_start)}`;
   }
   return weekLabel(s.week_start);
 }

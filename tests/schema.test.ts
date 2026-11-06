@@ -177,4 +177,25 @@ describe("date normalisation migration", () => {
       db.close();
     }
   });
+
+  test("check-in times stored in local time are moved to UTC once, like every other row (CR-045)", () => {
+    const db = new Database(path.join(tmp.dir, "checkin-utc.db"));
+    try {
+      initSchema(db);
+      db.exec(`DELETE FROM settings WHERE key = 'migrated.checkin_utc'`);
+      const local = "2026-11-05 21:30:00";
+      db.prepare(`INSERT INTO coach_sessions (week_start, kind, created_at) VALUES ('2026-11-03', 'checkin', ?)`).run(local);
+      db.prepare(`INSERT INTO coach_sessions (week_start, kind, created_at) VALUES ('2026-11-03', 'weekly', ?)`).run(local);
+      initSchema(db);
+      initSchema(db);
+      const utc = (db.prepare(`SELECT datetime(?, 'utc') AS t`).get(local) as { t: string }).t;
+      const rows = db.prepare(`SELECT kind, created_at FROM coach_sessions ORDER BY id`).all();
+      assert.deepEqual(rows, [
+        { kind: "checkin", created_at: utc },
+        { kind: "weekly", created_at: local },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
 });

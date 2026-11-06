@@ -3,7 +3,7 @@ import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { getInboxSettings, INBOX_MAX_PER_POLL, openInboxItems, pollInbox } from "../lib/inbox";
+import { getInboxSettings, INBOX_MAX_PER_POLL, openInboxItems, pollInbox, routeMessage } from "../lib/inbox";
 import { inboxCheckDue } from "../lib/inboxRoute";
 import { getDb } from "../lib/db";
 import { getSetting, noteAppActivity, setSetting } from "../lib/settings";
@@ -110,6 +110,20 @@ describe("pollInbox", () => {
     assert.match(prompt, /\bold-79\b/);
   });
 
+  test("a full answer with no dates keeps the look-back where it was and says why (CR-044)", async () => {
+    const before = "2026-11-01T00:00:00.000Z";
+    setSetting("inbox.last_poll_at", before);
+    const db = getDb();
+    const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, subject, body, status) VALUES (?, 's', 'b', 'ignored')`);
+    for (let i = 0; i < INBOX_MAX_PER_POLL; i++) insert.run(`undated-${i}`);
+    const messages = Array.from({ length: INBOX_MAX_PER_POLL }, (_, i) => ({ id: `undated-${i}`, subject: "s", body: "b" }));
+    cli(searched, result(JSON.stringify({ messages })));
+    const r = await pollInbox();
+    assert.equal(getSetting("inbox.last_poll_at"), before, "not moved to now");
+    assert.match(r.error ?? "", /no dates/);
+    assert.match(getSetting("inbox.last_error") ?? "", /no dates/);
+  });
+
   test("one oddly shaped message doesn't fail the check; one that can't be read is left out and counted", async () => {
     cli(
       searched,
@@ -159,5 +173,54 @@ describe("open Inbox items", () => {
     const insert = db.prepare(`INSERT INTO inbox_messages (gmail_id, body, status) VALUES (?, 'x', 'routed')`);
     for (let i = 0; i < 150; i++) insert.run(`resolved-${i}`);
     assert.deepEqual(openInboxItems(100).map((i) => i.state), ["unrouted"]);
+  });
+
+  test("only emails with a draft still open count, worked out in the query; a bad draft list doesn't break it (CR-047)", () => {
+    const db = getDb();
+    db.prepare(`DELETE FROM inbox_messages`).run();
+    const draft = (table: string, status: string) =>
+      Number(db.prepare(`INSERT INTO ${table} (raw_text, status) VALUES ('x', ?)`).run(status).lastInsertRowid);
+    const mail = db.prepare(`INSERT INTO inbox_messages (gmail_id, subject, body, status, log_draft_id, intake_draft_ids) VALUES (?, ?, 'x', 'routed', ?, ?)`);
+    mail.run("saved", "Saved", draft("log_drafts", "confirmed"), JSON.stringify([draft("intake_drafts", "discarded")]));
+    mail.run("waiting", "Waiting", null, JSON.stringify([draft("intake_drafts", "confirmed"), draft("intake_drafts", "ready")]));
+    mail.run("broken", "Broken list", draft("log_drafts", "error"), "not json");
+    assert.deepEqual(
+      openInboxItems().map((i) => [i.subject, i.state]),
+      [
+        ["Broken list", "error"],
+        ["Waiting", "ready"],
+      ]
+    );
+    assert.equal(openInboxItems(1).length, 1);
+  });
+});
+
+describe("redoing an email keeps what was saved (CR-042)", () => {
+  test("no second Log draft once one is saved, and Redo as Intake keeps the link to it", () => {
+    // Drafts start in the background: point them at a closed port so they fail fast, offline.
+    setSetting("ai.ollama_url", "http://127.0.0.1:9");
+    const db = getDb();
+    db.prepare(`DELETE FROM inbox_messages`).run();
+    const id = Number(
+      db
+        .prepare(`INSERT INTO inbox_messages (gmail_id, subject, sender, recipients, body, status) VALUES ('redo-1', 'Catch-up', 'Pat <pat@elsewhere.example>', '{}', 'notes', 'new')`)
+        .run().lastInsertRowid
+    );
+    const link = () => db.prepare(`SELECT log_draft_id, intake_draft_ids FROM inbox_messages WHERE id=?`).get(id) as { log_draft_id: number | null; intake_draft_ids: string | null };
+    const logDrafts = () => (db.prepare(`SELECT COUNT(*) n FROM log_drafts`).get() as { n: number }).n;
+
+    routeMessage(db, id, "log");
+    const logId = link().log_draft_id!;
+    db.prepare(`UPDATE log_drafts SET status='confirmed' WHERE id=?`).run(logId);
+    const made = logDrafts();
+
+    routeMessage(db, id, "log");
+    assert.equal(logDrafts(), made, "a saved Log draft is not made again");
+    assert.equal(link().log_draft_id, logId);
+
+    routeMessage(db, id, "intake");
+    assert.equal(logDrafts(), made);
+    assert.equal(link().log_draft_id, logId, "the email still links to what was saved");
+    assert.equal((JSON.parse(link().intake_draft_ids ?? "[]") as number[]).length, 1);
   });
 });

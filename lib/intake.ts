@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
 import type { IntakeAnalysis } from "./ai";
-import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
+import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { IntakeAnalysisSchema } from "./schemas";
 import { bumpLastTouch, profilePath, slugFor } from "./rules.mjs";
 import { BUCKETS, DEFAULT_CADENCE } from "./db";
@@ -44,7 +44,13 @@ export async function intakeToLog(id: number, personSlug: string) {
   const row = db.prepare(`SELECT raw_text FROM intake_drafts WHERE id=?`).get(id) as { raw_text: string } | undefined;
   const person = db.prepare(`SELECT id FROM people WHERE slug=?`).get(personSlug) as { id: number } | undefined;
   if (!row || !person) redirect(`/intake/${id}`);
-  const logId = insertLogDraft(db, { raw: row.raw_text, source: "paste", hintPersonId: person.id });
+  // An email's text stays an email's text: the new draft keeps the no-Claude rule.
+  const logId = insertLogDraft(db, {
+    raw: row.raw_text,
+    source: "paste",
+    hintPersonId: person.id,
+    origin: draftFromInbox(db, "intake", id) ? "inbox" : null,
+  });
   discardDraft(db, "intake", id, ["ready", "error"]);
   after(() => processLogDraft(logId));
   revalidatePath("/", "layout");

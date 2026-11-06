@@ -238,6 +238,15 @@ describe("saving a Log draft", () => {
     await run(() => confirmLog(form({ ...base, entry_0: "on", entry_next_0: "Something new", entry_keep_next_0: "on" })));
     assert.equal(one<{ next_action: string }>(`SELECT next_action FROM people WHERE id=1`).next_action, "Send the proposal");
   });
+
+  test("a to-do ticked off elsewhere keeps its completion date and isn't counted as closed again (CR-043)", async () => {
+    db.prepare(`INSERT INTO action_items (id, title, person_id, status, completed_at) VALUES (7, 'Send deck', 1, 'done', '2026-10-01')`).run();
+    db.prepare(`INSERT INTO action_items (id, title, person_id, status) VALUES (8, 'Call back', 1, 'open')`).run();
+    await run(() => confirmLog(form({ ...base, entry_0: "on", resolve_7: "on", resolve_8: "on" })));
+    assert.equal(one<{ completed_at: string }>(`SELECT completed_at FROM action_items WHERE id=7`).completed_at, "2026-10-01");
+    assert.equal(one<{ status: string }>(`SELECT status FROM action_items WHERE id=8`).status, "done");
+    assert.equal(readReceipt(db, "log", 1)!.closed, 1);
+  });
 });
 
 describe("saving an Intake draft", () => {

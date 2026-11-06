@@ -251,8 +251,8 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   that arrives meanwhile isn't lost). The page shows where each
   draft is in the model's queue and updates by itself, and an email's
   **More** menu re-routes anything it guessed wrong (replacing that email's
-  drafts rather than adding more) or ignores it (discarding its unsaved
-  drafts). Only
+  unsaved drafts rather than adding more; a saved Log entry stays, and isn't
+  offered again) or ignores it (discarding its unsaved drafts). Only
   email sent from your own addresses (the one in `config/owner.json`, plus any
   you list under **Your other email addresses**) is acted on: anyone can write
   to a plus-address, so the mailbox search itself asks only for mail from your
