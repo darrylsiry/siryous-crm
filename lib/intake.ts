@@ -5,11 +5,18 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
 import type { IntakeAnalysis } from "./ai";
-import { insertIntakeDraft, processIntakeDraft } from "./drafts";
+import { insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { IntakeAnalysisSchema } from "./schemas";
 import { bumpLastTouch, profilePath, slugFor } from "./rules.mjs";
-import { DEFAULT_CADENCE } from "./db";
-import { parseDueDate } from "./dates.mjs";
+import { BUCKETS, DEFAULT_CADENCE } from "./db";
+import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
+import { inboxMessageFor, type Receipt } from "./receipts";
+
+/** Back to the Inbox queue when the draft came from an email; else `fallback`. */
+function landing(draftId: number, fallback: string, receipt = false): string {
+  const base = inboxMessageFor(getDb(), "intake", draftId) ? "/inbox" : fallback;
+  return receipt ? `${base}${base.includes("?") ? "&" : "?"}receipt=intake-${draftId}` : base;
+}
 
 export async function analyzeIntake(formData: FormData) {
   const raw = String(formData.get("raw_text") ?? "").trim();
@@ -23,8 +30,25 @@ export async function analyzeIntake(formData: FormData) {
 
 export async function discardIntake(id: number) {
   getDb().prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=?`).run(id);
-  revalidatePath("/intake");
-  redirect("/intake");
+  revalidatePath("/", "layout");
+  redirect(landing(id, "/intake"));
+}
+
+/**
+ * "Log this on Sam Lee": the paste is about someone already in the CRM, so
+ * start a Log draft from the same text with that contact preset, and drop
+ * this Intake draft. Nothing needs pasting again.
+ */
+export async function intakeToLog(id: number, personSlug: string) {
+  const db = getDb();
+  const row = db.prepare(`SELECT raw_text FROM intake_drafts WHERE id=?`).get(id) as { raw_text: string } | undefined;
+  const person = db.prepare(`SELECT id FROM people WHERE slug=?`).get(personSlug) as { id: number } | undefined;
+  if (!row || !person) redirect(`/intake/${id}`);
+  const logId = insertLogDraft(db, { raw: row.raw_text, source: "paste", hintPersonId: person.id });
+  db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('ready','error')`).run(id);
+  after(() => processLogDraft(logId));
+  revalidatePath("/", "layout");
+  redirect(`/log/${logId}`);
 }
 
 const str = (fd: FormData, k: string) => {
@@ -127,6 +151,7 @@ function saveReviewEdits(db: ReturnType<typeof getDb>, draftId: number, formData
       role_title: str(formData, "role_title"),
       location: str(formData, "location"),
       email: str(formData, "email"),
+      phone: str(formData, "phone"),
       linkedin: str(formData, "linkedin"),
       tags: str(formData, "tags"),
       status_suggestion: str(formData, "status_key") ?? original.person?.status_suggestion ?? "new",
@@ -158,6 +183,11 @@ function writeIntake(db: ReturnType<typeof getDb>, draftId: number, formData: Fo
   // unless the reviewer explicitly opted in on the review screen. The bounce
   // back to the review page re-renders from result_json, so the reviewer's
   // edits are written there first and survive the round trip.
+  // A logged interaction needs a real date: refuse rather than quietly stamp it today.
+  if (formData.get("interaction_include") && str(formData, "interaction_summary") && !isIsoDate(str(formData, "interaction_date"))) {
+    saveReviewEdits(db, draftId, formData);
+    redirect(`/intake/${draftId}?baddate=1`);
+  }
   let slug = slugFor(name, "person");
   const slugTaken = !!db.prepare(`SELECT 1 FROM people WHERE slug=?`).get(slug);
   if (slugTaken && !formData.get("allow_duplicate")) {
@@ -169,7 +199,7 @@ function writeIntake(db: ReturnType<typeof getDb>, draftId: number, formData: Fo
   // All or nothing from here: a failure part-way must not leave a half-created
   // person behind, which a second confirm would then trip over.
   db.transaction(() => writeIntakeRecords(db, draftId, formData, name, slug))();
-  return profilePath("people", slug);
+  return landing(draftId, profilePath("people", slug), true);
 }
 
 function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formData: FormData, name: string, slug: string) {
@@ -221,7 +251,7 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     companyId,
     str(formData, "location"),
     str(formData, "email"),
-    null,
+    str(formData, "phone"),
     str(formData, "linkedin"),
     str(formData, "relationship_strength"),
     str(formData, "tags"),
@@ -239,9 +269,8 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     const isum = str(formData, "interaction_summary");
     if (isum) {
       const idateRaw = String(formData.get("interaction_date") ?? "").trim();
-      const idate = /^\d{4}-\d{2}-\d{2}$/.test(idateRaw)
-        ? idateRaw
-        : new Date().toLocaleDateString("sv-SE");
+      // writeIntake refused anything that isn't a date before this point.
+      const idate = isIsoDate(idateRaw) ? idateRaw : todayLocal();
       db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`).run(
         personId,
         companyId,
@@ -268,7 +297,8 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     }
   }
 
-  // --- accepted action items (checkboxes action_<i>, fields action_title_<i>, action_bucket_<i>, action_due_<i>) ---
+  // --- accepted to-dos (checkboxes action_<i>, fields action_title_<i>, action_bucket_<i>, action_due_<i>: a date or the AI's words) ---
+  let added = 0;
   for (const [key] of formData.entries()) {
     const m = key.match(/^action_(\d+)$/);
     if (!m) continue;
@@ -276,15 +306,18 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     const title = str(formData, `action_title_${i}`);
     if (!title) continue;
     const due = str(formData, `action_due_${i}`);
+    const bucket = String(formData.get(`action_bucket_${i}`) ?? "");
     db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`).run(
-      String(formData.get(`action_bucket_${i}`) ?? "this_week"),
+      Object.hasOwn(BUCKETS, bucket) ? bucket : "this_week",
       due,
-      parseDueDate(due),
+      isIsoDate(due) ? due : parseDueDate(due),
       title,
       personId,
       companyId
     );
+    added++;
   }
 
-  db.prepare(`UPDATE intake_drafts SET status='confirmed' WHERE id=?`).run(draftId);
+  const receipt: Receipt = { saved: [], created: [name], closed: 0, added, skipped: 0 };
+  db.prepare(`UPDATE intake_drafts SET status='confirmed', receipt=? WHERE id=?`).run(JSON.stringify(receipt), draftId);
 }

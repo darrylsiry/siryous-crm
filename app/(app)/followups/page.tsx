@@ -3,12 +3,16 @@ import { followUps } from "@/lib/queries";
 import { VOCAB } from "@/lib/db";
 import { cadenceLine } from "@/lib/vocab.mjs";
 import StatusBadge from "@/components/StatusBadge";
+import QuickLog from "@/components/QuickLog";
+import { shortDate, todayLocal } from "@/lib/dates.mjs";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Keep Warm" };
+
 function DueChip({ daysOver, daysSince, cadence, note }: { daysOver: number | null; daysSince: number | null; cadence: number | null; note?: string | null }) {
   if (cadence == null) {
-    return <span className="text-xs text-stone-400">no cadence</span>;
+    return <span className="text-xs text-stone-500">no cadence</span>;
   }
   if (daysOver != null && daysOver >= 9999) {
     return (
@@ -40,7 +44,11 @@ function DueChip({ daysOver, daysSince, cadence, note }: { daysOver: number | nu
 }
 
 export default function FollowUpsPage() {
-  const rows = followUps();
+  const all = followUps();
+  // People with no cadence aren't being kept warm; they sit in a fold below.
+  const rows = all.filter((r) => r.cadence_days != null);
+  const uncadenced = all.filter((r) => r.cadence_days == null);
+  const today = todayLocal();
   const overdue = rows.filter((r) => r.days_over != null && r.days_over > 0);
   const empty = "Nobody to keep warm yet — people show up here once they exist on the People page; set a cadence in each profile's snapshot.";
 
@@ -51,7 +59,7 @@ export default function FollowUpsPage() {
         <p className="mt-1 text-sm text-stone-500">
           Who should you talk to? Everyone scored against their follow-up cadence —{" "}
           <span className="font-medium text-red-700">{overdue.length} due for a touch</span>.
-          Set cadence per person in their snapshot.
+          Set cadence per person in their snapshot. <b className="font-medium">Log touch</b> records a call or meeting without leaving this page.
         </p>
       </header>
 
@@ -68,42 +76,46 @@ export default function FollowUpsPage() {
                   {r.name}
                 </Link>
                 {r.company_name ? (
-                  <div className="truncate text-xs text-stone-400">{r.company_name}</div>
+                  <div className="truncate text-xs text-stone-500">{r.company_name}</div>
                 ) : null}
               </div>
-              <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />
+              <div className="flex flex-col items-end gap-1.5">
+                <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />
+                <QuickLog personId={r.id} name={r.name} />
+              </div>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500">
               <StatusBadge statusKey={r.status_key} compact />
               <span className="tabular-nums">
-                {r.last_touch ?? (r.last_touch_note ? `undated — ${r.last_touch_note}` : "never")}
+                {r.last_touch ? shortDate(r.last_touch, today) : r.last_touch_note ? `undated — ${r.last_touch_note}` : "never"}
                 {r.days_since != null ? ` (${r.days_since}d)` : ""}
               </span>
               <span>{r.cadence_days ? `every ${r.cadence_days}d` : "no cadence"}</span>
             </div>
             {r.next_action ? (
               <div className="mt-2 border-t border-stone-100 pt-2 text-xs text-stone-600 line-clamp-2">
-                <span className="font-medium text-stone-400">Next: </span>
+                <span className="font-medium text-stone-500">Next step: </span>
                 {r.next_action}
               </div>
             ) : null}
           </li>
         ))}
         {!rows.length && (
-          <li className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-400">{empty}</li>
+          <li className="rounded-xl border border-stone-200 bg-white p-4 text-sm italic text-stone-500">{empty}</li>
         )}
       </ul>
 
       <div className="hidden overflow-x-auto rounded-xl border border-stone-200 bg-white md:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-400">
+            <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Due</th>
               <th className="px-4 py-3 font-medium">Last touch</th>
               <th className="px-4 py-3 font-medium">Cadence</th>
-              <th className="px-4 py-3 font-medium">Next action</th>
+              <th className="px-4 py-3 font-medium">Next step</th>
+              <th className="px-4 py-3 font-medium"><span className="sr-only">Log</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
@@ -113,7 +125,7 @@ export default function FollowUpsPage() {
                   <Link href={`/people/${r.slug}`} className="font-semibold text-stone-900 hover:text-indigo-700">
                     {r.name}
                   </Link>
-                  <div className="text-xs text-stone-400">
+                  <div className="text-xs text-stone-500">
                     {r.company_name ?? ""}
                     {r.tags
                       ? r.tags.split(",").map((t, i) => (
@@ -131,9 +143,9 @@ export default function FollowUpsPage() {
                   <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />
                 </td>
                 <td className="px-4 py-3 tabular-nums text-xs text-stone-500">
-                  {r.last_touch ?? (r.last_touch_note ? `undated — ${r.last_touch_note}` : "—")}
+                  {r.last_touch ? shortDate(r.last_touch, today) : r.last_touch_note ? `undated — ${r.last_touch_note}` : "—"}
                   {r.days_since != null ? (
-                    <span className="text-stone-400"> ({r.days_since}d)</span>
+                    <span className="text-stone-500"> ({r.days_since}d)</span>
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-xs text-stone-500">
@@ -142,17 +154,37 @@ export default function FollowUpsPage() {
                 <td className="px-4 py-3 text-xs text-stone-600 max-w-72">
                   <span className="line-clamp-2">{r.next_action ?? "—"}</span>
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <QuickLog personId={r.id} name={r.name} />
+                </td>
               </tr>
             ))}
             {!rows.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-sm italic text-stone-400">{empty}</td>
+                <td colSpan={7} className="px-4 py-6 text-sm italic text-stone-500">{empty}</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-stone-400">
+      {uncadenced.length ? (
+        <details className="rounded-xl border border-stone-200 bg-white px-5 py-3">
+          <summary className="cursor-pointer select-none text-sm font-medium text-stone-600">
+            {uncadenced.length} {uncadenced.length === 1 ? "person has" : "people have"} no cadence, so {uncadenced.length === 1 ? "isn't" : "aren't"} kept warm
+          </summary>
+          <p className="mt-2 text-xs text-stone-500">Give someone a cadence in their profile&apos;s ✎ Edit snapshot to add them above.</p>
+          <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+            {uncadenced.map((r) => (
+              <li key={r.id}>
+                <Link href={`/people/${r.slug}`} className="text-stone-700 hover:text-indigo-700">
+                  {r.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      <p className="text-xs text-stone-500">
         Cadence defaults were set by status ({cadenceLine(VOCAB)}) — tune per person from their profile.
         Logging an interaction resets the clock.
       </p>

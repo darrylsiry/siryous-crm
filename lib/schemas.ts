@@ -87,6 +87,7 @@ export const IntakeAnalysisSchema = z.object({
     location: nstr,
     linkedin: nstr,
     email: nstr,
+    phone: nstr,
     existing_person_slug: nstr,
     existing_company_slug: nstr,
     new_company: nullableObject(

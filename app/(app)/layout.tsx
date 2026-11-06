@@ -1,12 +1,14 @@
 import Link from "next/link";
 import MobileNav from "@/components/MobileNav";
-import NavBadge from "@/components/NavBadge";
+import SideNav from "@/components/SideNav";
+import { ToastProvider } from "@/components/Toaster";
+import ReceiptBanner from "@/components/ReceiptBanner";
+import { Suspense } from "react";
 import { loadOwner } from "@/lib/owner.mjs";
 import { navCounts, type NavCounts } from "@/lib/navCounts";
 import { hasReports } from "@/lib/agentActivity";
-import { STATUS } from "@/lib/db";
+import { STATUS, getDb } from "@/lib/db";
 
-const owner = loadOwner();
 /** "🌱 New · 🔍 Exploring · …", from the vocabulary. */
 const statusLegend = Object.values(STATUS)
   .map((s) => `${s.emoji} ${s.label}`.trim())
@@ -54,14 +56,25 @@ const nav: NavGroup[] = [
   { title: null, items: [{ href: "/settings", label: "Settings", icon: "⚙" }] },
 ];
 
-/** App Tests shows only once a review agent has written a report; most installs never run them. */
-function navWithTests(): NavGroup[] {
+/**
+ * The nav as this install needs it: Outreach only once it holds something
+ * (the app never creates outreach itself), App Tests only once a review
+ * agent has written a report (most installs never run them).
+ */
+function navFor(): NavGroup[] {
+  let groups = nav;
   try {
-    if (!hasReports()) return nav;
+    const outreach = (getDb().prepare(`SELECT COUNT(*) AS n FROM outreach`).get() as { n: number }).n;
+    if (!outreach) groups = groups.map((g) => ({ ...g, items: g.items.filter((i) => i.href !== "/outreach") }));
   } catch {
-    return nav;
+    /* never let the nav take the app chrome down */
   }
-  return nav.map((g) => (g.items.some((i) => i.href === "/settings") ? { ...g, items: [{ href: "/app-tests", label: "App Tests", icon: "✓" }, ...g.items] } : g));
+  try {
+    if (!hasReports()) return groups;
+  } catch {
+    return groups;
+  }
+  return groups.map((g) => (g.items.some((i) => i.href === "/settings") ? { ...g, items: [{ href: "/app-tests", label: "App Tests", icon: "✓" }, ...g.items] } : g));
 }
 
 /** "Siryous CRM" → "Siryous" + accented " CRM"; any other name is rendered as-is. */
@@ -81,7 +94,8 @@ function AppName({ name }: { name: string }) {
  * page except sign-in, which lives in the (bare) group with no navigation.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const groups = navWithTests();
+  const owner = loadOwner();
+  const groups = navFor();
   let counts: NavCounts = {};
   try {
     counts = navCounts();
@@ -97,7 +111,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="text-lg font-bold tracking-tight text-stone-900">
               <AppName name={owner.appName} />
             </div>
-            <div className="text-[0.7rem] text-stone-400 mt-0.5">
+            <div className="text-[0.7rem] text-stone-500 mt-0.5">
               Business Development
             </div>
           </Link>
@@ -109,34 +123,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs focus:border-indigo-400 focus:bg-white focus:outline-none"
             />
           </form>
-          <nav className="space-y-4">
-            {groups.map((g, i) => (
-              <div key={g.title ?? i}>
-                {g.title ? (
-                  <div className="mb-1 px-3 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400">{g.title}</div>
-                ) : null}
-                <div className="space-y-0.5">
-                  {g.items.map((n) => (
-                    <Link
-                      key={n.href}
-                      href={n.href}
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm font-medium text-stone-600 hover:bg-stone-100 hover:text-stone-900"
-                    >
-                      <span className="text-stone-400 w-4 text-center">{n.icon}</span>
-                      {n.label}
-                      <NavBadge href={n.href} initial={counts} />
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </nav>
-          <div className="mt-auto px-2 text-[0.68rem] leading-relaxed text-stone-400">
+          <SideNav groups={groups} counts={counts} />
+          <div className="mt-auto px-2 text-[0.68rem] leading-relaxed text-stone-500">
             Status: {statusLegend}
           </div>
         </aside>
         <main className="min-w-0 w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 md:ml-52 md:px-8 md:py-8 [&:has(.full-bleed)]:max-w-none">
-          {children}
+          <ToastProvider>
+            <Suspense fallback={null}>
+              <ReceiptBanner />
+            </Suspense>
+            {children}
+          </ToastProvider>
         </main>
       </div>
     </>

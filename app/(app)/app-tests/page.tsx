@@ -6,6 +6,8 @@ import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "App Tests" };
+
 // App Tests: what the independent review agents have found and what became of
 // it, read from their reports and the ledger on every request. Nothing here
 // changes anything.
@@ -24,7 +26,7 @@ const TONE: Record<string, string> = {
 };
 
 function Severity({ s, count }: { s: string; count?: number }) {
-  if (!s) return <span className="text-xs text-stone-400">—</span>;
+  if (!s) return <span className="text-xs text-stone-500">—</span>;
   return (
     <span className={`inline-block whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium ${TONE[s] ?? "bg-stone-100 text-stone-700"}`}>
       {s}
@@ -121,7 +123,7 @@ function AgentCard({ a, selected, now }: { a: AgentView; selected: boolean; now:
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="font-semibold text-stone-900 group-hover:text-indigo-700">{a.info.name}</h2>
-        <span className="font-mono text-xs text-stone-400">{a.info.agent}</span>
+        <span className="font-mono text-xs text-stone-500">{a.info.agent}</span>
       </div>
       <p className="mt-0.5 text-xs text-stone-500">{a.info.what}</p>
       <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -224,7 +226,7 @@ function ClosedTable({ items }: { items: LedgerItem[] }) {
             <tr key={i.id} className="border-t border-stone-100 align-top">
               <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-stone-700">{i.id}</td>
               <td className="px-2 py-2 text-stone-800">
-                {i.title ? <Inline text={i.title} /> : <span className="text-stone-400">—</span>}
+                {i.title ? <Inline text={i.title} /> : <span className="text-stone-500">—</span>}
                 {i.severity ? (
                   <span className="ml-2">
                     <Severity s={i.severity} />
@@ -321,7 +323,7 @@ function RunsLog({ runs, now }: { runs: LedgerRun[]; now: number }) {
           {recent.map((r) => (
             <tr key={`${r.agent}-${r.run}`} className="border-t border-stone-100">
               <td className="whitespace-nowrap px-4 py-2 text-stone-600">
-                {stamp(r.runAt)} <span className="text-xs text-stone-400">· {ago(r.runAt, now)}</span>
+                {stamp(r.runAt)} <span className="text-xs text-stone-500">· {ago(r.runAt, now)}</span>
               </td>
               <td className="px-2 py-2">
                 <Link href={`/app-tests?agent=${r.agent}#findings`} className="text-stone-900 hover:text-indigo-600 hover:underline">

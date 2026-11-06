@@ -31,6 +31,11 @@ export interface AiStatus {
   fallbackToClaude: boolean;
   /** Can the configured provider run a tool-less "write" step right now? */
   aiUsable: boolean;
+  /**
+   * Set to "local" but the AI on this Mac can't run, so runs go to Claude
+   * (and the text, with the contact list, to Anthropic). The AI pages warn.
+   */
+  fallingBack: boolean;
 }
 
 /** Rough download sizes for the models the README suggests, so the banner can warn "(about 16 GB)". */
@@ -43,6 +48,16 @@ const KNOWN_SIZES_GB: Record<string, number> = {
   "qwen3:14b": 9,
   "qwen3:8b": 5,
 };
+
+/**
+ * The one model to suggest for this Mac's memory, in step with the README:
+ * the default gemma4:26b from 32 GB, gemma4:12b on 16 GB, qwen3:8b below.
+ */
+export function recommendedModel(totalBytes = os.totalmem()): { model: string; size: string; memoryGb: number } {
+  const memoryGb = Math.round(totalBytes / 1024 ** 3);
+  const model = memoryGb >= 30 ? "gemma4:26b" : memoryGb >= 15 ? "gemma4:12b" : "qwen3:8b";
+  return { model, size: approxDownloadSize(model) ?? "", memoryGb };
+}
 
 /** "about 16 GB" for a known tag, or null. */
 export function approxDownloadSize(model: string): string | null {
@@ -123,5 +138,6 @@ export async function getAiStatus(): Promise<AiStatus> {
   };
   const localOk = ollama.ok && model.ok;
   const aiUsable = s.provider === "claude" ? claudeOk : localOk || (s.fallbackToClaude && claudeOk);
-  return { ollama, model, claude: { ok: claudeOk }, provider: s.provider, fallbackToClaude: s.fallbackToClaude, aiUsable };
+  const fallingBack = s.provider === "local" && !localOk && s.fallbackToClaude && claudeOk;
+  return { ollama, model, claude: { ok: claudeOk }, provider: s.provider, fallbackToClaude: s.fallbackToClaude, aiUsable, fallingBack };
 }

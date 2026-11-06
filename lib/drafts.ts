@@ -16,6 +16,9 @@ import { noteProgress, runWithProgress } from "./progress";
 import { IntakeAnalysisSchema, LogAnalysisSchema, validateModelJson } from "./schemas";
 import { RunCancelled } from "./llm";
 
+/** How a Log draft's error starts when nobody it mentions is in the CRM (the draft page offers Intake then). */
+export const NOBODY_FOUND = "Nobody in these notes is in your CRM yet.";
+
 /** A queued run should only start if its draft is still waiting for it. */
 function stillAnalyzing(table: "log_drafts" | "intake_drafts", id: number): () => boolean {
   return () => {
@@ -136,10 +139,8 @@ export async function processLogDraft(draftId: number): Promise<void> {
       content
     );
     if (!analysis?.entries?.length) {
-      throw new Error(
-        "No roster contacts were found to log against. " +
-          (analysis?.summary_md ? `Its summary: ${analysis.summary_md.slice(0, 300)}` : "")
-      );
+      // Not a fault: the meeting was with someone new. The draft page offers Intake (with this text) instead.
+      throw new Error(`${NOBODY_FOUND}${analysis?.summary_md ? ` What the AI understood: ${analysis.summary_md.slice(0, 300)}` : ""}`);
     }
     db.prepare(`UPDATE log_drafts SET result_json=?, status='ready' WHERE id=? AND status='analyzing'`).run(JSON.stringify(analysis), draftId);
   } catch (err) {

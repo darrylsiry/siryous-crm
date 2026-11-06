@@ -30,6 +30,8 @@ export interface GatheredResearch {
   research: PrepResearch | null;
   /** Why there is no research, for the writer (when `research` is null). */
   researchNote: string | null;
+  /** Per step: null when it checked, else why it didn't. Saved on the brief and shown above it. */
+  checks: { connector: string | null; web: string | null };
 }
 
 /** Both research steps for a brief. Throws only when no person was chosen and none could be found. */
@@ -105,7 +107,7 @@ export async function gatherResearch(db: Database.Database, briefId: number, per
   if (research === null) {
     noteProgress("prep", briefId, "External research unavailable — writing from the CRM dossier only");
   }
-  return { targetId, research, researchNote };
+  return { targetId, research, researchNote, checks: { connector: connectorNote, web: webNote } };
 }
 
 /**

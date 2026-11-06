@@ -3,6 +3,8 @@ import ImportForm from "./ImportForm";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Import" };
+
 export default function ImportPage() {
   return (
     <div className="max-w-4xl space-y-6">
@@ -20,7 +22,7 @@ export default function ImportPage() {
 
       <ImportForm />
 
-      <p className="text-xs text-stone-400">
+      <p className="text-xs text-stone-500">
         Nothing leaves your computer — the file is read on this Mac and saved straight into the CRM. Files up to 8 MB work
         here; for anything bigger, split the spreadsheet or use <code>npm run import-csv</code>. For one person at a time, use{" "}
         <Link href="/intake" className="underline">Intake</Link> (which also writes the profile) or the{" "}

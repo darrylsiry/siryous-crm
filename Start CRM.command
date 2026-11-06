@@ -13,7 +13,11 @@ URL="http://127.0.0.1:3000"   # keep 127.0.0.1 — the sign-in cookie is tied to
 export PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 export NEXT_TELEMETRY_DISABLED=1
 
-is_up() { curl -s -o /dev/null --max-time 2 "$URL/"; }
+# Is the CRM itself answering (not just something on port 3000)? It identifies
+# itself at /api/health, which needs no sign-in.
+is_up() { curl -s --max-time 2 "$URL/api/health" 2>/dev/null | grep -q '"app":"siryous-crm"'; }
+# Is anything at all answering on the address?
+port_busy() { curl -s -o /dev/null --max-time 2 "$URL/"; }
 
 # The app is locked to this machine with a private token (README, "Signing
 # in"). Opening it with ?token= signs this browser in once. The token sits next
@@ -47,6 +51,14 @@ if is_up; then
   open_app
   echo "Running at $URL — you can close this window."
   exit 0
+fi
+# Something else answers on port 3000. The CRM may still be able to start
+# beside it (a program listening on every address leaves 127.0.0.1 free), so
+# try; it's only opened once it really is the CRM answering.
+OTHER_ON_PORT=no
+if port_busy; then
+  OTHER_ON_PORT=yes
+  echo "Another program is answering on port 3000 (it isn't the CRM) — trying to start the CRM beside it…"
 fi
 
 # 1. Node.js (the engine the CRM runs on). The .pkg from nodejs.org is enough.
@@ -119,6 +131,10 @@ for i in {1..60}; do
 done
 
 if ! is_up; then
+  if [ "$OTHER_ON_PORT" = yes ]; then
+    fail "Another program is using the address the CRM needs (port 3000), so the CRM couldn't start." \
+"Quit that program and double-click Start CRM.command again. Nothing has been changed."
+  fi
   echo ""
   echo "The CRM didn't start. The last lines of data/server.log are:"
   echo "----------------------------------------------------------------"

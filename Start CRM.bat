@@ -15,11 +15,15 @@ title Siryous CRM
 set "URL=http://127.0.0.1:3000"
 set "NEXT_TELEMETRY_DISABLED=1"
 
-rem Already running? Just open it.
+rem Already running? Just open it. The CRM identifies itself at /api/health,
+rem so another program on port 3000 is never mistaken for it.
+set "OTHER_ON_PORT=no"
 where curl >nul 2>nul
 if not errorlevel 1 (
-  curl -s -o NUL --max-time 2 %URL%/ && goto :open
+  curl -s --max-time 2 %URL%/api/health 2>nul | findstr /c:"siryous-crm" >nul && goto :open
+  curl -s -o NUL --max-time 2 %URL%/ && set "OTHER_ON_PORT=yes"
 )
+if "%OTHER_ON_PORT%"=="yes" echo Another program is answering on port 3000 ^(it isn't the CRM^) -- trying to start the CRM beside it...
 
 rem 1. Node.js (the engine the CRM runs on). The installer from nodejs.org is enough.
 where node >nul 2>nul
@@ -127,9 +131,15 @@ if errorlevel 1 (
 )
 for /l %%i in (1,1,60) do (
   timeout /t 1 /nobreak >nul
-  curl -s -o NUL --max-time 2 %URL%/ && goto :open
+  curl -s --max-time 2 %URL%/api/health 2>nul | findstr /c:"siryous-crm" >nul && goto :open
 )
 echo.
+if "%OTHER_ON_PORT%"=="yes" (
+  echo Another program is using the address the CRM needs ^(port 3000^), so the CRM couldn't start.
+  echo Quit that program and double-click Start CRM.bat again. Nothing has been changed.
+  pause
+  exit /b 1
+)
 echo The CRM didn't start. Look at the "Siryous CRM server" window for the error,
 echo then see README.md, "Troubleshooting".
 pause

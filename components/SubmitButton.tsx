@@ -12,17 +12,24 @@ export default function SubmitButton({
   pendingChildren,
   className,
   title,
+  name,
+  value,
 }: {
   children: React.ReactNode;
   /** What to show while pending; defaults to the normal children. */
   pendingChildren?: React.ReactNode;
   className?: string;
   title?: string;
+  /** Sent with the form when this button submits it (e.g. decision=apply). */
+  name?: string;
+  value?: string;
 }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
+      name={name}
+      value={value}
       disabled={pending}
       aria-busy={pending || undefined}
       title={title}

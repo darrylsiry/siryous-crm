@@ -152,17 +152,17 @@ export default function SearchSelect({
         }}
         className={`flex w-full items-center justify-between gap-2 text-left ${className}`}
       >
-        <span className={`truncate ${selected ? "" : "text-stone-400"}`}>
+        <span className={`truncate ${selected ? "" : "text-stone-500"}`}>
           {selected ? (
             <>
               {selected.label}
-              {selected.hint ? <span className="text-stone-400"> — {selected.hint}</span> : null}
+              {selected.hint ? <span className="text-stone-500"> — {selected.hint}</span> : null}
             </>
           ) : (
             emptyLabel
           )}
         </span>
-        <span aria-hidden className="shrink-0 text-[0.6rem] text-stone-400">▼</span>
+        <span aria-hidden className="shrink-0 text-[0.6rem] text-stone-500">▼</span>
       </button>
       {open ? (
         <div
@@ -186,14 +186,14 @@ export default function SearchSelect({
             className="w-full rounded-md border border-stone-300 px-2 py-1 text-sm font-normal text-stone-800 focus:border-indigo-400 focus:outline-none"
           />
           <ul ref={list} id={listId} role="listbox" className="mt-1 max-h-64 overflow-y-auto text-sm font-normal">
-            {shown.length === 0 ? <li className="px-2 py-1.5 italic text-stone-400">No match</li> : null}
+            {shown.length === 0 ? <li className="px-2 py-1.5 italic text-stone-500">No match</li> : null}
             {shown.map((o, i) => {
               const header = o.group && o.group !== lastGroup ? o.group : null;
               lastGroup = o.group;
               return (
                 <li key={`${o.value}-${i}`} role="presentation">
                   {header ? (
-                    <div className="mt-1 border-t border-stone-100 px-2 pb-0.5 pt-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-stone-400">
+                    <div className="mt-1 border-t border-stone-100 px-2 pb-0.5 pt-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-stone-500">
                       {header}
                     </div>
                   ) : null}
@@ -204,10 +204,10 @@ export default function SearchSelect({
                     onMouseEnter={() => setActive(i)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => choose(o.value)}
-                    className={`cursor-pointer truncate rounded px-2 py-1 ${i === active ? "bg-indigo-50 text-indigo-800" : "text-stone-700"} ${o.value === value ? "font-semibold" : ""} ${o.value === "" ? "text-stone-400" : ""}`}
+                    className={`cursor-pointer truncate rounded px-2 py-1 ${i === active ? "bg-indigo-50 text-indigo-800" : "text-stone-700"} ${o.value === value ? "font-semibold" : ""} ${o.value === "" ? "text-stone-500" : ""}`}
                   >
                     {o.label}
-                    {o.hint ? <span className="text-xs text-stone-400"> — {o.hint}</span> : null}
+                    {o.hint ? <span className="text-xs text-stone-500"> — {o.hint}</span> : null}
                   </div>
                 </li>
               );

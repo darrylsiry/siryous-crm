@@ -59,6 +59,18 @@ export function peopleAtCompany(companyId: number): Person[] {
     .all(companyId) as Person[];
 }
 
+/** People this person is connected to (either direction), for the profile's side column. */
+export function connectionsFor(personId: number): { slug: string; name: string; label: string | null }[] {
+  return getDb()
+    .prepare(
+      `SELECT p.slug, p.name, c.label FROM connections c JOIN people p ON p.id = c.to_person_id WHERE c.from_person_id = ?
+       UNION
+       SELECT p.slug, p.name, c.label FROM connections c JOIN people p ON p.id = c.from_person_id WHERE c.to_person_id = ?
+       ORDER BY 2`
+    )
+    .all(personId, personId) as { slug: string; name: string; label: string | null }[];
+}
+
 export function interactionsFor(opts: { personId?: number; companyId?: number }): Interaction[] {
   const db = getDb();
   if (opts.personId) {
@@ -95,7 +107,9 @@ export function openActionItems(): ActionItemJoined[] {
     .all() as ActionItemJoined[];
 }
 
-export function doneActionItems(): ActionItemJoined[] {
+/** Done to-dos, newest first; `days` keeps only those completed in that many days. */
+export function doneActionItems({ days }: { days?: number } = {}): ActionItemJoined[] {
+  const recent = days ? `AND a.completed_at >= date('now','localtime','-${Math.floor(days)} days')` : "";
   return getDb()
     .prepare(
       `SELECT a.*, p.name AS person_name, p.slug AS person_slug,
@@ -103,10 +117,30 @@ export function doneActionItems(): ActionItemJoined[] {
        FROM action_items a
        LEFT JOIN people p ON p.id = a.person_id
        LEFT JOIN companies c ON c.id = a.company_id
-       WHERE a.status = 'done'
+       WHERE a.status = 'done' ${recent}
        ORDER BY a.completed_at DESC, a.id DESC`
     )
     .all() as ActionItemJoined[];
+}
+
+/** How many to-dos are done in all (for "Show older"). */
+export function doneActionCount(): number {
+  return (getDb().prepare(`SELECT COUNT(*) AS n FROM action_items WHERE status='done'`).get() as { n: number }).n;
+}
+
+/** People and companies as picker options, sent once per page (components/PeoplePicker.tsx). */
+export function peopleOptions(): { value: string; label: string; hint: string | null }[] {
+  return (
+    getDb()
+      .prepare(`SELECT p.id, p.name, c.name AS company FROM people p LEFT JOIN companies c ON c.id = p.company_id ORDER BY p.name`)
+      .all() as { id: number; name: string; company: string | null }[]
+  ).map((p) => ({ value: String(p.id), label: p.name, hint: p.company }));
+}
+export function companyOptions(): { value: string; label: string }[] {
+  return (getDb().prepare(`SELECT id, name FROM companies ORDER BY name`).all() as { id: number; name: string }[]).map((c) => ({
+    value: String(c.id),
+    label: c.name,
+  }));
 }
 
 export function allOutreach(): (Outreach & { person_name: string | null; person_slug: string | null })[] {
@@ -139,6 +173,31 @@ export function allOpportunities(): OpportunityJoined[] {
        ORDER BY o.priority, o.updated_at DESC`
     )
     .all() as OpportunityJoined[];
+}
+
+/** Deals: days since the last logged contact before a deal reads "quiet" (amber) and "gone quiet" (red, needs attention). */
+export const DEAL_QUIET_DAYS = 14;
+export const DEAL_COLD_DAYS = 30;
+
+/** Days since the last dated interaction with a deal's person or company; null when there is none. */
+export function dealQuietDays(o: { person_id: number | null; company_id: number | null }, today: string): number | null {
+  const d = (
+    getDb()
+      .prepare(
+        `SELECT MAX(date) AS d FROM interactions
+         WHERE ((person_id IS NOT NULL AND person_id = ?) OR (company_id IS NOT NULL AND company_id = ?)) AND date GLOB '[0-9][0-9][0-9][0-9]-*'`
+      )
+      .get(o.person_id ?? -1, o.company_id ?? -1) as { d: string | null }
+  ).d;
+  if (!d) return null;
+  return Math.round((new Date(`${today}T12:00:00`).getTime() - new Date(`${d.slice(0, 10)}T12:00:00`).getTime()) / 86_400_000);
+}
+
+/** The words and colour for a deal's quiet days, the same on the Dashboard and the board. */
+export function dealQuietLabel(days: number | null): { text: string; tone: string } {
+  if (days == null) return { text: "no contact logged", tone: "text-red-700" };
+  const text = days === 0 ? "talked today" : `${days}d since contact`;
+  return { text, tone: days > DEAL_COLD_DAYS ? "text-red-700" : days > DEAL_QUIET_DAYS ? "text-amber-700" : "text-stone-500" };
 }
 
 /** Deep link to an opportunity's card on the pipeline board (closed/on-hold cards live in a collapsed section). */
@@ -229,7 +288,7 @@ export function search(q: string): SearchResults {
     .prepare(
       `SELECT p.*, c.name AS company_name, c.slug AS company_slug
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
-       WHERE ${likeAnySql(PEOPLE_SEARCH_COLUMNS, "@q", "p")}
+       WHERE ${likeAnySql(PEOPLE_SEARCH_COLUMNS, "@q", "p")} OR c.name LIKE @q ESCAPE '\\'
        ORDER BY p.name LIMIT @n`
     )
     .all({ q: like, n }) as PersonWithCompany[];

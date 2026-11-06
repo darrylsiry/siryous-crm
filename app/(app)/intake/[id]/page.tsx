@@ -2,7 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDb, STATUS, STRENGTHS, BUCKETS } from "@/lib/db";
 import type { IntakeAnalysis, ProgressEvent } from "@/lib/ai";
-import { confirmIntake, discardIntake, retryIntake } from "@/lib/intake";
+import { confirmIntake, discardIntake, intakeToLog, retryIntake } from "@/lib/intake";
+import { readReceipt, receiptLine } from "@/lib/receipts";
+import { isIsoDate, parseDueDate, todayLocal } from "@/lib/dates.mjs";
+import { stateWord } from "@/lib/stateWords";
+import CompanyChoice from "@/components/CompanyChoice";
+import EditableMarkdown from "@/components/EditableMarkdown";
+import CopyButton from "@/components/CopyButton";
+import AiRouteNote from "@/components/AiRouteNote";
+import ErrorExplain from "@/components/ErrorExplain";
+import { typicalRunSeconds } from "@/lib/progress";
 import { claudeAvailable } from "@/lib/ai";
 import { slugify } from "@/lib/slug";
 import Markdown from "@/components/Markdown";
@@ -14,19 +23,23 @@ import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Intake review" };
+
 const input = "mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm";
 const label = "block text-xs font-medium text-stone-600";
-const area = "mt-1 w-full rounded-lg border border-stone-300 p-3 font-mono text-xs leading-relaxed";
+
 
 export default async function IntakeReviewPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ duplicate?: Param }>;
+  searchParams: Promise<{ duplicate?: Param; baddate?: Param }>;
 }) {
   const { id } = await params;
-  const blockedSlug = first((await searchParams).duplicate);
+  const sp = await searchParams;
+  const blockedSlug = first(sp.duplicate);
+  const badDate = !!first(sp.baddate);
   const db = getDb();
   const draft = db.prepare(`SELECT * FROM intake_drafts WHERE id=?`).get(Number(id)) as
     | { id: number; raw_text: string; result_json: string | null; status: string; error: string | null; progress: string | null }
@@ -41,15 +54,16 @@ export default async function IntakeReviewPage({
     return (
       <div className="max-w-3xl space-y-4">
         <header>
-          <Link href="/intake" className="text-xs text-stone-400 hover:text-indigo-600">← Intake</Link>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">✨ Analyzing…</h1>
+          <Link href="/intake" className="text-xs text-stone-500 hover:text-indigo-600">← Intake</Link>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">✨ Drafting the profile…</h1>
         </header>
         <ActivityFeed
           kind="intake"
           id={draft.id}
-          title={`Intake #${draft.id}`}
+          title="Intake draft"
           subtitle={draft.raw_text.slice(0, 90) + "…"}
           initialEvents={events}
+          typicalSecs={typicalRunSeconds("intake")}
         />
       </div>
     );
@@ -58,12 +72,15 @@ export default async function IntakeReviewPage({
   if (draft.status === "error") {
     return (
       <div className="max-w-3xl space-y-4">
-        <Link href="/intake" className="text-xs text-stone-400 hover:text-indigo-600">← Intake</Link>
+        <Link href="/intake" className="text-xs text-stone-500 hover:text-indigo-600">← Intake</Link>
         <h1 className="text-2xl font-bold tracking-tight">Analysis failed</h1>
-        <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{draft.error}</p>
+        <ErrorExplain error={draft.error} />
         <FeedRecap progress={draft.progress} />
         <section className="rounded-xl border border-stone-200 bg-white p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-400">What you pasted (kept)</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-500">What you pasted — kept, nothing was lost</h2>
+            <CopyButton text={draft.raw_text} label="Copy" />
+          </div>
           <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-stone-700">{draft.raw_text}</pre>
         </section>
         <form action={retryIntake.bind(null, draft.id)} className="flex flex-wrap items-center gap-3">
@@ -73,7 +90,7 @@ export default async function IntakeReviewPage({
               Look them up on the web first
             </label>
           ) : null}
-          <PendingButton label="Run it again" pendingLabel="Starting…" />
+          <PendingButton label="Try again" pendingLabel="Starting…" />
           <button formNoValidate formAction={discardIntake.bind(null, draft.id)} className="rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-100">
             Discard
           </button>
@@ -82,10 +99,16 @@ export default async function IntakeReviewPage({
     );
   }
   if (draft.status === "confirmed" || draft.status === "discarded" || !draft.result_json) {
+    const receipt = readReceipt(db, "intake", draft.id);
     return (
       <div className="max-w-3xl space-y-4">
-        <h1 className="text-2xl font-bold tracking-tight">Draft {draft.status}</h1>
-        <Link href="/intake" className="text-sm font-medium text-indigo-700 hover:underline">← Intake</Link>
+        <Link href="/intake" className="text-xs text-stone-500 hover:text-indigo-600">← Intake</Link>
+        <h1 className="text-2xl font-bold tracking-tight">Intake draft: {stateWord(draft.status)}</h1>
+        {receipt ? (
+          <p className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">✓ {receiptLine("intake", receipt)}</p>
+        ) : draft.status === "discarded" ? (
+          <p className="text-sm text-stone-600">This draft was discarded, so nothing from it was saved.</p>
+        ) : null}
       </div>
     );
   }
@@ -100,43 +123,65 @@ export default async function IntakeReviewPage({
     slug ? (db.prepare(`SELECT slug, name FROM people WHERE slug=?`).get(slug) as { slug: string; name: string } | undefined) : undefined;
   const nameMatch = findPerson(slugify(p.name));
   const existingPerson = nameMatch ?? findPerson(p.existing_person_slug);
-  const connCandidates = a.connections.filter((c) =>
-    db.prepare(`SELECT 1 FROM people WHERE slug=?`).get(c.person_slug)
-  );
+  const connCandidates = a.connections
+    .map((c) => ({ ...c, name: (db.prepare(`SELECT name FROM people WHERE slug=?`).get(c.person_slug) as { name: string } | undefined)?.name }))
+    .filter((c): c is typeof c & { name: string } => !!c.name);
+  const blockedName = blockedSlug ? findPerson(blockedSlug)?.name ?? p.name : null;
+  const today = todayLocal();
+  const dateFound = isIsoDate(a.interaction?.date ?? null);
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-6xl space-y-6">
       <header>
-        <Link href="/intake" className="text-xs text-stone-400 hover:text-indigo-600">← Intake</Link>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">Review the analysis</h1>
-        <p className="mt-1 text-sm text-stone-500">Everything below is editable. Nothing is saved until you confirm.</p>
+        <Link href="/intake" className="text-xs text-stone-500 hover:text-indigo-600">← Intake</Link>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight">Review the new profile</h1>
+        <p className="mt-1 text-sm text-stone-600">Check it against what you pasted, change anything, then create the profile. Nothing is saved until you do.</p>
+        <AiRouteNote progress={draft.progress} />
       </header>
+      <div className="gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="min-w-0 space-y-6">
 
       <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Summary</h2>
         <div className="mt-1"><Markdown>{a.summary_md}</Markdown></div>
       </section>
 
-      {blockedSlug ? (
+      {blockedName ? (
         <section className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
-          Not saved — a profile with this name (<code>{blockedSlug}</code>) already exists. Log this on the existing
-          profile instead, or tick "create a separate profile anyway" below and confirm again.
+          Not saved — <b>{blockedName}</b> already has a profile. Log this on that profile instead (below), or tick
+          &ldquo;This is a different {p.name}&rdquo; and create the profile again.
+        </section>
+      ) : null}
+      {badDate ? (
+        <section role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+          Not saved — the interaction needs the date it happened. Pick one below, or untick &ldquo;Log this interaction too&rdquo;.
         </section>
       ) : null}
 
       {existingPerson ? (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          ⚠️ {nameMatch ? "This name already exists as" : "The AI thinks this may already be"}{" "}
-          <Link href={`/people/${existingPerson.slug}`} className="font-semibold underline">{existingPerson.name}</Link>{" "}
-          in your CRM. Review that profile before creating a duplicate
-          {nameMatch ? " — the Log page can add this interaction to the existing profile" : ""}.
+        <section className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p>
+            ⚠️ {nameMatch ? <><b>{existingPerson.name}</b> is already in your CRM.</> : <>The AI thinks this may already be <b>{existingPerson.name}</b>.</>}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={intakeToLog.bind(null, draft.id, existingPerson.slug)}>
+              <PendingButton
+                label={`Log this on ${existingPerson.name}`}
+                pendingLabel="Starting…"
+                className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700"
+              />
+            </form>
+            <Link href={`/people/${existingPerson.slug}`} className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100">
+              Open profile
+            </Link>
+          </div>
         </section>
       ) : null}
 
       {a.confidence_flags?.length ? (
         <section className="rounded-xl border border-stone-200 bg-white p-4">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-500">Inferences & gaps to verify</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-600">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-stone-700">
             {a.confidence_flags.map((f, i) => <li key={i}>{f}</li>)}
           </ul>
         </section>
@@ -152,6 +197,7 @@ export default async function IntakeReviewPage({
             <label className={label}>Role / title<input name="role_title" defaultValue={p.role_title ?? ""} className={input} /></label>
             <label className={label}>Location<input name="location" defaultValue={p.location ?? ""} className={input} /></label>
             <label className={label}>Email<input name="email" defaultValue={p.email ?? ""} className={input} /></label>
+            <label className={label}>Phone<input name="phone" type="tel" defaultValue={p.phone ?? ""} className={input} /></label>
             <label className={label}>LinkedIn<input name="linkedin" defaultValue={p.linkedin ?? ""} className={input} /></label>
             <label className={label}>Tags<input name="tags" defaultValue={p.tags ?? ""} className={input} /></label>
             <label className={label}>Status
@@ -168,61 +214,33 @@ export default async function IntakeReviewPage({
             </label>
             <label className={label}>Keep-warm cadence (days)<input name="cadence_days" type="number" defaultValue={p.cadence_days ?? ""} className={input} /></label>
           </div>
-          <label className={label}>Next action<input name="next_action" defaultValue={p.next_action ?? ""} className={input} /></label>
+          <label className={label}>Next step<input name="next_action" defaultValue={p.next_action ?? ""} className={input} /></label>
           {nameMatch || blockedSlug ? (
             <label className="flex items-center gap-2 text-sm text-amber-900">
               <input type="checkbox" name="allow_duplicate" value="1" />
-              Create a separate profile anyway (this really is a different {p.name})
+              This is a different {p.name} — create a separate profile
             </label>
           ) : null}
         </section>
 
         <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Company</h2>
-          <div className="space-y-2 text-sm">
-            <label className="flex items-center gap-2">
-              <input type="radio" name="company_mode" value="existing" defaultChecked={!!existingCompany} />
-              Link to existing:
-              <span className="min-w-56 flex-1"><SearchSelect name="existing_company_id" defaultValue={existingCompany?.id ?? ""} options={companies.map((c) => ({ value: String(c.id), label: c.name }))} className="rounded-lg border border-stone-300 bg-white px-2 py-1 text-sm" /></span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="company_mode" value="new" defaultChecked={!existingCompany && !!p.new_company} />
-              Create new company
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="company_mode" value="none" defaultChecked={!existingCompany && !p.new_company} />
-              No company
-            </label>
-          </div>
-          {p.new_company ? (
-            <div className="grid gap-3 sm:grid-cols-2 border-t border-stone-100 pt-3">
-              <label className={label}>Company name<input name="company_name" defaultValue={p.new_company.name} className={input} /></label>
-              <label className={label}>Industry<input name="company_industry" defaultValue={p.new_company.industry ?? ""} className={input} /></label>
-              <label className={label}>Website<input name="company_website" defaultValue={p.new_company.website ?? ""} className={input} /></label>
-              <label className={label}>HQ<input name="company_hq" defaultValue={p.new_company.hq ?? ""} className={input} /></label>
-              <label className={`${label} sm:col-span-2`}>Company business context (markdown)
-                <textarea name="company_context" rows={4} defaultValue={p.new_company.business_context_md ?? ""} className={area} />
-              </label>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 border-t border-stone-100 pt-3">
-              <label className={label}>Company name<input name="company_name" className={input} /></label>
-              <label className={label}>Industry<input name="company_industry" className={input} /></label>
-            </div>
-          )}
+          <CompanyChoice
+            companies={companies.map((c) => ({ id: c.id, name: c.name }))}
+            existingId={existingCompany?.id ?? null}
+            suggested={p.new_company ?? null}
+          />
         </section>
 
         <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Profile sections (markdown)</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Profile sections</h2>
           {([
             ["relationship_intel", "Relationship Intelligence", p.relationship_intel_md],
             ["business_context", "Business Context", p.business_context_md],
             ["engagement_strategy", "Engagement Strategy", p.engagement_strategy_md],
             ["notes", "Notes", p.notes_md],
           ] as const).map(([name, title, value]) => (
-            <label key={name} className={label}>{title}
-              <textarea name={name} rows={Math.min(12, Math.max(4, (value ?? "").split("\n").length + 1))} defaultValue={value ?? ""} className={area} />
-            </label>
+            <EditableMarkdown key={name} name={name} label={title} defaultValue={value ?? ""} />
           ))}
         </section>
 
@@ -234,40 +252,40 @@ export default async function IntakeReviewPage({
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
                   ✎ Log this interaction too
                 </h2>
-                <span className="block text-xs text-stone-400">
+                <span className="block text-xs text-stone-500">
                   The paste describes a meeting/call/email that already happened — logging it sets
                   this person&apos;s last touch. Uncheck to skip.
                 </span>
               </span>
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className={label}>Date (YYYY-MM-DD)
-                <input name="interaction_date" defaultValue={a.interaction.date ?? ""} className={input} />
+              <label className={label}>Date *
+                <input
+                  type="date"
+                  name="interaction_date"
+                  max={today}
+                  defaultValue={dateFound ? a.interaction.date! : today}
+                  className={`${input} ${dateFound && !badDate ? "" : "border-amber-400 bg-amber-50"}`}
+                />
+                {dateFound ? null : <span className="mt-1 block font-normal text-amber-800">The text doesn&apos;t give a date. Today is a guess; please check.</span>}
               </label>
               <label className={label}>Channel
                 <input name="interaction_channel" defaultValue={a.interaction.channel ?? ""} className={input} />
               </label>
             </div>
-            <label className={label}>Log entry (markdown)
-              <textarea
-                name="interaction_summary"
-                rows={Math.min(12, Math.max(4, a.interaction.summary_md.split("\n").length + 1))}
-                defaultValue={a.interaction.summary_md}
-                className={area}
-              />
-            </label>
+            <EditableMarkdown name="interaction_summary" label="Log entry" defaultValue={a.interaction.summary_md} />
           </section>
         ) : null}
 
         {connCandidates.length > 0 && (
           <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested connections</h2>
-            <p className="text-xs text-stone-400">Checked connections appear as edges on the relationship map.</p>
+            <p className="text-xs text-stone-500">Ticked connections appear as lines on the Map and on both profiles.</p>
             {connCandidates.map((c) => (
               <label key={c.person_slug} className="flex items-start gap-2 text-sm">
                 <input type="checkbox" name={`conn_${c.person_slug}`} defaultChecked className="mt-1" />
                 <span>
-                  <span className="font-semibold">{c.person_slug}</span>
+                  <span className="font-semibold">{c.name}</span>
                   <input type="hidden" name={`conn_label_${c.person_slug}`} value={c.label} />
                   <span className="text-stone-500"> — {c.label}. {c.reason}</span>
                 </span>
@@ -277,20 +295,34 @@ export default async function IntakeReviewPage({
         )}
 
         {a.suggested_actions?.length > 0 && (
-          <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested action items</h2>
-            {a.suggested_actions.map((s, i) => (
-              <label key={i} className="flex items-start gap-2 text-sm">
-                <input type="checkbox" name={`action_${i}`} defaultChecked className="mt-1" />
-                <span className="flex-1">
-                  <input type="hidden" name={`action_title_${i}`} value={s.title} />
-                  <input type="hidden" name={`action_bucket_${i}`} value={BUCKETS[s.bucket] ? s.bucket : "this_week"} />
-                  <input type="hidden" name={`action_due_${i}`} value={s.due ?? ""} />
-                  {s.title}
-                  <span className="text-xs text-stone-400"> ({s.bucket}{s.due ? `, due ${s.due}` : ""})</span>
-                </span>
-              </label>
-            ))}
+          <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Suggested to-dos</h2>
+            {a.suggested_actions.map((s, i) => {
+              const parsed = s.due ? (isIsoDate(s.due) ? s.due : parseDueDate(s.due)) : null;
+              return (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name={`action_${i}`} defaultChecked aria-label={`Add: ${s.title}`} className="mt-2.5" />
+                  <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(10rem,1fr)_9.5rem]">
+                    <input name={`action_title_${i}`} defaultValue={s.title} aria-label="To-do" className={input.replace("mt-1 ", "")} />
+                    <input
+                      type="date"
+                      name={`action_due_${i}`}
+                      defaultValue={parsed ?? ""}
+                      aria-label="Due"
+                      className={`rounded-lg border px-2 py-1.5 text-sm ${s.due && !parsed ? "border-amber-400 bg-amber-50" : "border-stone-300"}`}
+                    />
+                    <select name={`action_bucket_${i}`} defaultValue={BUCKETS[s.bucket] ? s.bucket : "this_week"} aria-label="Group" className="rounded-lg border border-stone-300 px-2 py-1.5 text-sm sm:col-span-2">
+                      {Object.entries(BUCKETS).map(([k, b]) => (
+                        <option key={k} value={k}>
+                          {b.icon} {b.label}
+                        </option>
+                      ))}
+                    </select>
+                    {s.due && !parsed ? <p className="text-xs text-amber-800 sm:col-span-2">The AI said &ldquo;{s.due}&rdquo; — pick a date.</p> : null}
+                  </div>
+                </div>
+              );
+            })}
           </section>
         )}
 
@@ -303,11 +335,15 @@ export default async function IntakeReviewPage({
       </form>
 
       <FeedRecap progress={draft.progress} />
+      </div>
 
-      <details className="rounded-xl border border-stone-200 bg-white">
-        <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-stone-500 select-none">Original pasted text</summary>
-        <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap px-5 pb-4 text-xs text-stone-600">{draft.raw_text}</pre>
-      </details>
+      <aside className="mt-6 xl:mt-0">
+        <details className="rounded-xl border border-stone-200 bg-white xl:sticky xl:top-4" open>
+          <summary className="cursor-pointer select-none px-5 py-3 text-sm font-semibold text-stone-600">What you pasted</summary>
+          <pre className="max-h-[70vh] overflow-y-auto whitespace-pre-wrap px-5 pb-4 font-sans text-sm leading-relaxed text-stone-700">{draft.raw_text}</pre>
+        </details>
+      </aside>
+      </div>
     </div>
   );
 }

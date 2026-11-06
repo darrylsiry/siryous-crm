@@ -20,7 +20,8 @@ export default function MobileNav({
 }) {
   const [open, setOpen] = useState(false);
   const counts = useNavCounts(initialCounts);
-  const urgent = Object.values(counts).some((b) => b.tone === "alert" && b.n > 0);
+  // The red dot: overdue to-dos and failed drafts only (lib/navCounts.ts `dot`).
+  const urgent = Object.values(counts).some((b) => b.dot && b.n > 0);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export default function MobileNav({
             {nav.map((g, i) => (
               <div key={g.title ?? i}>
                 {g.title ? (
-                  <div className="mb-1 px-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-400">{g.title}</div>
+                  <div className="mb-1 px-1 text-[0.65rem] font-semibold uppercase tracking-wider text-stone-500">{g.title}</div>
                 ) : null}
                 <div className="grid grid-cols-2 gap-1">
                   {g.items.map((n) => {
@@ -81,7 +82,7 @@ export default function MobileNav({
                           active ? "bg-stone-100 text-stone-900" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
                         }`}
                       >
-                        <span className="w-4 text-center text-stone-400">{n.icon}</span>
+                        <span className="w-4 text-center text-stone-500">{n.icon}</span>
                         {n.label}
                         <Badge badge={counts[n.href]} />
                       </Link>
@@ -91,7 +92,7 @@ export default function MobileNav({
               </div>
             ))}
           </nav>
-          <div className="mt-3 border-t border-stone-100 pt-3 text-[0.68rem] leading-relaxed text-stone-400">
+          <div className="mt-3 border-t border-stone-100 pt-3 text-[0.68rem] leading-relaxed text-stone-500">
             Status: {statusLegend}
           </div>
         </div>

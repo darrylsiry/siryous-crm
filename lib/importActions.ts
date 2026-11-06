@@ -14,11 +14,15 @@ export type ImportState =
       /** The CSV text, carried back to the import step in a hidden field. */
       csv: string;
       update: boolean;
+      /** The file has its own cadence column, so the Keep Warm choice doesn't apply. */
+      cadenceInFile: boolean;
+      /** The date column is LinkedIn's "Connected On" (a connection date, not a conversation). */
+      touchIsConnected: boolean;
       columns: { header: string; field: ImportField | null }[];
       sample: MappedPerson[];
       report: ImportReport;
     }
-  | { kind: "done"; fileName: string; update: boolean; report: ImportReport };
+  | { kind: "done"; fileName: string; update: boolean; keepWarm: boolean; report: ImportReport };
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -30,6 +34,8 @@ const MAX_BYTES = 8 * 1024 * 1024;
 export async function importCsvAction(_prev: ImportState, formData: FormData): Promise<ImportState> {
   const mode = String(formData.get("mode") ?? "preview");
   const update = formData.get("update") === "1";
+  // The web form defaults to "Not yet": only people the owner picks go on Keep Warm.
+  const keepWarm = formData.get("keep_warm") === "yes";
   let csv: string;
   let fileName: string;
   if (mode === "preview") {
@@ -63,13 +69,15 @@ export async function importCsvAction(_prev: ImportState, formData: FormData): P
       fileName,
       csv,
       update,
+      cadenceInFile: parsed.mapping.cadence_days !== undefined,
+      touchIsConnected: parsed.mapping.last_touch !== undefined && /connect/i.test(parsed.headers[parsed.mapping.last_touch] ?? ""),
       columns: parsed.headers.map((header, i) => ({ header, field: fieldFor.get(i) ?? null })),
       sample: parsed.people.slice(0, 10),
       report,
     };
   }
 
-  const report = importPeople(getDb(), parsed, { update });
+  const report = importPeople(getDb(), parsed, { update, keepWarm });
   revalidatePath("/", "layout");
-  return { kind: "done", fileName, update, report };
+  return { kind: "done", fileName, update, keepWarm, report };
 }

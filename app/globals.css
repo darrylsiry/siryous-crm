@@ -44,3 +44,33 @@ body {
 .prose-crm code {
   @apply rounded bg-stone-100 px-1 py-0.5 text-[0.8rem];
 }
+/* A brief's first line is "# Prep: …": it reads as the title. */
+.prose-crm h1 {
+  @apply mt-1 mb-3 text-xl font-semibold tracking-tight text-stone-900;
+}
+.prose-crm table {
+  @apply my-3 w-full border-collapse text-[0.85rem];
+}
+.prose-crm th {
+  @apply border-b-2 border-stone-200 px-2 py-1.5 text-left font-semibold text-stone-800;
+}
+.prose-crm td {
+  @apply border-b border-stone-100 px-2 py-1.5 align-top;
+}
+.prose-crm pre {
+  @apply my-3 overflow-x-auto rounded-lg bg-stone-100 p-3 font-mono text-[0.8rem] leading-snug;
+}
+.prose-crm pre code {
+  @apply bg-transparent p-0;
+}
+
+/* One visible keyboard-focus ring everywhere (many inputs drop the browser outline). */
+:focus-visible {
+  outline: 2px solid var(--color-indigo-500);
+  outline-offset: 2px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: 0;
+}

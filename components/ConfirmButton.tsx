@@ -10,16 +10,21 @@ export default function ConfirmButton({
   label,
   confirm: message,
   className,
+  ariaLabel,
 }: {
   label: string;
   confirm: string;
   className?: string;
+  /** Spoken name for a glyph-only button ("×"). */
+  ariaLabel?: string;
 }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
       disabled={pending}
+      aria-label={ariaLabel}
+      title={ariaLabel}
       onClick={(e) => {
         if (!window.confirm(message)) e.preventDefault();
       }}

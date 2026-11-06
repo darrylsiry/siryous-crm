@@ -18,11 +18,14 @@ export default function CoachChat({
   error,
   sendAction,
   endAction,
+  pendingProposals = 0,
 }: {
   sessionId: number;
   error: string | null;
   sendAction: Action;
   endAction: Action;
+  /** Proposals not yet ticked or rejected: End session says so before closing. */
+  pendingProposals?: number;
 }) {
   const [busy, setBusy] = useOptimistic<Busy>(null);
   const [text, setText] = useState("");
@@ -49,7 +52,7 @@ export default function CoachChat({
       {busy?.kind === "send" ? (
         <ul className="mt-3">
           <li className="ml-8 rounded-xl rounded-tr-sm border border-stone-200 bg-stone-50 p-4 opacity-70">
-            <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-wide text-stone-400">You · sending…</p>
+            <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-wide text-stone-500">You · sending…</p>
             <p className="whitespace-pre-line text-sm">{busy.message}</p>
           </li>
         </ul>
@@ -70,19 +73,29 @@ export default function CoachChat({
             onChange={(e) => setText(e.target.value)}
             className="w-full rounded-xl border border-stone-300 p-3 text-sm leading-relaxed focus:border-indigo-400 focus:outline-none disabled:bg-stone-50"
           />
-          <PendingButton label="Send" pendingLabel="Coach is thinking…" pendingNote="Replies usually take under a minute." />
+          <PendingButton label="Send" pendingLabel="Coach is thinking…" pendingNote="A reply can take a minute or two on this Mac." />
         </fieldset>
       </form>
-      <form action={end} className="mt-4 border-t border-stone-100 pt-4">
+      <form
+        action={end}
+        onSubmit={(e) => {
+          const msg =
+            `End this session for good? The coach writes the summary and your commitments, and you can't reply after.` +
+            (pendingProposals ? `\n\n${pendingProposals} proposed CRM change${pendingProposals === 1 ? " is" : "s are"} still waiting for your tick.` : "");
+          if (!window.confirm(msg)) e.preventDefault();
+        }}
+        className="mt-4 border-t border-stone-100 pt-4"
+      >
         <fieldset disabled={disabled}>
           <input type="hidden" name="session_id" value={sessionId} />
           <PendingButton
-            label="⏹ End session — summarize & record commitments"
+            label="End session…"
             pendingLabel="Summarizing the session…"
             pendingNote="The coach is writing up what was discussed and your commitments."
+            className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-60"
           />
         </fieldset>
-        <p className="mt-2 text-xs text-stone-400">
+        <p className="mt-2 text-xs text-stone-500">
           Closes the session for good. The summary and commitments carry into next week's session; any CRM changes it proposes wait for your tick.
         </p>
       </form>

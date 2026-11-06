@@ -22,7 +22,7 @@ export default function StatusEditor({
   return (
     <ClosingDetails className="group">
       <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none list-none">
-        ✎ Update status / next action
+        ✎ Update status / next step
       </summary>
       <form
         action={updateStatus}
@@ -47,7 +47,7 @@ export default function StatusEditor({
             </select>
           </label>
           <label className="block flex-1 min-w-40 text-xs font-medium text-stone-600">
-            Status note (qualifier)
+            Status note
             <input
               name="status_note"
               defaultValue={statusNote ?? ""}
@@ -57,13 +57,21 @@ export default function StatusEditor({
           </label>
         </div>
         <label className="block text-xs font-medium text-stone-600">
-          Next action
+          Next step
           <input
             name="next_action"
             defaultValue={nextAction ?? ""}
             className="mt-1 block w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm"
           />
         </label>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" name="also_todo" className="h-4 w-4 rounded border-stone-300" />
+            Also add it to my to-dos, due
+          </label>
+          <input type="date" name="todo_due" aria-label="To-do due date" className="rounded-lg border border-stone-300 px-2 py-1" />
+          <span className="text-stone-500">so it shows in Your move on the Dashboard</span>
+        </div>
         <PendingButton
           label="Save"
           pendingLabel="Saving…"

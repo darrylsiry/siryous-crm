@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_COOKIE, COOKIE_MAX_AGE, authEnabled, getAuthToken, tokenMatches } from "./lib/auth.mjs";
+import { AUTH_COOKIE, COOKIE_MAX_AGE, authEnabled, getAuthToken, normalizeToken, tokenMatches } from "./lib/auth.mjs";
 
 /**
  * Access control for the whole app (see lib/auth.mjs). Order of checks:
@@ -10,6 +10,8 @@ import { AUTH_COOKIE, COOKIE_MAX_AGE, authEnabled, getAuthToken, tokenMatches } 
 export default function proxy(req: NextRequest) {
   if (!authEnabled()) return NextResponse.next();
   const url = req.nextUrl;
+  // The launchers' "is this the CRM?" check (app/api/health): no data, no sign-in needed.
+  if (url.pathname === "/api/health") return NextResponse.next();
 
   if (tokenMatches(req.cookies.get(AUTH_COOKIE)?.value)) {
     const res = NextResponse.next();
@@ -17,7 +19,8 @@ export default function proxy(req: NextRequest) {
     return res;
   }
 
-  const presented = url.searchParams.get("token");
+  // The sign-in box accepts the whole link from Settings, or the code with stray spaces.
+  const presented = url.searchParams.has("token") ? normalizeToken(url.searchParams.get("token")) : null;
   if (presented !== null) {
     const clean = url.clone();
     clean.searchParams.delete("token");

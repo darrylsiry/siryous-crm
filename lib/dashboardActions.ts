@@ -1,22 +1,18 @@
 "use server";
 
-// Dashboard buttons: tick a to-do done, dismiss a news item.
+// Dashboard buttons: dismiss a news item. (To-dos are ticked with components/DoneTick.tsx.)
 import { revalidatePath } from "next/cache";
 import { getDb } from "@/lib/db";
-import { markActionDone } from "@/lib/rules.mjs";
-
-function refresh() {
-  revalidatePath("/");
-}
-
-export async function dashboardCompleteAction(id: number) {
-  markActionDone(getDb(), id);
-  refresh();
-  revalidatePath("/actions");
-}
+import { setSetting } from "@/lib/settings";
 
 export async function dashboardDismissNews(id: number) {
   getDb().prepare(`UPDATE news_items SET dismissed_at=datetime('now') WHERE id=?`).run(id);
-  refresh();
+  revalidatePath("/");
   revalidatePath("/news");
+}
+
+/** Hide the Dashboard's getting-started checklist for good. */
+export async function hideSetupChecklist() {
+  setSetting("setup.checklist_hidden", "1");
+  revalidatePath("/");
 }

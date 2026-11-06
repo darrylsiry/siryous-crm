@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb, STATUS, STAGES, KINDS, BUCKETS, DEFAULT_CADENCE } from "./db";
-import { isIsoDate, parseDueDate } from "./dates.mjs";
+import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
 import { applyStatusCadence, bumpLastTouch, markActionDone, profilePath, slugFor } from "./rules.mjs";
 
 /** Keep a form-supplied enum value only if it's one we know; else the fallback. */
@@ -26,8 +26,48 @@ export async function reopenActionItem(id: number) {
   getDb()
     .prepare(`UPDATE action_items SET status='open', completed_at=NULL WHERE id=?`)
     .run(id);
-  revalidatePath("/");
-  revalidatePath("/actions");
+  revalidatePath("/", "layout");
+}
+
+/** Whose next step a to-do repeats, so ticking it can offer to clear that too. */
+export type NextStepRef = { entity: "person" | "company"; id: number; name: string; text: string };
+
+/**
+ * Tick a to-do done from a list (the toast that follows offers Undo). Says
+ * whether the to-do repeats its person's or company's next step word for word.
+ */
+export async function tickActionItem(id: number): Promise<{ title: string; nextStep: NextStepRef | null } | null> {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT a.title, p.id AS pid, p.name AS pname, p.next_action AS pnext, c.id AS cid, c.name AS cname, c.next_action AS cnext
+       FROM action_items a LEFT JOIN people p ON p.id = a.person_id LEFT JOIN companies c ON c.id = a.company_id
+       WHERE a.id = ? AND a.status = 'open'`
+    )
+    .get(id) as
+    | { title: string; pid: number | null; pname: string | null; pnext: string | null; cid: number | null; cname: string | null; cnext: string | null }
+    | undefined;
+  if (!row) return null;
+  markActionDone(db, id);
+  revalidatePath("/", "layout");
+  const same = (s: string | null) => !!s && sameText(s, row.title);
+  const nextStep: NextStepRef | null =
+    row.pid && same(row.pnext)
+      ? { entity: "person", id: row.pid, name: row.pname ?? "", text: row.pnext! }
+      : row.cid && same(row.cnext)
+        ? { entity: "company", id: row.cid, name: row.cname ?? "", text: row.cnext! }
+        : null;
+  return { title: row.title, nextStep };
+}
+
+/** Clear a person's or company's next step, only if it still reads `expected`. */
+export async function clearNextStep(ref: NextStepRef) {
+  const table = ref.entity === "company" ? "companies" : "people";
+  const db = getDb();
+  const row = db.prepare(`SELECT next_action FROM ${table} WHERE id=?`).get(ref.id) as { next_action: string | null } | undefined;
+  if (!row || !sameText(row.next_action, ref.text)) return;
+  db.prepare(`UPDATE ${table} SET next_action=NULL, updated_at=datetime('now') WHERE id=?`).run(ref.id);
+  revalidatePath("/", "layout");
 }
 
 export async function deleteActionItem(id: number) {
@@ -120,43 +160,126 @@ export async function deleteCompany(id: number) {
   redirect("/companies");
 }
 
-export async function addActionItem(formData: FormData) {
+/** The bucket whose items are meant to carry a date ("Dated — this week & upcoming"). */
+const DATED_BUCKET = "this_week";
+
+export type FormResult = { ok: boolean; message: string } | null;
+
+/**
+ * Add a to-do. One "due" box takes a date or free text ("Fri 7/25", "ASAP");
+ * a dated bucket needs a date the box can read. The older two-field form
+ * (due_date + due_label) is still accepted.
+ */
+export async function addActionItem(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const title = String(formData.get("title") ?? "").trim();
-  if (!title) return;
-  const bucket = oneOf(formData.get("bucket"), BUCKETS, "this_week");
-  const due = String(formData.get("due_label") ?? "").trim() || null;
+  if (!title) return { ok: false, message: "Say what needs doing." };
+  const bucket = oneOf(formData.get("bucket"), BUCKETS, DATED_BUCKET);
+  const typed = String(formData.get("due") ?? formData.get("due_label") ?? "").trim() || null;
   const dueDateRaw = String(formData.get("due_date") ?? "").trim();
-  const dueDate = isIsoDate(dueDateRaw) ? dueDateRaw : parseDueDate(due);
+  const dueDate = isIsoDate(dueDateRaw) ? dueDateRaw : isIsoDate(typed) ? typed : parseDueDate(typed);
+  if (bucket === DATED_BUCKET && !dueDate) {
+    return {
+      ok: false,
+      message: typed
+        ? `"${typed}" isn't a date I can read. Try "Fri 7/25", "Nov 12" or pick a date, or file it under another group.`
+        : "This group is for dated to-dos: give it a due date, or pick another group.",
+    };
+  }
   const personId = Number(formData.get("person_id")) || null;
   const companyId = Number(formData.get("company_id")) || null;
   getDb()
     .prepare(
       `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`
     )
-    .run(bucket, due ?? dueDate, dueDate, title, personId, companyId);
-  revalidatePath("/");
-  revalidatePath("/actions");
+    .run(bucket, typed ?? dueDate, dueDate, title, personId, companyId);
+  revalidatePath("/", "layout");
+  return { ok: true, message: `Added: ${title}` };
 }
 
-/** Edit a to-do's title, bucket or due date (re-date a late one). A blank date clears it. */
+/**
+ * Edit a to-do's title, group, person or due date (re-date a late one). A
+ * blank date clears it; a quick-date button ("Tomorrow") sends quick_due.
+ */
 export async function updateActionItem(formData: FormData) {
   const id = Number(formData.get("id"));
   if (!id) return;
   const db = getDb();
-  const current = db.prepare(`SELECT title, bucket, due_date, due_label FROM action_items WHERE id=?`).get(id) as
-    | { title: string; bucket: string; due_date: string | null; due_label: string | null }
+  const current = db.prepare(`SELECT title, bucket, due_date, due_label, person_id FROM action_items WHERE id=?`).get(id) as
+    | { title: string; bucket: string; due_date: string | null; due_label: string | null; person_id: number | null }
     | undefined;
   if (!current) return;
-  const dueRaw = String(formData.get("due_date") ?? "").trim();
+  const quick = String(formData.get("quick_due") ?? "").trim();
+  const dueRaw = isIsoDate(quick) ? quick : String(formData.get("due_date") ?? "").trim();
   const dueDate = isIsoDate(dueRaw) ? dueRaw : null;
-  db.prepare(`UPDATE action_items SET title=?, bucket=?, due_date=?, due_label=? WHERE id=?`).run(
+  const personId = formData.has("person_id") ? Number(formData.get("person_id")) || null : current.person_id;
+  db.prepare(`UPDATE action_items SET title=?, bucket=?, due_date=?, due_label=?, person_id=? WHERE id=?`).run(
     str(formData, "title") ?? current.title,
     oneOf(formData.get("bucket"), BUCKETS, current.bucket),
     dueDate,
     // A free-text label ("~late summer") stays until the date itself changes.
     dueDate === current.due_date ? current.due_label : dueDate,
+    personId,
     id
   );
+  revalidatePath("/", "layout");
+}
+
+/**
+ * The quick way to record a touch from a list or a profile: a channel, a
+ * date, an optional line of what happened and an optional next step (with a
+ * date, the next step also becomes a to-do). Saved as typed, no AI.
+ */
+export async function logTouch(_prev: FormResult, formData: FormData): Promise<FormResult> {
+  const db = getDb();
+  const personId = Number(formData.get("person_id")) || null;
+  const companyId = Number(formData.get("company_id")) || null;
+  if (!personId && !companyId) return { ok: false, message: "Nobody to log this on." };
+  const date = String(formData.get("date") ?? "").trim();
+  if (!isIsoDate(date)) return { ok: false, message: "Pick the date it happened." };
+  if (date > todayLocal()) return { ok: false, message: "That date is in the future; log a touch once it has happened." };
+  const channel = String(formData.get("channel") ?? "").trim() || null;
+  const note = String(formData.get("note") ?? "").trim();
+  const nextStep = String(formData.get("next_step") ?? "").trim() || null;
+  const nextDueRaw = String(formData.get("next_due") ?? "").trim();
+  const nextDue = isIsoDate(nextDueRaw) ? nextDueRaw : null;
+  const name =
+    (personId && (db.prepare(`SELECT name FROM people WHERE id=?`).get(personId) as { name: string } | undefined)?.name) ||
+    (companyId && (db.prepare(`SELECT name FROM companies WHERE id=?`).get(companyId) as { name: string } | undefined)?.name) ||
+    "";
+  db.transaction(() => {
+    db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`).run(
+      personId,
+      companyId,
+      date,
+      channel,
+      note || (channel ? `${channel}.` : "Touch.")
+    );
+    if (personId) bumpLastTouch(db, "people", personId, date);
+    if (companyId) bumpLastTouch(db, "companies", companyId, date);
+    if (nextStep) {
+      const table = personId ? "people" : "companies";
+      db.prepare(`UPDATE ${table} SET next_action=?, updated_at=datetime('now') WHERE id=?`).run(nextStep, personId ?? companyId);
+      if (nextDue) {
+        db.prepare(
+          `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id, source) VALUES (?,?,?,?,?,?,?)`
+        ).run(DATED_BUCKET, nextDue, nextDue, nextStep, personId, personId ? null : companyId, "next step");
+      }
+    }
+  })();
+  revalidatePath("/", "layout");
+  const what = channel ? `${channel.toLowerCase()} with ${name}` : `a touch with ${name}`;
+  return {
+    ok: true,
+    message: `Logged ${what}${date === todayLocal() ? " today" : ` on ${date}`}${nextStep && nextDue ? " · next step added to your to-dos" : ""}`,
+  };
+}
+
+/** Set a deal's next step from the Dashboard, without opening the board. */
+export async function setDealNextStep(formData: FormData) {
+  const id = Number(formData.get("id"));
+  const nextStep = str(formData, "next_step");
+  if (!id || !nextStep) return;
+  getDb().prepare(`UPDATE opportunities SET next_step=?, updated_at=datetime('now') WHERE id=?`).run(nextStep, id);
   revalidatePath("/", "layout");
 }
 
@@ -206,6 +329,10 @@ export async function updateStatus(formData: FormData) {
   const db = getDb();
   const before = db.prepare(`SELECT status_key FROM ${table} WHERE id=?`).get(id) as { status_key: string } | undefined;
   if (!before) return;
+  // "Also add to my to-dos": the next step becomes a to-do too, dated if a date was given.
+  const todoDueRaw = String(formData.get("todo_due") ?? "").trim();
+  const todoDue = isIsoDate(todoDueRaw) ? todoDueRaw : null;
+  const alsoTodo = nextAction && formData.get("also_todo") === "on";
   db.transaction(() => {
     db.prepare(`UPDATE ${table} SET status_key=?, status_note=?, next_action=?, updated_at=datetime('now') WHERE id=?`).run(
       statusKey,
@@ -214,6 +341,20 @@ export async function updateStatus(formData: FormData) {
       id
     );
     if (table === "people") applyStatusCadence(db, id, before.status_key, statusKey, DEFAULT_CADENCE);
+    if (alsoTodo) {
+      db.prepare(
+        `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id, source) VALUES (?,?,?,?,?,?,?)`
+      ).run(
+        // Undated, it shows on the Dashboard under "with no date" until it gets one.
+        DATED_BUCKET,
+        todoDue,
+        todoDue,
+        nextAction,
+        table === "people" ? id : null,
+        table === "companies" ? id : null,
+        "next step"
+      );
+    }
   })();
   revalidatePath("/", "layout");
 }
@@ -228,7 +369,7 @@ export async function setStatus(
   id: number,
   statusKey: string,
   updatedAt: string | null
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<{ ok: true; cadence?: number | null } | { ok: false; reason: string }> {
   const table = entity === "company" ? "companies" : "people";
   if (!id || !Object.hasOwn(STATUS, statusKey)) return { ok: false, reason: "That status doesn't exist." };
   const db = getDb();
@@ -244,7 +385,10 @@ export async function setStatus(
     if (table === "people") applyStatusCadence(db, id, row.status_key, statusKey, DEFAULT_CADENCE);
   })();
   revalidatePath("/", "layout");
-  return { ok: true };
+  if (table !== "people" || row.status_key === statusKey) return { ok: true };
+  // Say what Keep Warm will do now (the cadence follows the status unless it was set by hand).
+  const after = db.prepare(`SELECT cadence_days FROM people WHERE id=?`).get(id) as { cadence_days: number | null };
+  return { ok: true, cadence: STATUS[statusKey]?.keepWarm === false ? null : after.cadence_days };
 }
 
 export async function updateSection(formData: FormData) {
@@ -300,7 +444,14 @@ export async function updateSnapshot(formData: FormData) {
   if (!id) return;
   if (isStale(entity, id, formData)) redirect(`${profileHref(entity, id)}?stale=1`);
   const db = getDb();
+  // A rename keeps the slug, so links and bookmarks to the profile still work.
+  const name = str(formData, "name");
+  if (name) db.prepare(`UPDATE ${entity} SET name=? WHERE id=?`).run(name, id);
   if (entity === "people") {
+    if (formData.has("company_id") || str(formData, "new_company")) {
+      const companyId = companyFromForm(formData);
+      db.prepare(`UPDATE people SET company_id=? WHERE id=?`).run(companyId, id);
+    }
     const cadenceRaw = String(formData.get("cadence_days") ?? "").trim();
     db.prepare(
       `UPDATE people SET role_title=?, location=?, email=?, phone=?, linkedin=?, company_note=?, relationship_strength=?, cadence_days=?, tags=?, updated_at=datetime('now') WHERE id=?`
@@ -336,6 +487,23 @@ function str(fd: FormData, key: string): string | null {
   return v || null;
 }
 
+/**
+ * The company a person form picked: a typed new company name wins (linked to
+ * the existing company of that name if there is one, else created), then the
+ * picker's company_id, else none.
+ */
+function companyFromForm(formData: FormData): number | null {
+  const db = getDb();
+  const typed = str(formData, "new_company");
+  if (typed) {
+    const slug = slugFor(typed, "company");
+    const existing = db.prepare(`SELECT id FROM companies WHERE slug=? OR lower(name)=lower(?)`).get(slug, typed) as { id: number } | undefined;
+    if (existing) return existing.id;
+    return Number(db.prepare(`INSERT INTO companies (slug, name, status_key) VALUES (?,?,?)`).run(slug, typed, "new").lastInsertRowid);
+  }
+  return Number(formData.get("company_id")) || null;
+}
+
 
 export async function createPerson(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
@@ -346,12 +514,12 @@ export async function createPerson(formData: FormData) {
     // Same rule as Intake and the MCP server: never silently create a twin.
     redirect(`/people?duplicate=${encodeURIComponent(slug)}`);
   }
-  const companyId = Number(formData.get("company_id")) || null;
+  const companyId = companyFromForm(formData);
   const statusKey = oneOf(formData.get("status_key"), STATUS, "new");
   try {
     db.prepare(
-      `INSERT INTO people (slug, name, status_key, role_title, company_id, email, linkedin, next_action, cadence_days)
-       VALUES (?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO people (slug, name, status_key, role_title, company_id, email, phone, linkedin, next_action, cadence_days)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`
     ).run(
       slug,
       name,
@@ -359,6 +527,7 @@ export async function createPerson(formData: FormData) {
       str(formData, "role_title"),
       companyId,
       str(formData, "email"),
+      str(formData, "phone"),
       str(formData, "linkedin"),
       str(formData, "next_action"),
       DEFAULT_CADENCE[statusKey] ?? null
@@ -458,4 +627,13 @@ export async function createCompany(formData: FormData) {
   }
   revalidatePath("/", "layout");
   redirect(profilePath("companies", slug));
+}
+
+/** Mark an Outreach draft sent (or back to draft), which also clears it from the sidebar badge. */
+export async function setOutreachStatus(id: number, status: "sent" | "draft") {
+  if (!id || (status !== "sent" && status !== "draft")) return;
+  getDb()
+    .prepare(`UPDATE outreach SET status=?, date=CASE WHEN ?='sent' THEN COALESCE(date, date('now','localtime')) ELSE date END WHERE id=?`)
+    .run(status, status, id);
+  revalidatePath("/", "layout");
 }

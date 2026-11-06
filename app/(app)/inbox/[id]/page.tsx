@@ -3,15 +3,30 @@ import { notFound } from "next/navigation";
 import { getDb } from "@/lib/db";
 import { emailOf, loadInboxRow, markInboxRead, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE } from "@/lib/inbox";
 import { cleanSubject } from "@/lib/inboxRoute";
-import { ignoreInboxMessage, rerouteInboxMessage } from "@/lib/inboxActions";
+import { rerouteInboxMessage } from "@/lib/inboxActions";
+import { stateTone, stateWord } from "@/lib/stateWords";
+import { localStamp, shortDate } from "@/lib/dates.mjs";
+import InboxRedo from "@/components/InboxRedo";
+import FlashBanner from "@/components/FlashBanner";
+
+export const metadata = { title: "Email" };
+
+const ROUTE_WORDS: Record<string, string> = { log: "a Log draft", intake: "an Intake draft", both: "a Log draft and an Intake draft" };
 
 export const dynamic = "force-dynamic";
 
 const smallBtn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50";
 
 /** The email as it arrived at the CRM address: headers, then the body verbatim. */
-export default async function InboxMessagePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function InboxMessagePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ saved?: string }>;
+}) {
   const { id } = await params;
+  const { saved } = await searchParams;
   const db = getDb();
   const row = loadInboxRow(db, Number(id));
   if (!row) notFound();
@@ -24,34 +39,39 @@ export default async function InboxMessagePage({ params }: { params: Promise<{ i
 
   return (
     <div className="max-w-3xl space-y-6">
-      <p className="text-xs text-stone-400">
+      <p className="text-xs text-stone-500">
         <Link href="/inbox" className="underline">
           ← Inbox
         </Link>
       </p>
+      {saved ? (
+        <FlashBanner cleanHref={`/inbox/${row.id}`} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+          {saved}
+        </FlashBanner>
+      ) : null}
       <header>
         <h1 className="text-2xl font-bold tracking-tight">{cleanSubject(email.subject) || "(no subject)"}</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Received at the CRM address {row.date ?? row.created_at.slice(0, 10)} · picked up {row.created_at}
+        <p className="mt-1 text-sm text-stone-600">
+          Sent {row.date ? shortDate(row.date) : "(no date given)"} · picked up {localStamp(row.created_at)}
         </p>
       </header>
 
       <section className="rounded-xl border border-stone-200 bg-white p-5 text-sm">
         <dl className="grid grid-cols-[5rem_1fr] gap-y-1 text-stone-700">
-          <dt className="text-stone-400">Subject</dt>
-          <dd>{email.subject || <span className="text-stone-400">(none)</span>}</dd>
-          <dt className="text-stone-400">From</dt>
-          <dd>{email.from || <span className="text-stone-400">(unknown)</span>}</dd>
-          <dt className="text-stone-400">To</dt>
-          <dd>{email.to.length ? email.to.join(", ") : <span className="text-stone-400">(none)</span>}</dd>
+          <dt className="text-stone-500">Subject</dt>
+          <dd>{email.subject || <span className="text-stone-500">(none)</span>}</dd>
+          <dt className="text-stone-500">From</dt>
+          <dd>{email.from || <span className="text-stone-500">(unknown)</span>}</dd>
+          <dt className="text-stone-500">To</dt>
+          <dd>{email.to.length ? email.to.join(", ") : <span className="text-stone-500">(none)</span>}</dd>
           {email.cc.length ? (
             <>
-              <dt className="text-stone-400">Cc</dt>
+              <dt className="text-stone-500">Cc</dt>
               <dd>{email.cc.join(", ")}</dd>
             </>
           ) : null}
-          <dt className="text-stone-400">Date</dt>
-          <dd>{row.date ?? <span className="text-stone-400">(not given)</span>}</dd>
+          <dt className="text-stone-500">Date</dt>
+          <dd>{row.date ?? <span className="text-stone-500">(not given)</span>}</dd>
         </dl>
         <pre className="mt-4 whitespace-pre-wrap break-words border-t border-stone-100 pt-4 font-sans text-sm leading-relaxed text-stone-800">
           {email.body.trim() || "(empty body)"}
@@ -63,24 +83,24 @@ export default async function InboxMessagePage({ params }: { params: Promise<{ i
         {row.status === "routed" ? (
           <>
             <p className="text-stone-600">
-              Routed as <b>{row.route}</b>
+              Made into <b>{ROUTE_WORDS[row.route ?? ""] ?? row.route}</b>
               {row.note ? <> — {row.note}</> : null}.
             </p>
             <ul className="space-y-1">
               {row.log_draft_id ? (
                 <li>
                   <Link href={`/log/${row.log_draft_id}`} className="font-medium text-indigo-700 hover:underline">
-                    Log draft #{row.log_draft_id}
+                    Log draft
                   </Link>{" "}
-                  <span className="text-stone-500">[{draftStatus("log_drafts", row.log_draft_id)}]</span>
+                  <span className={stateTone(stateWord(draftStatus("log_drafts", row.log_draft_id)))}>· {stateWord(draftStatus("log_drafts", row.log_draft_id))}</span>
                 </li>
               ) : null}
               {intakeIds.map((d) => (
                 <li key={d}>
                   <Link href={`/intake/${d}`} className="font-medium text-indigo-700 hover:underline">
-                    Intake draft #{d}
+                    Intake draft
                   </Link>{" "}
-                  <span className="text-stone-500">[{draftStatus("intake_drafts", d)}]</span>
+                  <span className={stateTone(stateWord(draftStatus("intake_drafts", d)))}>· {stateWord(draftStatus("intake_drafts", d))}</span>
                 </li>
               ))}
             </ul>
@@ -111,34 +131,12 @@ export default async function InboxMessagePage({ params }: { params: Promise<{ i
         ) : (
           <p className="text-stone-500">Waiting to be routed.</p>
         )}
-        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-stone-500">
-          <span>{row.status === "routed" ? "Wrong guess? Redo this email" : "Route this email"}</span>
-          <form action={rerouteInboxMessage} className="inline">
-            <input type="hidden" name="id" value={row.id} />
-            <input type="hidden" name="back" value="message" />
-            <input type="hidden" name="as" value="log" />
-            <button className={smallBtn} title="Discard the drafts made for this email and draft it again as a Log entry">
-              as Log
-            </button>
-          </form>
-          <form action={rerouteInboxMessage} className="inline">
-            <input type="hidden" name="id" value={row.id} />
-            <input type="hidden" name="back" value="message" />
-            <input type="hidden" name="as" value="intake" />
-            <button className={smallBtn} title="Discard the drafts made for this email and draft it again as an Intake for the sender">
-              as Intake
-            </button>
-          </form>
-          {row.status !== "ignored" ? (
-            <form action={ignoreInboxMessage} className="inline">
-              <input type="hidden" name="id" value={row.id} />
-            <input type="hidden" name="back" value="message" />
-              <button className={`${smallBtn} text-stone-400`} title="Leave this email out">
-                ignore
-              </button>
-            </form>
-          ) : null}
-        </div>
+        <InboxRedo
+          id={row.id}
+          status={row.status}
+          back="message"
+          drafts={[...(row.log_draft_id ? [draftStatus("log_drafts", row.log_draft_id)] : []), ...intakeIds.map((d) => draftStatus("intake_drafts", d))]}
+        />
       </section>
     </div>
   );

@@ -173,6 +173,7 @@ describe("whether the coach can run", () => {
     provider: "local",
     fallbackToClaude: false,
     aiUsable: true,
+    fallingBack: false,
     ...over,
   });
 

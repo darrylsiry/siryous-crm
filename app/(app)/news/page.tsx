@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getAiStatus } from "@/lib/aiStatus";
-import { getNewsSettings, newsCounts, newsFeed, newsScanRunning, newsSubjects } from "@/lib/news";
+import { getNewsSettings, newsCounts, newsEnabled, newsFeed, newsScanRunning, newsSubjects } from "@/lib/news";
 import { hostOf } from "@/lib/newsCore";
 import { markNewsSeen } from "@/lib/navCounts";
 import { checkNewsNow, dismissNewsItem, restoreNewsItem, setNewsEnabled, stopNewsScan } from "@/lib/newsActions";
@@ -9,6 +9,8 @@ import FlashBanner from "@/components/FlashBanner";
 import AutoRefresh from "@/components/AutoRefresh";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "News Feed" };
 
 const smallBtn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50";
 
@@ -37,8 +39,9 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">📰 News Feed</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            Web news about the {subjects.length} people and companies in your CRM, searched once a day. Dismiss what
+          <p className="mt-1 text-sm text-stone-600">
+            Web news about the {subjects.length} people and companies in your CRM,{" "}
+            {newsEnabled() ? "searched once a day" : <b className="font-medium text-amber-800">daily search is off (turn it on below)</b>}. Dismiss what
             you&apos;ve seen; everything else stays here, newest first.
           </p>
         </div>
@@ -67,7 +70,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-stone-400">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-stone-500">
         <span>
           {running ? (
             <span className="text-indigo-700">
@@ -118,7 +121,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
       </div>
 
       {!items.length ? (
-        <p className="rounded-xl border border-stone-200 bg-white p-5 text-sm italic text-stone-400">
+        <p className="rounded-xl border border-stone-200 bg-white p-5 text-sm italic text-stone-500">
           {showDismissed
             ? "Nothing dismissed."
             : !ai.claude.ok
@@ -150,14 +153,14 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
                     className={
                       showDismissed
                         ? smallBtn
-                        : "rounded-md px-1.5 text-lg leading-none text-stone-300 hover:bg-stone-100 hover:text-stone-600"
+                        : "rounded-md px-1.5 text-lg leading-none text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                     }
                   >
                     {showDismissed ? "Restore" : "×"}
                   </button>
                 </form>
               </div>
-              <div className="mt-0.5 text-xs text-stone-400">
+              <div className="mt-0.5 text-xs text-stone-500">
                 {n.source ?? (hostOf(n.url) || "source")}
                 {n.published ? <> · {fmtDate(n.published)}</> : null}
               </div>
@@ -181,7 +184,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
         </ul>
       )}
 
-      <p className="text-xs text-stone-400">
+      <p className="text-xs text-stone-500">
         Found by Claude with web search only (no access to your mail or calendar). It skips anything it can&apos;t tie
         to the right person or company, so a namesake should rarely slip through — dismiss it if one does.
       </p>

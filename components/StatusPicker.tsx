@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setStatus } from "@/lib/actions";
+import { useToast } from "@/components/Toaster";
+import { usePopoverPosition } from "@/components/usePopoverPosition";
 
 /**
  * The status badge as a button: click it and a small menu of every status
@@ -34,6 +36,10 @@ export default function StatusPicker({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const rootRef = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const toast = useToast();
+  // Fixed to the window, so the bottom rows of a list that scrolls sideways don't clip the menu.
+  const place = usePopoverPosition(open, buttonRef, { width: 200, height: Object.keys(statuses).length * 34 + 16, align: "left" });
 
   // Keep in sync if the row re-renders with fresh data (e.g. after router.refresh()).
   useEffect(() => setCurrent(statusKey), [statusKey]);
@@ -70,12 +76,19 @@ export default function StatusPicker({
         return;
       }
       router.refresh();
+      const label = statuses[key]?.label ?? key;
+      toast(
+        `✓ Now ${label}${
+          r.cadence === undefined ? "" : r.cadence ? ` · keep-warm every ${r.cadence} days` : " · not on Keep Warm"
+        }`
+      );
     });
   };
 
   return (
     <span ref={rootRef} className="relative inline-block">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => {
           setError(null);
@@ -95,7 +108,8 @@ export default function StatusPicker({
       {open ? (
         <span
           role="menu"
-          className="absolute left-0 top-full z-20 mt-1 flex min-w-44 flex-col gap-0.5 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg"
+          style={place}
+          className={`${place ? "" : "invisible absolute"} z-40 flex flex-col gap-0.5 rounded-xl border border-stone-200 bg-white p-1.5 shadow-lg`}
         >
           {Object.entries(statuses).map(([key, st]) => (
             <button
@@ -108,7 +122,7 @@ export default function StatusPicker({
             >
               <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ring-1 ring-inset ${st.color}`}>{st.emoji}</span>
               <span className="text-stone-800">{st.label}</span>
-              {key === current ? <span className="ml-auto text-stone-400">✓</span> : null}
+              {key === current ? <span className="ml-auto text-stone-500">✓</span> : null}
             </button>
           ))}
         </span>

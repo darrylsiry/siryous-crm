@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { getDb } from "./db";
-import { markInboxRead, pollInbox, routeMessage, validateInboxAddress } from "./inbox";
+import { discardDrafts, inboxPollRunning, loadInboxRow, markInboxRead, pollInbox, routeMessage, validateInboxAddress, type PollResult } from "./inbox";
 import { setSetting } from "./settings";
 
 export async function saveInboxSettings(formData: FormData) {
@@ -19,11 +20,23 @@ export async function saveInboxSettings(formData: FormData) {
   redirect("/inbox?saved=1");
 }
 
-/** "Check now": one poll, then back to the queue with a one-line result. */
+/**
+ * "Check now": start one poll in the background (it can take a few minutes)
+ * and go straight back to the queue, which refreshes itself while the check
+ * runs and then shows its one-line result (inbox.last_result).
+ */
 export async function checkInboxNow() {
-  const r = await pollInbox();
-  revalidatePath("/inbox");
-  const msg = r.error
+  if (!inboxPollRunning()) {
+    after(async () => {
+      const r = await pollInbox();
+      setSetting("inbox.last_result", JSON.stringify({ at: new Date().toISOString(), ok: !r.error, text: pollMessage(r) }));
+    });
+  }
+  redirect(`/inbox?saved=${encodeURIComponent("Checking the mailbox — this can take a few minutes. You can leave this page; new drafts show up here.")}`);
+}
+
+function pollMessage(r: PollResult): string {
+  return r.error
     ? `Check failed — ${r.error}`
     : r.fetched === 0
       ? "Checked — nothing new at the CRM address."
@@ -32,7 +45,6 @@ export async function checkInboxNow() {
         }.${r.dropped ? ` ${r.dropped} more couldn't be read and were left out.` : ""}${
           r.capped ? " That's as many as one check takes: the rest come in on a follow-up check in a few minutes." : ""
         }`;
-  redirect(`/inbox?${r.error ? "error" : "saved"}=${encodeURIComponent(msg)}`);
 }
 
 /** The queue, or the message's own page when the form said so (back="message"). */
@@ -52,11 +64,22 @@ export async function rerouteInboxMessage(formData: FormData) {
   redirect(backTo(formData, id));
 }
 
+/** Leave an email out, and discard its drafts that weren't saved, so none of them keeps asking for review. */
 export async function ignoreInboxMessage(formData: FormData) {
   const id = Number(formData.get("id"));
-  if (id) getDb().prepare(`UPDATE inbox_messages SET status='ignored', read_at=COALESCE(read_at, datetime('now')) WHERE id=?`).run(id);
-  revalidatePath("/inbox");
-  redirect(backTo(formData, id));
+  const db = getDb();
+  const row = id ? loadInboxRow(db, id) : undefined;
+  let discarded = 0;
+  if (row) {
+    discarded = db.transaction(() => {
+      const n = discardDrafts(db, row);
+      db.prepare(`UPDATE inbox_messages SET status='ignored', read_at=COALESCE(read_at, datetime('now')) WHERE id=?`).run(id);
+      return n;
+    })();
+  }
+  revalidatePath("/", "layout");
+  const back = backTo(formData, id);
+  redirect(`${back}?saved=${encodeURIComponent(`Ignored.${discarded ? ` ${discarded} draft${discarded === 1 ? "" : "s"} discarded.` : ""}`)}`);
 }
 
 export async function markAllInboxRead() {

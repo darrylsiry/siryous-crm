@@ -6,13 +6,17 @@ import { getDb } from "@/lib/db";
 import { backupHealth } from "@/lib/backup.mjs";
 import { loadOwner } from "@/lib/owner.mjs";
 import { authEnabled, signInUrl } from "@/lib/auth.mjs";
-import { saveAiSettings } from "@/lib/settingsActions";
+import { saveAiSettings, saveOwnerProfile } from "@/lib/settingsActions";
+import { getInboxSettings } from "@/lib/inbox";
+import KeepTypedForm from "@/components/KeepTypedForm";
 import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
 import CopyButton from "@/components/CopyButton";
 import { OLLAMA_SITE } from "@/components/AiStatusBanner";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Settings" };
 
 const input = "mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm";
 const label = "block text-xs font-medium text-stone-600";
@@ -36,14 +40,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const port = process.env.PORT || "3000";
   const link = signInUrl(`http://127.0.0.1:${port}`);
   const isMac = process.platform === "darwin";
+  const inboxAddress = getInboxSettings().address;
 
   return (
     <div className="max-w-3xl space-y-6">
       <header>
         <h1 className="text-2xl font-bold tracking-tight">⚙ Settings</h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Where the AI runs and which model does the thinking for Intake, Log, Prep, and Coach. Changes apply to the
-          next run — no restart needed.
+        <p className="mt-1 text-sm text-stone-600">
+          Who you are, where the AI runs and which model does the thinking for Intake, Log, Prep and Coach, and where
+          backups go. Changes apply straight away — no restart needed.
         </p>
       </header>
 
@@ -53,14 +58,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </FlashBanner>
       ) : null}
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</p>
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+          {error}
+        </p>
       ) : null}
 
       <section className="rounded-xl border border-stone-200 bg-white p-5">
         <h2 className={h2}>Access</h2>
         {authEnabled() ? (
           <div className="mt-2 space-y-2 text-sm text-stone-700">
-            <p>This browser is signed in. To sign in another browser (or after clearing cookies), open this link there:</p>
+            <p>This browser is signed in. To sign in another browser on this Mac (or after clearing cookies), open this link there:</p>
             <div className="flex flex-wrap items-center gap-2">
               <a href={link} className="min-w-0 flex-1 break-all rounded bg-stone-100 px-2 py-1 font-mono text-xs text-indigo-700 underline">
                 {link}
@@ -71,6 +78,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               Anyone with this link can open your CRM — treat it like a password. To get a new one, delete the file{" "}
               <code>data/auth-token</code> in the CRM folder and restart the CRM.
             </p>
+            <p className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-700">
+              <b>On your phone?</b> This link only works in browsers on this Mac — the CRM runs here, not on the internet. From your
+              phone, email {inboxAddress ? <code>{inboxAddress}</code> : <>your CRM address (<Link href="/inbox" className="underline">set it up on the Inbox page</Link>)</>}{" "}
+              instead, e.g. <i>&ldquo;#log Called Sam. Next step: proposal Friday.&rdquo;</i> It waits in the Inbox for review here.
+            </p>
           </div>
         ) : (
           <p className="mt-2 text-sm text-amber-800">
@@ -79,29 +91,71 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
-      <section className="rounded-xl border border-stone-200 bg-white p-5">
-        <h2 className={h2}>Tell the AI who you are</h2>
-        {owner.configured ? (
-          <p className="mt-2 text-sm text-stone-700">
-            The AI writes for <span className="font-semibold">{owner.ownerName}</span> · {owner.practiceName}. To change
-            this, edit <code>config/owner.json</code> in the CRM folder and restart the CRM. (How hard the coach pushes, and
-            whether it reads your own notes, is set under Coach below.)
+      <section id="about" className="scroll-mt-4 rounded-xl border border-stone-200 bg-white p-5">
+        <h2 className={h2}>About you</h2>
+        <p className="mt-1 text-sm text-stone-600">
+          The AI writes in your name and for your practice. Blank fields use generic wording.
+        </p>
+        {owner.readError ? (
+          <p role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <code>config/owner.json</code> couldn&apos;t be read ({owner.readError}), so the CRM is using generic defaults. Fix or remove the
+            file, then reload this page.
           </p>
-        ) : (
-          <div className="mt-2 space-y-2 text-sm text-amber-800">
-            <p>The AI doesn&apos;t know your name or what your practice does yet, so it writes in generic terms. To fix that:</p>
-            <ol className="list-decimal space-y-1 pl-5">
-              <li>
-                In the CRM folder, open <code>config</code>, duplicate <code>owner.example.json</code> and name the copy{" "}
-                <code>owner.json</code>.
-              </li>
-              <li>Open <code>owner.json</code> in any text editor, fill in your name and practice, save, and restart the CRM.</li>
-            </ol>
+        ) : null}
+        {owner.ignoredSamples.length ? (
+          <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Some fields in <code>config/owner.json</code> still hold the example&apos;s sample text, so they&apos;re ignored:{" "}
+            {owner.ignoredSamples.join(", ")}.
+          </p>
+        ) : null}
+        <form action={saveOwnerProfile} className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className={label}>
+            Your name
+            <input name="ownerName" defaultValue={owner.configured ? owner.ownerName : ""} placeholder="e.g. Sam Lee" className={input} />
+          </label>
+          <label className={label}>
+            First name the AI uses
+            <input
+              name="ownerFirstName"
+              defaultValue={owner.configured && owner.ownerFirstName !== owner.ownerName.split(/\s+/)[0] ? owner.ownerFirstName : ""}
+              placeholder="Blank = the first word of your name"
+              className={input}
+            />
+          </label>
+          <label className={label}>
+            Your email
+            <input name="ownerEmail" type="email" defaultValue={owner.ownerEmail} placeholder="you@example.com" className={input} />
+            <span className="mt-1 block font-normal text-stone-500">Mail from it is accepted at the Inbox and never mistaken for a contact.</span>
+          </label>
+          <label className={label}>
+            Your practice
+            <input name="practiceName" defaultValue={owner.practiceName === "the practice" ? "" : owner.practiceName} placeholder="e.g. Lee Advisory" className={input} />
+          </label>
+          <label className={`${label} sm:col-span-2`}>
+            What you do
+            <input
+              name="practiceDescription"
+              defaultValue={owner.practiceDescription === "independent advisory practice" ? "" : owner.practiceDescription}
+              placeholder="e.g. independent consulting practice focused on go-to-market for SaaS companies"
+              className={input}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+            <PendingButton
+              label="Save"
+              pendingLabel="Saving…"
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            />
+            <span className="text-xs text-stone-500">
+              Now set: {owner.configured ? `${owner.ownerName}` : "no name"} · {owner.practiceName === "the practice" ? "no practice" : owner.practiceName} · coach
+              persona {owner.coachPersona ? "set" : "not set (the default coach)"}. Saved in <code>config/owner.json</code>; Claude Desktop&apos;s CRM tools pick
+              it up next time they start.
+            </span>
           </div>
-        )}
+        </form>
       </section>
 
-      <section className="rounded-xl border border-stone-200 bg-white p-5">
+      <section id="ai" className="scroll-mt-4 rounded-xl border border-stone-200 bg-white p-5">
         <h2 className={h2}>AI on this Mac</h2>
         {!ai.ollama.ok ? (
           <div className="mt-2 space-y-2 text-sm text-red-700">
@@ -126,7 +180,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 — it&apos;s free.
               </p>
             ) : null}
-            <p className="text-xs text-stone-400">Detail: {ai.ollama.reason}</p>
+            <p className="text-xs text-stone-500">Detail: {ai.ollama.reason}</p>
           </div>
         ) : (
           <p className="mt-2 text-sm text-stone-700">
@@ -142,7 +196,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
-      <form action={saveAiSettings} className="space-y-5">
+      <KeepTypedForm action={saveAiSettings} className="space-y-5">
         <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-4">
           <h2 className={h2}>AI model</h2>
 
@@ -166,7 +220,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 </option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-stone-400">
+            <span className="mt-1 block text-xs text-stone-500">
               {ai.ollama.ok
                 ? "Only models already downloaded in Ollama are listed. Smaller models are faster and need less memory; larger ones write better."
                 : "The list appears once Ollama is running. You can type a model name under Advanced instead."}
@@ -176,7 +230,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <label className={label}>
             How much text the AI can read at once
             <input name="num_ctx" type="number" min={2048} step={1024} defaultValue={s.numCtx} className={input} />
-            <span className="mt-1 block text-xs text-stone-400">
+            <span className="mt-1 block text-xs text-stone-500">
               Larger uses more memory. Raise this if you see &lsquo;too much text&rsquo;. 32768 suits a 26B model on a 32–36 GB Mac.
             </span>
           </label>
@@ -191,12 +245,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <label className={label}>
                 Temperature
                 <input name="temperature" type="number" min={0} max={2} step={0.1} defaultValue={s.temperature} className={input} />
-                <span className="mt-1 block text-xs text-stone-400">Lower = more literal and better JSON. 0.2–0.4 recommended.</span>
+                <span className="mt-1 block text-xs text-stone-500">Lower = more literal and better JSON. 0.2–0.4 recommended.</span>
               </label>
               <label className={label}>
                 Ollama URL
                 <input name="ollama_url" defaultValue={s.ollamaUrl} className={input} />
-                <span className="mt-1 block text-xs text-stone-400">
+                <span className="mt-1 block text-xs text-stone-500">
                   Local or private-network addresses only (e.g. http://mini.local:11434 for another machine on your network).
                 </span>
               </label>
@@ -247,11 +301,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 <span>
                   <span className="font-medium">{t.label}</span>
                   <span className="block text-xs text-stone-500">{t.blurb}</span>
-                  <span className="mt-1 block text-xs italic text-stone-400">{t.sample}</span>
+                  <span className="mt-1 block text-xs italic text-stone-500">{t.sample}</span>
                 </span>
               </label>
             ))}
-            <p className="text-xs text-stone-400">Applies to the next reply — you can change it mid-session.</p>
+            <p className="text-xs text-stone-500">Applies to the next reply — you can change it mid-session.</p>
           </fieldset>
 
           <label className={label}>
@@ -270,7 +324,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               ))}
               <option value="claude">Claude — sends your whole CRM and your notes to Anthropic each turn</option>
             </select>
-            <span className="mt-1 block text-xs text-stone-400">
+            <span className="mt-1 block text-xs text-stone-500">
               The coach reads your entire book of business and writes at length, so it is the one feature where a bigger model (or
               Claude) earns its keep while Intake and Log stay on something faster.
               {coach.provider === "local" && coach.model && !coachModelListed ? (
@@ -302,7 +356,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               placeholder={coach.ownerContextDir ? `Leave blank to use ${coach.ownerContextDir} (from config/owner.json)` : "e.g. ~/Documents/coach-notes"}
               className={input}
             />
-            <span className="mt-1 block text-xs text-stone-400">
+            <span className="mt-1 block text-xs text-stone-500">
               {coach.useProfile && coach.contextDir ? (
                 <>In use: <code>{coach.contextDir}</code></>
               ) : coach.useProfile ? (
@@ -314,7 +368,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </label>
         </section>
 
-        <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-3">
+        <section id="backups" className="scroll-mt-4 rounded-xl border border-stone-200 bg-white p-5 space-y-3">
           <h2 className={h2}>Backups</h2>
           <p className="text-sm text-stone-600">
             {backup.dir ? (
@@ -339,7 +393,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               placeholder="Leave blank to keep backups inside the CRM folder; type off to disable"
               className={input}
             />
-            <span className="mt-1 block text-xs text-stone-400">
+            <span className="mt-1 block text-xs text-stone-500">
               Point this at a synced folder (Google Drive, iCloud, Dropbox) if you want off-machine copies — the whole CRM goes there unencrypted, so
               that is your call. <code>~/</code> is understood.
             </span>
@@ -347,11 +401,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </section>
 
         <div className="flex items-center gap-3">
-          <PendingButton label="Save settings" pendingLabel="Saving…" pendingNote="" />
+          <button type="submit" className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            Save settings
+          </button>
         </div>
-      </form>
+      </KeepTypedForm>
 
-      <p className="text-xs text-stone-400">
+      <p className="text-xs text-stone-500">
         Back to <Link href="/" className="underline">Dashboard</Link>.
       </p>
     </div>

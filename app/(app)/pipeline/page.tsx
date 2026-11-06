@@ -1,5 +1,7 @@
 import { KINDS, STAGES, separateKindsLast } from "@/lib/db";
-import { allCompanies, allOpportunities, allPeople } from "@/lib/queries";
+import { allCompanies, allOpportunities, allPeople, dealQuietDays } from "@/lib/queries";
+import { todayLocal } from "@/lib/dates.mjs";
+import { slugParam } from "@/lib/slug";
 import { createOpportunity } from "@/lib/actions";
 import OpportunityCard from "@/components/OpportunityCard";
 import PendingButton from "@/components/PendingButton";
@@ -8,15 +10,21 @@ import SearchSelect from "@/components/SearchSelect";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Pipeline" };
+
 export default async function PipelinePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stale?: string; show?: string }>;
+  searchParams: Promise<{ stale?: string; show?: string; person?: string; company?: string; add?: string }>;
 }) {
   const sp = await searchParams;
   const opps = allOpportunities();
   const people = allPeople();
   const companies = allCompanies();
+  const presetPerson = sp.person ? people.find((p) => p.slug === slugParam(sp.person!)) : undefined;
+  const presetCompany = sp.company ? companies.find((c) => c.slug === slugParam(sp.company!)) : undefined;
+  const today = todayLocal();
+  const quiet = new Map(opps.map((o) => [o.id, dealQuietDays(o, today)]));
 
   const openStages = Object.entries(STAGES)
     .filter(([, s]) => s.open)
@@ -30,55 +38,17 @@ export default async function PipelinePage({
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {opps.length - closed.length} open opportunities · ★ = high priority
+          <p className="mt-1 text-sm text-stone-600">
+            {opps.length - closed.length} open {opps.length - closed.length === 1 ? "deal" : "deals"} · ★ = high priority · choosing a stage saves it
           </p>
         </div>
+        <a href="/pipeline?add=1#add" className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700">
+          ＋ Add deal
+        </a>
       </header>
-
-      <div className="full-bleed -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-2 sm:snap-none sm:px-2">
-        {openStages.map(([key, s]) => {
-          const items = separateKindsLast(opps.filter((o) => o.stage === key));
-          return (
-            <div
-              key={key}
-              className={`w-72 max-w-[85vw] shrink-0 snap-start rounded-xl border border-stone-200 border-t-4 bg-stone-100/60 md:w-auto md:min-w-60 md:max-w-none md:flex-1 ${s.color}`}
-            >
-              <header className="px-3 py-2.5">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-600">
-                  {s.icon} {s.label}
-                  <span className="ml-1.5 text-stone-400">{items.length}</span>
-                </h2>
-              </header>
-              <div className="space-y-2 px-2 pb-2">
-                {items.map((o) => (
-                  <OpportunityCard key={o.id} o={o} />
-                ))}
-                {!items.length && (
-                  <p className="px-2 pb-2 text-xs italic text-stone-400">Empty</p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {closed.length > 0 && (
-        <details className="rounded-xl border border-stone-200 bg-white" open={sp.show === "closed" || undefined}>
-          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-stone-500 select-none">
-            {closedStages.map(([, s]) => s.icon).join(" ")} Closed / on hold ({closed.length})
-          </summary>
-          <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
-            {closed.map((o) => (
-              <OpportunityCard key={o.id} o={o} />
-            ))}
-          </div>
-        </details>
-      )}
-
-      <details className="rounded-xl border border-dashed border-stone-300 bg-white p-4">
+      <details id="add" className="rounded-xl border border-dashed border-stone-300 bg-white p-4" open={!opps.length || !!presetPerson || !!presetCompany || !!sp.add}>
         <summary className="cursor-pointer text-sm font-medium text-indigo-600 select-none">
-          ＋ Add opportunity
+          ＋ Add a deal
         </summary>
         <form action={createOpportunity} className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-xs font-medium text-stone-600 sm:col-span-2">
@@ -103,11 +73,11 @@ export default async function PipelinePage({
           </label>
           <label className="text-xs font-medium text-stone-600">
             Person
-            <SearchSelect name="person_id" options={people.map((p) => ({ value: String(p.id), label: p.name, hint: p.company_name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
+            <SearchSelect name="person_id" defaultValue={presetPerson?.id} options={people.map((p) => ({ value: String(p.id), label: p.name, hint: p.company_name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs font-medium text-stone-600">
             Company
-            <SearchSelect name="company_id" options={companies.map((c) => ({ value: String(c.id), label: c.name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
+            <SearchSelect name="company_id" defaultValue={presetCompany?.id ?? presetPerson?.company_id} options={companies.map((c) => ({ value: String(c.id), label: c.name }))} className="mt-1 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm" />
           </label>
           <label className="text-xs font-medium text-stone-600">
             Value / economics
@@ -130,6 +100,45 @@ export default async function PipelinePage({
           </div>
         </form>
       </details>
+
+      <div className="full-bleed -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-2 sm:snap-none sm:px-2">
+        {openStages.map(([key, s]) => {
+          const items = separateKindsLast(opps.filter((o) => o.stage === key));
+          return (
+            <div
+              key={key}
+              className={`w-72 max-w-[85vw] shrink-0 snap-start rounded-xl border border-stone-200 border-t-4 bg-stone-100/60 md:w-auto md:min-w-60 md:max-w-none md:flex-1 ${s.color}`}
+            >
+              <header className="px-3 py-2.5">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                  {s.icon} {s.label}
+                  <span className="ml-1.5 text-stone-500">{items.length}</span>
+                </h2>
+              </header>
+              <div className="space-y-2 px-2 pb-2">
+                {items.map((o) => (
+                  <OpportunityCard key={o.id} o={o} quiet={quiet.get(o.id) ?? null} />
+                ))}
+                {!items.length && <p className="px-2 pb-2 text-xs italic text-stone-500">Empty</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {closed.length > 0 && (
+        <details className="rounded-xl border border-stone-200 bg-white" open={sp.show === "closed" || undefined}>
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-stone-600 select-none">
+            {closedStages.map(([, s]) => s.icon).join(" ")} Closed / on hold ({closed.length})
+          </summary>
+          <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
+            {closed.map((o) => (
+              <OpportunityCard key={o.id} o={o} />
+            ))}
+          </div>
+        </details>
+      )}
+
     </div>
   );
 }

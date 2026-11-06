@@ -6,10 +6,16 @@ export default function ErrorPage({ error, reset }: { error: Error & { digest?: 
   return (
     <div className="max-w-2xl space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Something went wrong</h1>
-      <p className="text-sm text-stone-600">
-        Something went wrong. Try again; if it keeps happening, copy this text when asking for help:
+      <p className="text-sm text-stone-700">
+        This page couldn&apos;t load. Your saved data is safe. Try again, or go back to the Dashboard.
       </p>
-      <p className="rounded-lg border border-red-200 bg-red-50 p-4 font-mono text-xs text-red-800 whitespace-pre-wrap">{error.message}</p>
+      <details className="text-xs text-stone-600">
+        <summary className="cursor-pointer">If it keeps happening: details to include when asking for help</summary>
+        <p className="mt-2 whitespace-pre-wrap rounded-lg border border-stone-200 bg-stone-50 p-3 font-mono">
+          {error.message}
+          {error.digest ? `\n(reference ${error.digest})` : ""}
+        </p>
+      </details>
       <div className="flex gap-3">
         <button onClick={reset} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
           Try again

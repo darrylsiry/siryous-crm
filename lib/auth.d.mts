@@ -7,3 +7,4 @@ export function getAuthToken(): string;
 export function wasJustCreated(): boolean;
 export function tokenMatches(candidate: unknown): boolean;
 export function signInUrl(origin?: string): string;
+export function normalizeToken(raw: string | null | undefined): string;

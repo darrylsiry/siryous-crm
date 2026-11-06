@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { loadOwner } from "@/lib/owner.mjs";
 
-const owner = loadOwner();
-
-export const metadata: Metadata = {
-  title: owner.appName,
-  description: `Relationship-centered business development for ${owner.configured ? owner.practiceName : "your practice"}`,
-};
+/** Every tab is "Page · Siryous CRM", so tabs and history entries can be told apart. */
+export function generateMetadata(): Metadata {
+  const owner = loadOwner();
+  return {
+    title: { default: owner.appName, template: `%s · ${owner.appName}` },
+    description: `Relationship-centered business development for ${owner.configured ? owner.practiceName : "your practice"}`,
+  };
+}
 
 /**
  * Minimal root: html/body/global styles only. The navigation chrome lives in

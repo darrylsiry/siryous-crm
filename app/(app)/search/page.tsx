@@ -6,6 +6,8 @@ import { first, type Param } from "@/lib/params";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Search" };
+
 export default async function SearchPage({
   searchParams,
 }: {
@@ -23,7 +25,7 @@ export default async function SearchPage({
   const anyTruncated = results ? Object.values(results.truncated).some(Boolean) : false;
   const Truncated = ({ section }: { section: keyof SearchResults["truncated"] }) =>
     results?.truncated[section] ? (
-      <span className="ml-2 font-normal normal-case tracking-normal text-stone-400">
+      <span className="ml-2 font-normal normal-case tracking-normal text-stone-500">
         showing first {SEARCH_LIMIT} — narrow the search to see the rest
       </span>
     ) : null;
@@ -37,7 +39,7 @@ export default async function SearchPage({
             name="q"
             defaultValue={query}
             autoFocus
-            placeholder="Search everything — people, companies, notes, interactions, deals…"
+            placeholder="Search everything — names, emails, companies, notes, interactions, to-dos, deals…"
             aria-label="Search"
             className="w-full rounded-xl border border-stone-300 px-4 py-2.5 text-sm shadow-xs focus:border-indigo-400 focus:outline-none"
           />
@@ -54,7 +56,7 @@ export default async function SearchPage({
         <div className="space-y-6">
           {results.people.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
                 People
                 <Truncated section="people" />
               </h2>
@@ -64,7 +66,7 @@ export default async function SearchPage({
                     <Link href={`/people/${p.slug}`} className="text-sm font-semibold hover:text-indigo-700">
                       {p.name}
                     </Link>
-                    <span className="text-xs text-stone-400">{p.company_name ?? ""}</span>
+                    <span className="text-xs text-stone-500">{p.company_name ?? ""}</span>
                     <StatusBadge statusKey={p.status_key} compact />
                   </li>
                 ))}
@@ -73,7 +75,7 @@ export default async function SearchPage({
           )}
           {results.companies.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
                 Companies
                 <Truncated section="companies" />
               </h2>
@@ -83,7 +85,7 @@ export default async function SearchPage({
                     <Link href={`/companies/${c.slug}`} className="shrink-0 text-sm font-semibold hover:text-indigo-700">
                       {c.name}
                     </Link>
-                    <span className="min-w-0 truncate text-xs text-stone-400">{c.industry ?? ""}</span>
+                    <span className="min-w-0 truncate text-xs text-stone-500">{c.industry ?? ""}</span>
                   </li>
                 ))}
               </ul>
@@ -91,7 +93,7 @@ export default async function SearchPage({
           )}
           {results.opportunities.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
                 Pipeline
                 <Truncated section="opportunities" />
               </h2>
@@ -101,7 +103,7 @@ export default async function SearchPage({
                     <Link href={opportunityHref(o)} className="font-semibold hover:text-indigo-700">
                       {o.name}
                     </Link>
-                    <span className="ml-2 text-xs text-stone-400">
+                    <span className="ml-2 text-xs text-stone-500">
                       {STAGES[o.stage]?.icon} {STAGES[o.stage]?.label}
                     </span>
                   </li>
@@ -111,14 +113,14 @@ export default async function SearchPage({
           )}
           {results.interactions.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
                 Interactions
                 <Truncated section="interactions" />
               </h2>
               <ul className="space-y-2">
                 {results.interactions.map((i) => (
                   <li key={i.id} className="text-sm">
-                    <span className="tabular-nums text-xs text-stone-400">{i.date}</span>{" "}
+                    <span className="tabular-nums text-xs text-stone-500">{i.date}</span>{" "}
                     {i.person_slug ? (
                       <Link href={`/people/${i.person_slug}`} className="font-medium hover:text-indigo-700">
                         {i.person_name}
@@ -136,8 +138,8 @@ export default async function SearchPage({
           )}
           {results.actions.length > 0 && (
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
-                Action items
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                To-dos
                 <Truncated section="actions" />
               </h2>
               <ul className="space-y-1.5">
@@ -145,19 +147,23 @@ export default async function SearchPage({
                   <li key={a.id} className="text-sm text-stone-700">
                     {a.status === "done" ? "✅ " : "☐ "}
                     <Link
-                      href={
-                        a.person_slug
-                          ? `/people/${a.person_slug}`
-                          : a.company_slug
-                            ? `/companies/${a.company_slug}`
-                            : "/actions"
-                      }
-                      className={`hover:text-indigo-700 ${a.status === "done" ? "text-stone-400 line-through" : "font-medium"}`}
+                      href={a.status === "done" ? `/actions?older=1#item-${a.id}` : `/actions#item-${a.id}`}
+                      className={`hover:text-indigo-700 ${a.status === "done" ? "text-stone-500 line-through" : "font-medium"}`}
                     >
                       {a.title}
                     </Link>
-                    <span className="ml-2 text-xs text-stone-400">
-                      {a.person_name ?? a.company_name ?? "Actions"}
+                    <span className="ml-2 text-xs text-stone-500">
+                      {a.person_slug ? (
+                        <Link href={`/people/${a.person_slug}`} className="hover:text-indigo-700">
+                          {a.person_name}
+                        </Link>
+                      ) : a.company_slug ? (
+                        <Link href={`/companies/${a.company_slug}`} className="hover:text-indigo-700">
+                          {a.company_name}
+                        </Link>
+                      ) : (
+                        "Actions"
+                      )}
                       {a.due_date || a.due_label ? ` · due ${a.due_date ?? a.due_label}` : ""}
                     </span>
                   </li>
@@ -165,7 +171,7 @@ export default async function SearchPage({
               </ul>
             </section>
           )}
-          {total === 0 && <p className="text-sm italic text-stone-400">No matches.</p>}
+          {total === 0 && <p className="text-sm italic text-stone-500">No matches.</p>}
         </div>
       )}
     </div>

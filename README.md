@@ -37,7 +37,7 @@ Three things to know before you start:
    news about your contacts. Optional, and the only part that sends anything off
    your computer.
 
-## Set up in 5 steps (Mac)
+## Set up in 6 steps (Mac)
 
 ### 1. Install Node
 
@@ -106,9 +106,10 @@ then double-click the file again.
 ### 5. Download an AI model (if you installed Ollama)
 
 Open **Settings** in the CRM's left-hand menu. The **AI on this Mac** box tells
-you whether Ollama is running and whether the AI model has been downloaded.
-Today the download is one command in Terminal (a later version will offer it
-inside the app):
+you whether Ollama is running and whether the AI model has been downloaded, and
+the notice on the AI pages says which model suits your Mac's memory, with a
+**Copy** button for the command and a **Check again** button. The download is
+one command in Terminal:
 
 1. Open Terminal: press **Command-Space**, type `Terminal`, press **Return**.
 2. Type one of these and press Return:
@@ -118,19 +119,23 @@ inside the app):
    - **16 GB Mac:** `ollama pull gemma4:12b` (about 8 GB) or `ollama pull qwen3:8b`
      (about 5 GB). Smaller and faster, slightly less polished writing.
 3. Wait for it to finish (a few minutes to an hour depending on your
-   connection), then go back to Settings, choose the model you downloaded in the
-   **AI model** list, and click **Save settings**.
+   connection), then press **Check again**. If the model you downloaded isn't
+   the one Settings names, the notice offers **Use …** to switch to it in one
+   click (or choose it in Settings → **AI model** and click **Save settings**).
 
 That's it. Try **Intake**: paste the text of someone's LinkedIn profile or an
 email from them and watch a profile appear for you to check and save.
 
 ### 6. Tell the AI who you are (optional, recommended)
 
-The AI writes for you — your name, your practice, what you sell. Copy
-`config/owner.example.json` to `config/owner.json` in the CRM folder, open it
-with TextEdit, fill in the fields (all optional), save, and double-click
-**Restart CRM.command**. Without it the AI calls you "the owner". The file stays
-on your Mac and is never part of an update.
+The AI writes for you — your name, your practice, what you sell. Open
+**Settings → About you**, fill in your name, practice, what you do and your
+email, and click **Save**. Without it the AI calls you "the owner". It is kept
+in `config/owner.json` on your Mac and is never part of an update. (Other
+fields there, such as the coach's persona, can be edited by hand: copy
+`config/owner.example.json`, whose fields start blank with an example beside
+each, and restart. A field left at an example's text is ignored, and Settings
+says if the file can't be read.)
 
 ## Using it
 
@@ -141,64 +146,94 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
 
 - **Dashboard** — the home page, built around what needs you right now. It
   opens with a greeting and a quote of the day, then:
+  - The line under the greeting counts what is there (this week, long
+    overdue, with no date, due a touch, emails to review, deals needing
+    attention); each count jumps to its place.
   - **Your move** — to-dos that are late (up to two weeks) or due in the next
     seven days, each with the person, their company, the open deal it belongs
-    to and when you last spoke. Tick one off right there, or click its date
-    to re-date or reword it. Anything more than two weeks late folds into a
-    collapsed list to do, re-date or drop.
-  - **Deals in motion** — open opportunities grouped by stage, furthest along
-    first, with the next step and the days since you last logged contact
-    (amber after two weeks, red after a month). Job opportunities sit at the
-    bottom of each stage on a tinted row.
+    to and when you last spoke. Tick one off right there (a note at the bottom
+    offers **Undo** for a few seconds), or click its date (✎) to re-date it in
+    one click (Tomorrow, Next Mon, +1 week), reword it or change its person.
+    Anything more than two weeks late, and anything in the dated group with no
+    date, folds into its own list to do, re-date or drop.
+  - **Due a touch** — the people most overdue on Keep Warm, each with **Log
+    touch**.
+  - **Deals in motion** — open opportunities, with the ones that **need
+    attention** first (quiet for a month, or no next step: set one right
+    there, or log a touch); the rest grouped by stage, furthest along first,
+    with the days since you last logged contact (amber after two weeks, red
+    after a month). Job opportunities sit at the bottom of each stage on a
+    tinted row.
   - Down the side: emails in the **Inbox** waiting for review, **In the news**
     (stories about your contacts, deal-related ones first, dismissable), what
-    you are **waiting on** from other people, and **recent activity**.
+    you are **waiting on** from other people (oldest first, with **Got it**
+    when they reply; late ones say "chase"), and **recent activity**.
+  - A new CRM starts with a **Getting started** list (add a person, tell the
+    AI who you are, set up the AI, add a deal, set your CRM email address)
+    that stays until each is done, or until you hide it.
 - **People** and **Companies** — the profiles. Each one has contact details, a
   status (New → Exploring → Active → Client …), how strong the relationship is,
   a narrative in four sections (Relationship, Business context, Strategy,
-  Notes) and a log of every interaction. Click any text to edit it in place,
-  and click the status badge — on a profile or in the People/Companies lists —
-  to change the status on the spot. If Claude (or another window) changed the
-  same section while you were typing, nothing is lost: your text is saved
-  below the newer version, marked ⚠, for you to merge.
-  Profiles link to each other, and you can delete a person, company, log entry
-  or open item from the profile page (permanent — only the daily backups can
-  bring it back).
+  Notes) and a log of every interaction. Under the name is a bar for what you
+  came to do: **Log touch**, **Prep**, **Add to-do**, **Add deal**, and **Call**
+  or **Email** when the snapshot has a number or address. What you have open
+  with them is listed right below it. **✎ Edit** on each section edits it;
+  **✎ Edit snapshot** changes contact details, the name (links keep working)
+  and the company (pick one, or type a new one). Click the status badge — on
+  a profile or in the People/Companies lists — to change the status on the
+  spot. If Claude (or another window) changed the same section while you were
+  typing, nothing is lost: your text is saved below the newer version, marked
+  ⚠, for you to merge. You can delete a person, company, log entry or to-do
+  from the profile page (permanent — the Danger zone says where your backups
+  are, or that they are off).
 - **Keep Warm** — every contact scored against how often you want to be in
   touch with them (by default: Active every 30 days, Exploring 45, New 21,
-  Dormant 180 — adjustable per person). Logging an interaction resets the
-  clock.
+  Dormant 180 — adjustable per person; changing someone's status moves a
+  default cadence to the new status's, and leaves one you set by hand).
+  **Log touch** on each row records a call, email or meeting in a few seconds
+  without leaving the page, and logging any interaction resets the clock.
+  People with no cadence are folded away below the list.
 - **Pipeline** — a board of the work you are chasing (engagements,
   partnerships, referrals, ventures — and job opportunities) across the stages
   a consultant actually goes through: Identified → In conversation →
-  Scoping/proposal → Negotiating → Engaged. Change a deal's stage right on its
-  card; ★ marks the important ones. Job opportunities are listed after
+  Scoping/proposal → Negotiating → Engaged. Choosing a stage on a card saves it;
+  each card shows the days since contact, and **✎ Edit** changes the rest or
+  deletes a deal made by mistake. ★ marks the important ones. Job opportunities are listed after
   everything else in each column, on a tinted card, so a job search stays
   apart from business development at a glance.
 - **Actions** — everything you have promised or are waiting for, grouped by
   urgency (overdue, this week, awaiting the other party, high potential, keep
-  warm, data gaps). Items carry a real due date — type one or write "Fri 7/25"
-  and it is understood. Tick things off; **✎ Edit** changes an item's wording,
-  date or group; "Recently completed" lets you reopen.
+  warm, missing details). Items carry a real due date — the one **Due** box
+  takes a date or "Fri 7/25" and shows what it understood. Tick things off;
+  **✎ Edit** changes an item's wording, date, person or group; "Recently
+  completed" (the last 30 days, with **Show older**) lets you reopen.
 - **✨ Intake (AI)** — paste anything about a person (a LinkedIn profile, an
   email thread, your own rough notes) and the AI extracts the person and their
   company, writes up the profile in a consistent style, spots links to people
   you already know, and suggests tags, a status and follow-ups. Nothing is
   saved until you have looked it over and clicked confirm. With Claude, it can
-  also look the person up on the web first. A run that fails keeps what you
-  pasted: **Run it again** or **Discard** it from the draft's page.
+  also look the person up on the web first. If the person is already in the
+  CRM it says so and offers **Log this on …** (the same text, as a Log draft)
+  instead of a duplicate. A run that fails keeps what you pasted: **Try
+  again** or **Discard** it from the draft's page; a run in progress has
+  **Cancel**.
 - **✎ Log (AI)** — turn a meeting or an email into log entries on the right
   contacts. Paste the notes or transcript, or (with Claude) have it fetch the
   Zoom recording transcript, the Gmail thread or the Google Meet transcript
   itself. It drafts the entries, proposes what your next step is, closes
   things that are now done, and suggests follow-ups — again, you review before
-  anything is saved. A profile's own "Log interaction" form is the no-AI
-  route (what you type is what is saved); its "Draft the entry with AI" link
-  opens Log with that contact preset.
+  anything is saved, next to the source text, and every suggestion (wording,
+  date, person) can be changed first. Saving says what was saved ("Saved 2
+  entries · closed 1 to-do · added 1 follow-up") and offers the next draft
+  waiting. If nobody in the notes is in your CRM yet, it offers **Create a
+  profile from these notes**. **Log touch** and a profile's own "Log
+  interaction" form are the no-AI routes (what you type is what is saved).
 - **📥 Inbox (AI, needs Claude)** — a CRM email address. Forward an email
   there, or copy the address on one you send, and it becomes a Log draft for
-  the people already in your roster, an Intake draft for anyone who isn't, or
-  both — the same review screens as a paste, nothing saved until you confirm.
+  the people already in your CRM, an Intake draft for anyone who isn't, or
+  both — the same review screens as a paste, nothing saved until you confirm,
+  and saving brings you back to the queue. This is also how to log something
+  from your phone: email the address, and it waits here for review.
   Gmail's plus-addressing means `you+crm@gmail.com` works with no setup, as
   long as that is the mailbox your Claude Gmail connector is signed in to;
   mail you get at other addresses can be forwarded to it. People are matched
@@ -211,8 +246,10 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   schedule, or on demand, with one Claude run each time: at the pace you set
   while you're using the app, and every four hours while you're away (mail
   that arrives meanwhile isn't lost). The page shows where each
-  draft is in the model's queue, and lets you re-route anything it guessed
-  wrong (which replaces that email's drafts rather than adding more). Only
+  draft is in the model's queue and updates by itself, and an email's
+  **More** menu re-routes anything it guessed wrong (replacing that email's
+  drafts rather than adding more) or ignores it (discarding its unsaved
+  drafts). Only
   email sent from your own addresses (the one in `config/owner.json`, plus any
   you list under **Your other email addresses**) is acted on: anyone can write
   to a plus-address, so mail from anyone else is listed as ignored and never
@@ -237,25 +274,37 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   against your calendar, your email and the web, with sources), what you want
   out of the meeting, talking points, questions and watch-outs. With Claude it
   can also look at your next seven days of meetings and pick who to prep for.
-  Briefs can be downloaded as a Word document, and a "Log this meeting" button
-  closes the loop afterwards.
+  The top of each brief says what was checked and what wasn't (and why).
+  Briefs can be downloaded as a Word document, and a "Log this meeting" box
+  closes the loop afterwards (with the AI, or saved as typed).
 - **◎ Coach (AI)** — a weekly review of your whole practice. The AI reads the
   pipeline, the overdue items and the recent activity, tells you what it sees,
   and you talk it through. Anything you commit to in the conversation shows up
-  as a proposed change to the CRM underneath the reply — tick the ones you want
-  recorded. Quick check-ins between weekly sessions work too. Settings → Coach
-  sets how hard it pushes (Friendly, Pushy or Hardcore), whether it reads a
+  as a proposed change to the CRM underneath the reply — correct the wording,
+  date or person if needed and tick the ones you want recorded; the Coach page
+  marks the sessions with proposals waiting, and **End session** asks first.
+  Quick check-ins between weekly sessions work too. Settings → Coach sets how
+  hard it pushes (Friendly, Pushy or Hardcore), whether it reads a
   folder of your own notes about your strengths, pitfalls and goals, and which
   AI it uses — it can run on a bigger local model, or on Claude, than the rest
   of the app.
 - **Import** — bring in a spreadsheet of contacts, including your LinkedIn
   connections (see the next section).
 - **Map** — a live picture of your network: people coloured by status,
-  companies, and who introduced whom. Hover over someone to see just their
-  circle; click to open the profile.
+  companies, and who introduced whom. Hover over someone (or tap them) to see
+  just their circle; click (or tap again) to open the profile. Chips filter by
+  status, and a big network starts on the most engaged ones; **Find** jumps to
+  a name.
 - **Search** — one box (in the sidebar, or the Search page) that looks across
-  people, companies, notes, interactions, action items and the pipeline.
-- **Outreach** — messages you have drafted or sent, attached to their contacts.
+  people (including email, phone and employer), companies, notes,
+  interactions, to-dos and the pipeline. A to-do result opens that to-do.
+- **Outreach** — imported messages, drafted or sent, attached to their
+  contacts; **Copy text** and **Mark sent**. It appears in the menu once there
+  is something in it.
+
+The AI pages say before you start where the text will go: on this Mac, or —
+if the AI on this Mac isn't running and the Claude fallback is on — to
+Anthropic through Claude. Every review page and brief says which one wrote it.
 
 Logging an interaction automatically updates the contact's "last touch" date.
 
@@ -275,9 +324,13 @@ The fastest way to fill the CRM is your LinkedIn connections list.
    to 8 MB work here (a LinkedIn export is far smaller).
 
 Names, LinkedIn links, current role and company come across, and the
-"Connected On" date becomes the last-touch date. Anyone already in the CRM is
-left alone (never overwritten); tick **update existing** if you want blank
-fields on existing people filled in from the file. Any spreadsheet with a
+"Connected On" date is kept as when you connected. Before importing, the
+preview asks whether to add everyone to **Keep Warm**: the default, **Not yet**,
+leaves them on the People page with no keep-warm cadence, so years-old
+connections don't all show as overdue (the preview says how many would);
+give someone a cadence when they matter. Anyone already in the CRM is left
+alone (never overwritten); tick **update existing** if you want blank fields
+on existing people filled in from the file. Any spreadsheet with a
 header row works the same way — name, email, company, role, phone, location,
 tags, notes and a few other columns are recognised automatically.
 
@@ -424,14 +477,18 @@ you happen to visit — from reading or changing your CRM. There is no password
 to remember:
 
 - **Start CRM.command** always opens the CRM already signed in.
-- **To sign in a second browser** (or after clearing your browser's cookies),
-  open **Settings** in a browser that is signed in and copy the **sign-in link**
-  shown there into the other browser. Or paste the contents of the file
-  `data/auth-token` into the box on the sign-in page.
-- **"That token didn't match" / "That code didn't match":** the code was
-  copied incompletely. It is a single line with no spaces — open
-  `data/auth-token` with TextEdit, select all, copy, and paste it again. Or just
-  double-click **Start CRM.command**, which signs the browser in for you.
+- **To sign in a second browser on this Mac** (or after clearing your
+  browser's cookies), open **Settings → Access** in a browser that is signed
+  in and copy the **sign-in link** into the other browser, or paste it into
+  the box on the sign-in page. The contents of the file `data/auth-token` work
+  in the box too.
+- **"That didn't match":** the link or code was copied incompletely. Copy it
+  again in full, or just double-click **Start CRM.command**, which signs the
+  browser in for you.
+- **On your phone:** the CRM runs on this Mac, so its pages don't open on a
+  phone. Email your CRM address instead (see **Inbox**) — for example
+  "#log Called Sam. Next step: proposal Friday." — and review the draft when
+  you're back at the Mac.
 - Always use the address the CRM gives you, `http://127.0.0.1:3000`. The
   sign-in is tied to that exact address, so `localhost:3000` looks like a
   different site to your browser and asks you to sign in again.
@@ -446,8 +503,9 @@ Look for the message you are seeing:
   should appear in the menu bar. Then try again. If you never installed it, see
   step 2 of the setup.
 - **"The AI model … hasn't been downloaded yet"** — Ollama
-  is running but the model chosen in Settings hasn't been downloaded. Follow
-  step 5 of the setup, then pick the model in Settings and save.
+  is running but the model chosen in Settings hasn't been downloaded. The
+  notice shows the command to copy for the model that suits your Mac; run it,
+  press **Check again**, and choose the model if it offers **Use …**.
 - **"That's too much text for the AI to read at once"** — you gave the AI
   more text than the model can hold at once (a long transcript, or a very busy
   Coach week). Either paste less, or open Settings and raise **How much text
@@ -479,6 +537,10 @@ Look for the message you are seeing:
 - **The browser says it can't connect to 127.0.0.1:3000** — the CRM isn't
   running. Double-click **Start CRM.command**. If that window shows an error,
   the details are also in `data/server.log` inside the CRM folder.
+- **"Another program is using the address the CRM needs (port 3000)"** — some
+  other app on this Mac answers on the same address. Start CRM never opens it
+  (or hands it your sign-in link), and Stop CRM only ever stops the CRM. Quit
+  the other app and double-click **Start CRM.command** again.
 - **Installing fails with messages about `gyp`, `xcrun` or "Command Line
   Tools"** — the database component had to be built from source, which needs
   Apple's developer tools. Open Terminal, run `xcode-select --install`, accept

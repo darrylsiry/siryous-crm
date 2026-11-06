@@ -4,16 +4,38 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { importCsvAction, type ImportState } from "@/lib/importActions";
-import type { ImportReport } from "@/lib/importCsv";
+import type { ImportField, ImportReport } from "@/lib/importCsv";
+
+/** The CRM field each column fills, in words. */
+const FIELD_LABEL: Record<ImportField, string> = {
+  name: "Name",
+  first_name: "First name",
+  last_name: "Last name",
+  email: "Email",
+  linkedin: "LinkedIn",
+  role_title: "Role / title",
+  company: "Company",
+  location: "Location",
+  phone: "Phone",
+  tags: "Tags",
+  notes: "Notes",
+  status: "Status",
+  cadence_days: "Keep-warm cadence",
+  last_touch: "Last touch",
+};
+
+function monthYear(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
 
 const initial: ImportState = { kind: "idle" };
 
-function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
+function SubmitButton({ label, pendingLabel, disabled = false }: { label: string; pendingLabel: string; disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
     >
       {pending ? pendingLabel : label}
@@ -111,15 +133,21 @@ export default function ImportForm() {
           <ReportView report={state.report} update={state.update} future />
 
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400">Columns</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">Columns</h3>
             <ul className="mt-1 flex flex-wrap gap-1.5 text-xs">
               {state.columns.map((c, i) => (
                 <li
                   key={i}
                   className={`rounded-md px-2 py-0.5 ring-1 ${c.field ? "bg-indigo-50 text-indigo-800 ring-indigo-600/20" : "bg-stone-100 text-stone-500 ring-stone-400/20"}`}
-                  title={c.field ? `→ ${c.field}` : "ignored"}
                 >
-                  {c.header || "(blank)"} {c.field ? <span className="text-indigo-500">→ {c.field}</span> : <span>· ignored</span>}
+                  {c.header || "(blank)"}{" "}
+                  {c.field ? (
+                    <span className="text-indigo-700">
+                      → {c.field === "last_touch" && state.touchIsConnected ? "Connected on" : FIELD_LABEL[c.field]}
+                    </span>
+                  ) : (
+                    <span>· not used</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -127,7 +155,7 @@ export default function ImportForm() {
 
           {state.sample.length ? (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-400">First {state.sample.length} rows as they would be saved</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-500">First {state.sample.length} rows as they would be saved</h3>
               <div className="mt-1 overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -139,7 +167,7 @@ export default function ImportForm() {
                       <th className="py-1 pr-3 font-medium">Location</th>
                       <th className="py-1 pr-3 font-medium">Status</th>
                       <th className="py-1 pr-3 font-medium">Cadence</th>
-                      <th className="py-1 pr-3 font-medium">Last touch</th>
+                      <th className="py-1 pr-3 font-medium">{state.touchIsConnected ? "Connected" : "Last touch"}</th>
                       <th className="py-1 pr-3 font-medium">Tags</th>
                     </tr>
                   </thead>
@@ -148,15 +176,16 @@ export default function ImportForm() {
                       <tr key={p.line} className="align-top">
                         <td className="py-1 pr-3 font-medium text-stone-800">
                           {p.name}
-                          <span className="block text-[0.65rem] font-normal text-stone-400">{p.slug}</span>
                         </td>
                         <td className="py-1 pr-3">{p.role_title ?? "—"}</td>
                         <td className="py-1 pr-3">{p.company ?? "—"}</td>
                         <td className="py-1 pr-3">{p.email ?? "—"}</td>
                         <td className="py-1 pr-3">{p.location ?? "—"}</td>
-                        <td className="py-1 pr-3">{p.status_key}</td>
+                        <td className="py-1 pr-3 capitalize">{p.status_key.replace(/_/g, " ")}</td>
                         <td className="py-1 pr-3">{p.cadence_days ? `${p.cadence_days}d` : "—"}</td>
-                        <td className="py-1 pr-3">{p.last_touch ?? (p.last_touch_note ? `(${p.last_touch_note})` : "—")}</td>
+                        <td className="py-1 pr-3">
+                          {p.last_touch ? (state.touchIsConnected ? monthYear(p.last_touch) : p.last_touch) : p.last_touch_note ? `(${p.last_touch_note})` : "—"}
+                        </td>
                         <td className="py-1 pr-3">{p.tags ?? "—"}</td>
                       </tr>
                     ))}
@@ -166,16 +195,44 @@ export default function ImportForm() {
             </div>
           ) : null}
 
-          <form action={action} className="flex items-center gap-3 border-t border-stone-100 pt-4">
+          <form action={action} className="space-y-3 border-t border-stone-100 pt-4">
             <input type="hidden" name="mode" value="import" />
             <input type="hidden" name="csv" value={state.csv} />
             <input type="hidden" name="file_name" value={state.fileName} />
             {state.update ? <input type="hidden" name="update" value="1" /> : null}
-            <SubmitButton
-              label={`⇪ Import ${state.report.created} ${state.report.created === 1 ? "person" : "people"}${state.update && state.report.updated ? ` + update ${state.report.updated}` : ""}`}
-              pendingLabel="Importing…"
-            />
-            <span className="text-xs text-stone-400">Rows with errors are skipped; the rest go in.</span>
+            {!state.cadenceInFile && state.report.created ? (
+              <fieldset className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-700">
+                <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-stone-500">Add these people to Keep Warm?</legend>
+                <label className="flex items-start gap-2 py-0.5">
+                  <input type="radio" name="keep_warm" value="no" defaultChecked className="mt-1" />
+                  <span>
+                    <b className="font-medium">Not yet — I&apos;ll choose who matters</b> (recommended). They&apos;re on the People page; give
+                    someone a cadence from their profile to start keeping them warm.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 py-0.5">
+                  <input type="radio" name="keep_warm" value="yes" className="mt-1" />
+                  <span>
+                    <b className="font-medium">Yes, everyone</b> on their status&apos;s default cadence
+                    {state.report.overdueIfKeptWarm
+                      ? ` — about ${state.report.overdueIfKeptWarm} would show as overdue straight away`
+                      : ""}
+                    {state.touchIsConnected ? ", since a LinkedIn connection date counts as their last touch." : "."}
+                  </span>
+                </label>
+              </fieldset>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              {state.report.created || (state.update && state.report.updated) ? (
+                <SubmitButton
+                  label={`⇪ Import ${state.report.created} ${state.report.created === 1 ? "person" : "people"}${state.update && state.report.updated ? ` + update ${state.report.updated}` : ""}`}
+                  pendingLabel="Importing…"
+                />
+              ) : (
+                <SubmitButton label="Nothing new to import" pendingLabel="…" disabled />
+              )}
+              <span className="text-xs text-stone-500">Rows with errors are skipped; the rest go in.</span>
+            </div>
           </form>
         </section>
       ) : null}
@@ -187,6 +244,7 @@ export default function ImportForm() {
             <p className="mt-1 text-xs text-stone-500">
               Done. See them on the <Link href="/people" className="underline">People</Link> page; companies created here start as 🌱 New with no
               profile text — Intake or the profile pages can fill that in.
+              {state.keepWarm ? "" : " They aren't on Keep Warm until you give someone a cadence in their snapshot."}
             </p>
           </div>
           <ReportView report={state.report} update={state.update} future={false} />

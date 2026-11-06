@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MapData } from "@/lib/queries";
 
 /** Fill for a status the vocabulary doesn't know (stone). */
@@ -198,8 +198,47 @@ function simulate(nodes: Node[], edges: Edge[]) {
   }
 }
 
-/** `statusFill`: status key → hex colour, from the vocabulary (lib/vocab.mjs) via the page. */
-export default function NetworkMap({ data, statusFill }: { data: MapData; statusFill: Record<string, string> }) {
+/** Above this many people the map starts on the most engaged statuses only (the chips add the rest). */
+const BIG_NETWORK = 150;
+
+export interface MapStatus {
+  key: string;
+  label: string;
+  dot: string;
+  rank: number;
+}
+
+/**
+ * The people (and the companies they work at, or whose own status is shown)
+ * for the chosen statuses. With every chip on, everything shows, including a
+ * status the vocabulary no longer knows.
+ */
+function filterData(data: MapData, shown: Set<string>, all: boolean): MapData {
+  if (all) return data;
+  const visible = (status: string) => shown.has(status);
+  const people = data.people.filter((p) => visible(p.status_key));
+  const ids = new Set(people.map((p) => p.id));
+  const withPeople = new Set(people.map((p) => p.company_id));
+  return {
+    people,
+    companies: data.companies.filter((c) => withPeople.has(c.id) || visible(c.status_key)),
+    connections: data.connections.filter((c) => ids.has(c.from_person_id) && ids.has(c.to_person_id)),
+  };
+}
+
+/**
+ * `statuses` (from the vocabulary, lib/vocab.mjs, via the page) colour the
+ * nodes and make the filter chips. Hover or focus a node to isolate its
+ * network; on a touch screen the first tap isolates and the second opens it.
+ */
+export default function NetworkMap({ data, statuses }: { data: MapData; statuses: MapStatus[] }) {
+  const statusFill = useMemo(() => Object.fromEntries(statuses.map((s) => [s.key, s.dot])), [statuses]);
+  const big = data.people.length > BIG_NETWORK;
+  const [shown, setShown] = useState<Set<string>>(
+    () => new Set((big ? statuses.filter((s) => s.rank < 3) : statuses).map((s) => s.key))
+  );
+  const all = shown.size === statuses.length;
+  const filtered = useMemo(() => filterData(data, shown, all), [data, shown, all]);
   // Laid out in the browser after mount, never during server rendering: the
   // layout is CPU-heavy and would hold up the server's single thread (every
   // other page and the background loops), and SVG float coordinates hydrate
@@ -207,50 +246,137 @@ export default function NetworkMap({ data, statusFill }: { data: MapData; status
   const [graph, setGraph] = useState<Graph | null>(null);
   useEffect(() => {
     // A tick's delay lets the placeholder paint before the layout runs.
-    const timer = setTimeout(() => setGraph(layout(data)), 0);
+    const timer = setTimeout(() => setGraph(layout(filtered)), 0);
     return () => clearTimeout(timer);
-  }, [data]);
+  }, [filtered]);
   const [hover, setHover] = useState<number | null>(null);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const pointer = useRef<string>("mouse");
+  const nodesNow = graph?.nodes;
+  const found = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !nodesNow) return null;
+    const i = nodesNow.findIndex((n) => n.label.toLowerCase().includes(q));
+    return i >= 0 ? i : -1;
+  }, [query, nodesNow]);
+  // Reset the selection when the graph is rebuilt (indices change).
+  useEffect(() => {
+    setHover(null);
+    setPicked(null);
+  }, [graph]);
+  const focus = hover ?? picked ?? (found != null && found >= 0 ? found : null);
   const edges = graph?.edges;
   const neighbors = useMemo(() => {
-    if (hover == null || !edges) return null;
-    const set = new Set<number>([hover]);
+    if (focus == null || !edges) return null;
+    const set = new Set<number>([focus]);
     for (const e of edges) {
-      if (e.a === hover) set.add(e.b);
-      if (e.b === hover) set.add(e.a);
+      if (e.a === focus) set.add(e.b);
+      if (e.b === focus) set.add(e.a);
     }
     return set;
-  }, [hover, edges]);
+  }, [focus, edges]);
+
+  const toggle = (key: string) =>
+    setShown((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next.size ? next : cur;
+    });
+
+  const controls = (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <button
+          type="button"
+          onClick={() => setShown(new Set(statuses.map((s) => s.key)))}
+          aria-pressed={all}
+          className={`rounded-full px-2.5 py-1 ring-1 ring-inset ${all ? "bg-stone-900 text-white ring-stone-900" : "bg-white text-stone-600 ring-stone-300 hover:bg-stone-100"}`}
+        >
+          All
+        </button>
+        {statuses.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => toggle(s.key)}
+            aria-pressed={shown.has(s.key)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ring-1 ring-inset ${
+              shown.has(s.key) ? "bg-white font-medium text-stone-800 ring-stone-400" : "bg-stone-100 text-stone-500 ring-stone-200 line-through"
+            }`}
+          >
+            <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.dot }} />
+            {s.label}
+          </button>
+        ))}
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find a person or company…"
+          aria-label="Find on the map"
+          className="ml-auto w-full rounded-lg border border-stone-300 px-2.5 py-1 text-sm sm:w-56"
+        />
+      </div>
+      {big && !all ? (
+        <p className="text-xs text-stone-500">
+          Showing {filtered.people.length} of {data.people.length} people: the most engaged statuses first, so names stay readable. Use the chips to add more.
+        </p>
+      ) : null}
+      {found === -1 ? <p className="text-xs text-amber-700">Nobody on the map matches &ldquo;{query}&rdquo; — check the status chips.</p> : null}
+    </div>
+  );
 
   if (!graph || !edges) {
     return (
-      <div
-        className="flex w-full items-center justify-center rounded-xl border border-stone-200 bg-white text-sm text-stone-400"
-        style={{ aspectRatio: `${W} / ${H}` }}
-      >
-        Laying out the network…
+      <div className="space-y-3">
+        {controls}
+        <div
+          className="flex w-full items-center justify-center rounded-xl border border-stone-200 bg-white text-sm text-stone-500"
+          style={{ aspectRatio: `${W} / ${H}` }}
+        >
+          Laying out the network…
+        </div>
       </div>
     );
   }
   const { nodes, simplified } = graph;
+  const pick = picked != null ? nodes[picked] : null;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-      {simplified ? (
-        <p className="rounded-t-xl border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          {nodes.length.toLocaleString()} people and companies are too many to arrange properly, so
-          this is a simplified map: people are grouped around their company, intros don&apos;t pull
-          anyone closer, and names appear when you hover. Search finds a particular person faster.
-        </p>
-      ) : null}
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full min-w-[640px]"
-        onMouseLeave={() => setHover(null)}
-      >
+    <div className="space-y-3">
+      {controls}
+      <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+        {simplified ? (
+          <p className="rounded-t-xl border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {nodes.length.toLocaleString()} people and companies are too many to arrange properly, so
+            this is a simplified map: people are grouped around their company, intros don&apos;t pull
+            anyone closer, and names appear when you hover. Narrow it with the chips, or use Find.
+          </p>
+        ) : null}
+        {pick ? (
+          <p className="flex items-center justify-between gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-sm text-indigo-900">
+            <span>
+              <b>{pick.label}</b> and their connections
+            </span>
+            <a href={pick.href} className="font-semibold text-indigo-700 underline">
+              Open profile →
+            </a>
+          </p>
+        ) : null}
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full min-w-[640px]"
+          onMouseLeave={() => setHover(null)}
+          onPointerDown={(e) => {
+            pointer.current = e.pointerType;
+            // A tap on empty space clears a touch selection.
+            if (e.pointerType !== "mouse" && e.target === e.currentTarget) setPicked(null);
+          }}
+        >
       {edges.map((e, i) => {
         const dim = neighbors && !(neighbors.has(e.a) && neighbors.has(e.b));
-        const active = hover != null && (e.a === hover || e.b === hover);
+        const active = focus != null && (e.a === focus || e.b === focus);
         return (
           <g key={i} opacity={dim ? 0.12 : 1}>
             <line
@@ -292,9 +418,17 @@ export default function NetworkMap({ data, statusFill }: { data: MapData; status
             aria-label={`${n.label} (${n.type})`}
             style={{ opacity: dim ? 0.15 : 1 }}
             className="cursor-pointer focus:outline-none [&:focus-visible>*]:stroke-indigo-500"
-            onMouseEnter={() => setHover(i)}
+            onMouseEnter={() => pointer.current === "mouse" && setHover(i)}
             onFocus={() => setHover(i)}
             onBlur={() => setHover(null)}
+            onClick={(e) => {
+              // Touch: the first tap isolates the node (with an "Open profile" link), the second opens it.
+              if (pointer.current !== "mouse" && picked !== i) {
+                e.preventDefault();
+                setHover(null);
+                setPicked(i);
+              }
+            }}
           >
             {n.type === "company" ? (
               <rect
@@ -325,7 +459,8 @@ export default function NetworkMap({ data, statusFill }: { data: MapData; status
           </a>
         );
       })}
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 }

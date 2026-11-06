@@ -8,7 +8,7 @@ import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
 import { getCoachSettings } from "./settings";
 import { loadProposals, type CoachProposal } from "./coachData";
-import { parseDueDate } from "./dates.mjs";
+import { isIsoDate, parseDueDate } from "./dates.mjs";
 import { markActionDone } from "./rules.mjs";
 import { CoachCloseSchema, CoachTurnSchema, validateModelJson } from "./schemas";
 import {
@@ -143,15 +143,21 @@ export async function reviewCoachProposals(formData: FormData) {
           lines.push(`✅ Already done: ${p.title}`);
         }
       } else if (p.kind === "create") {
-        const person = p.person_slug
-          ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(p.person_slug) as
+        // The review form lets the owner correct the wording, date and person before recording.
+        const edited = (k: string) => (formData.has(`${k}_${p.id}`) ? String(formData.get(`${k}_${p.id}`) ?? "").trim() : null);
+        const title = edited("title") || p.title;
+        const dueTyped = edited("due");
+        const due = dueTyped === null ? p.due_label : dueTyped || null;
+        const slug = edited("person") ?? p.person_slug;
+        const person = slug
+          ? (db.prepare(`SELECT id, company_id FROM people WHERE slug=?`).get(slug) as
               | { id: number; company_id: number | null }
               | undefined)
           : undefined;
         db.prepare(
           `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id, source) VALUES (?,?,?,?,?,?,'coach')`
-        ).run(p.bucket ?? "this_week", p.due_label, parseDueDate(p.due_label), p.title, person?.id ?? null, person?.company_id ?? null);
-        lines.push(`➕ Committed: ${p.title}${p.due_label ? ` (due ${p.due_label})` : ""}`);
+        ).run(p.bucket ?? "this_week", due, isIsoDate(due) ? due : parseDueDate(due), title, person?.id ?? null, person?.company_id ?? null);
+        lines.push(`➕ Committed: ${title}${due ? ` (due ${due})` : ""}`);
       }
       db.prepare(`UPDATE coach_proposals SET status='applied', resolved_at=datetime('now') WHERE id=?`).run(p.id);
     }
@@ -184,6 +190,19 @@ function generateAdvice(sessionId: number, weekStart: string, kind: "weekly" | "
       );
     }
   });
+}
+
+/** "Try again" on a session whose advice failed to generate. */
+export async function retryCoachSession(id: number) {
+  const db = getDb();
+  const row = db.prepare(`SELECT week_start, kind FROM coach_sessions WHERE id=? AND status='error'`).get(id) as
+    | { week_start: string; kind: string }
+    | undefined;
+  if (row) {
+    db.prepare(`UPDATE coach_sessions SET status='analyzing', error=NULL, progress=NULL WHERE id=?`).run(id);
+    generateAdvice(id, row.week_start, row.kind === "checkin" ? "checkin" : "weekly");
+  }
+  redirect(`/coach/${id}`);
 }
 
 /**

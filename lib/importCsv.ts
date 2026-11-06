@@ -357,6 +357,12 @@ export interface ImportOptions {
   update?: boolean;
   /** Run everything, then roll back. */
   dryRun?: boolean;
+  /**
+   * false: people created without a cadence column get no keep-warm cadence,
+   * so a big LinkedIn import doesn't fill Keep Warm with years-old
+   * connections. Default true (the status's default cadence).
+   */
+  keepWarm?: boolean;
 }
 
 export interface ImportReport {
@@ -372,6 +378,8 @@ export interface ImportReport {
   skippedExisting: string[];
   errors: RowError[];
   dryRun: boolean;
+  /** Of the people created, how many would show as overdue on Keep Warm straight away with their default cadence. */
+  overdueIfKeptWarm: number;
 }
 
 /** Contact fields that `update` may fill when blank. Narrative sections are never touched. */
@@ -400,7 +408,12 @@ export function importPeople(db: Database.Database, parsed: ParsedCsv, opts: Imp
     skippedExisting: [],
     errors: [...parsed.errors],
     dryRun: !!opts.dryRun,
+    overdueIfKeptWarm: 0,
   };
+  const keepWarm = opts.keepWarm !== false || parsed.mapping.cadence_days !== undefined;
+  const todayMs = Date.now();
+  const overdueAt = (p: MappedPerson) =>
+    p.cadence_days != null && (!p.last_touch || (todayMs - Date.parse(`${p.last_touch}T12:00:00`)) / 86_400_000 > p.cadence_days);
 
   const findPerson = db.prepare(
     `SELECT id, name, email, linkedin, role_title, company_id, location, phone FROM people WHERE slug = ?`
@@ -477,10 +490,11 @@ export function importPeople(db: Database.Database, parsed: ParsedCsv, opts: Imp
           notes: p.notes,
           last_touch: p.last_touch,
           last_touch_note: p.last_touch_note,
-          cadence_days: p.cadence_days,
+          cadence_days: keepWarm ? p.cadence_days : null,
           tags: p.tags,
         });
         report.created++;
+        if (overdueAt(p)) report.overdueIfKeptWarm++;
       } catch (err) {
         report.errors.push({ row: p.line, message: err instanceof Error ? err.message : String(err) });
       }

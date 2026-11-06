@@ -7,7 +7,11 @@ import {
   HeadingLevel,
   Packer,
   Paragraph,
+  Table,
+  TableCell,
+  TableRow,
   TextRun,
+  WidthType,
 } from "docx";
 
 /**
@@ -77,8 +81,27 @@ const decode = (s: string) =>
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 
-function blockToParagraphs(token: Token, listLevel = 0): Paragraph[] {
+function blockToParagraphs(token: Token, listLevel = 0): (Paragraph | Table)[] {
   switch (token.type) {
+    case "table": {
+      // A Markdown table becomes a real Word table: a bold header row, then the rows.
+      const t = token as Tokens.Table;
+      const cell = (c: Tokens.TableCell, header: boolean) =>
+        new TableCell({
+          children: [new Paragraph({ children: inlineRuns(c.tokens, header ? { bold: true } : {}) })],
+          margins: { top: 60, bottom: 60, left: 100, right: 100 },
+        });
+      return [
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({ tableHeader: true, children: t.header.map((c) => cell(c, true)) }),
+            ...t.rows.map((r) => new TableRow({ children: r.map((c) => cell(c, false)) })),
+          ],
+        }),
+        new Paragraph({ spacing: { after: 120 } }),
+      ];
+    }
     case "heading": {
       const h = token as Tokens.Heading;
       return [
@@ -97,7 +120,7 @@ function blockToParagraphs(token: Token, listLevel = 0): Paragraph[] {
       ];
     case "list": {
       const list = token as Tokens.List;
-      const out: Paragraph[] = [];
+      const out: (Paragraph | Table)[] = [];
       list.items.forEach((item, i) => {
         let first = true;
         for (const child of item.tokens) {
@@ -163,9 +186,25 @@ function blockToParagraphs(token: Token, listLevel = 0): Paragraph[] {
   }
 }
 
-export async function markdownToDocx(md: string, footerNote?: string): Promise<Buffer> {
+/** The lines above a brief: who it's for, when it was prepared, its focus, and what was checked. */
+export interface TitleBlock {
+  title: string;
+  lines: string[];
+}
+
+export async function markdownToDocx(md: string, footerNote?: string, titleBlock?: TitleBlock): Promise<Buffer> {
   const tokens = marked.lexer(md);
-  const children = tokens.flatMap((t) => blockToParagraphs(t));
+  const children: (Paragraph | Table)[] = [];
+  if (titleBlock) {
+    children.push(new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun({ text: titleBlock.title, bold: true, size: 36 })] }));
+    for (const line of titleBlock.lines) {
+      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 20, color: "555555" })], spacing: { after: 40 } }));
+    }
+    children.push(
+      new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "CCCCCC" } }, spacing: { after: 200 } })
+    );
+  }
+  children.push(...tokens.flatMap((t) => blockToParagraphs(t)));
   if (footerNote) {
     children.push(
       new Paragraph({
@@ -176,6 +215,7 @@ export async function markdownToDocx(md: string, footerNote?: string): Promise<B
     );
   }
   const doc = new Document({
+    title: titleBlock?.title,
     styles: {
       default: {
         document: { run: { font: "Calibri", size: 22 } },

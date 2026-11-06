@@ -187,6 +187,10 @@ export interface ProgressEvent {
   label: string;
   detail?: string;
   ts: number;
+  /** On a run's first event: which AI it went to (for "Written on this Mac" / "Sent to Anthropic"). */
+  route?: "local" | "claude";
+  /** With route "claude": the run had connector or web tools (a fetch or research step, not the writing). */
+  tools?: boolean;
 }
 
 const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -238,14 +242,21 @@ export function runClaudeStream(
     timeoutMs = 420_000,
     allowedTools = TOOLS.web,
     onEvent = () => {},
+    signal,
   }: {
     model?: string;
     timeoutMs?: number;
     allowedTools?: string;
     onEvent?: (e: ProgressEvent) => void;
+    /** Aborted when the owner cancels the run: the CLI is stopped. */
+    signal?: AbortSignal;
   } = {}
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new RunCancelled("You cancelled this run."));
+      return;
+    }
     const env = { ...process.env };
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
@@ -285,6 +296,17 @@ export function runClaudeStream(
       reap();
       reject(new Error(`Claude timed out after ${Math.round(timeoutMs / 60000)} minutes.`));
     }, timeoutMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reap();
+        reject(new RunCancelled("You cancelled this run."));
+      },
+      { once: true }
+    );
 
     const finish = (fn: () => void) => {
       if (settled) return;
@@ -304,7 +326,7 @@ export function runClaudeStream(
         return;
       }
       if (msg.type === "system" && msg.subtype === "init") {
-        onEvent({ t: "info", label: `Claude is up (${msg.model ?? model}) — reading your input`, ts: Date.now() });
+        onEvent({ t: "info", label: `Claude is up (${msg.model ?? model}) — reading your input`, ts: Date.now(), route: "claude", tools: allowedTools !== "" });
       } else if (msg.type === "assistant") {
         for (const block of msg.message?.content ?? []) {
           if (block.type === "tool_use") {
@@ -373,6 +395,7 @@ export async function runModel(
     provider,
     model,
     stillWanted,
+    signal,
   }: {
     json?: boolean;
     timeoutMs?: number;
@@ -381,12 +404,14 @@ export async function runModel(
     model?: string;
     /** Checked when the run reaches the front of the local queue; false skips it (RunCancelled). */
     stillWanted?: () => boolean;
+    /** Aborted when the owner cancels the run. */
+    signal?: AbortSignal;
   } = {}
 ): Promise<string> {
   const settings = getAiSettings();
   if ((provider ?? settings.provider) === "local") {
     try {
-      return await runLocalStream(prompt, { json, timeoutMs, onEvent, model, stillWanted });
+      return await runLocalStream(prompt, { json, timeoutMs, onEvent, model, stillWanted, signal });
     } catch (err) {
       if (err instanceof RunCancelled) throw err;
       const reason = err instanceof Error ? err.message : String(err);
@@ -415,15 +440,16 @@ export async function runModel(
       }
       onEvent({ t: "info", label: "The AI on this Mac isn't available — using Claude instead", detail: reason, ts: Date.now() });
       try {
-        return await runClaudeStream(prompt, { allowedTools: "", timeoutMs, onEvent });
+        return await runClaudeStream(prompt, { allowedTools: "", timeoutMs, onEvent, signal });
       } catch (err2) {
+        if (err2 instanceof RunCancelled) throw err2;
         throw new Error(
           `The AI on this Mac wasn't available, and Claude couldn't run either: ${err2 instanceof Error ? err2.message : String(err2)} (Detail: ${reason})`
         );
       }
     }
   }
-  return runClaudeStream(prompt, { allowedTools: "", timeoutMs, onEvent });
+  return runClaudeStream(prompt, { allowedTools: "", timeoutMs, onEvent, signal });
 }
 
 /** Extract the first JSON object from model text (tolerates ```json fences and prose). */
@@ -494,6 +520,8 @@ export interface IntakeAnalysis {
     location: string | null;
     linkedin: string | null;
     email: string | null;
+    /** A phone number from the paste (an email signature, say), as written. */
+    phone?: string | null;
     existing_person_slug: string | null;
     existing_company_slug: string | null;
     new_company: {
@@ -650,7 +678,7 @@ RULES:
 Respond with ONLY a JSON object, no prose, matching exactly:
 {
   "person": {
-    "name": "", "role_title": null, "location": null, "linkedin": null, "email": null,
+    "name": "", "role_title": null, "location": null, "linkedin": null, "email": null, "phone": null,
     "existing_person_slug": null, "existing_company_slug": null,
     "new_company": {"name": "", "industry": null, "website": null, "hq": null, "business_context_md": null},
     "status_suggestion": "new", "status_note": null, "relationship_strength": null,

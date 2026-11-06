@@ -1,96 +1,83 @@
 import Link from "next/link";
 import type { OpportunityJoined } from "@/lib/types";
 import { KINDS, STAGES } from "@/lib/db";
-import { setOpportunityStage, updateOpportunity } from "@/lib/actions";
+import { deleteOpportunity, setOpportunityStage, updateOpportunity } from "@/lib/actions";
+import { dealQuietLabel } from "@/lib/queries";
 import ClosingDetails from "@/components/ClosingDetails";
+import ConfirmButton from "@/components/ConfirmButton";
 import PendingButton from "@/components/PendingButton";
-import SubmitButton from "@/components/SubmitButton";
+import StageSelect from "@/components/StageSelect";
 
-export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
+/** A deal on the board. `quiet` is the days since the last contact with its person or company (null = none logged). */
+export default function OpportunityCard({ o, quiet }: { o: OpportunityJoined; quiet?: number | null }) {
   const kind = KINDS[o.kind] ?? KINDS.engagement;
+  const profile = o.person_slug ? `/people/${o.person_slug}` : o.company_slug ? `/companies/${o.company_slug}` : null;
+  const q = quiet === undefined || !STAGES[o.stage]?.open ? null : dealQuietLabel(quiet);
   return (
     <div
       id={`opp-${o.id}`}
       className={`scroll-mt-4 rounded-lg border p-3 shadow-xs target:ring-2 target:ring-indigo-400 ${kind.card ?? "border-stone-200 bg-white"}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="text-[0.82rem] font-semibold leading-snug text-stone-900">
-          {o.name}
+        <div className="text-[0.85rem] font-semibold leading-snug text-stone-900">
+          {profile ? (
+            <Link href={profile} className="hover:text-indigo-700">
+              {o.name}
+            </Link>
+          ) : (
+            o.name
+          )}
         </div>
         {o.priority === 1 ? (
-          <span title="High priority" className="shrink-0 text-[0.65rem] font-bold text-red-600">
+          <span title="High priority" className="shrink-0 text-xs font-bold text-red-600">
             ★
           </span>
         ) : null}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[0.68rem]">
-        <span className={`rounded-full px-1.5 py-px font-medium ring-1 ring-inset ${kind.badge}`}>
-          {kind.label}
-        </span>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+        <span className={`rounded-full px-1.5 py-px font-medium ring-1 ring-inset ${kind.badge}`}>{kind.label}</span>
         {o.person_slug ? (
-          <Link href={`/people/${o.person_slug}`} className="text-stone-500 hover:text-indigo-600">
+          <Link href={`/people/${o.person_slug}`} className="text-stone-600 hover:text-indigo-600">
             {o.person_name}
           </Link>
         ) : null}
         {o.company_slug ? (
-          <Link href={`/companies/${o.company_slug}`} className="text-stone-400 hover:text-indigo-600">
+          <Link href={`/companies/${o.company_slug}`} className="text-stone-500 hover:text-indigo-600">
             · {o.company_name}
           </Link>
         ) : null}
       </div>
-      {o.value_note ? (
-        <p className="mt-1.5 text-[0.72rem] leading-snug text-stone-500">{o.value_note}</p>
-      ) : null}
+      {q ? <p className={`mt-1 text-xs tabular-nums ${q.tone}`}>{q.text}</p> : null}
+      {o.value_note ? <p className="mt-1.5 text-xs leading-snug text-stone-600">{o.value_note}</p> : null}
       {o.next_step ? (
-        <p className="mt-1.5 rounded bg-amber-50 px-2 py-1 text-[0.72rem] leading-snug text-amber-900">
-          <span className="font-semibold">Next:</span> {o.next_step}
+        <p className="mt-1.5 rounded bg-amber-50 px-2 py-1 text-xs leading-snug text-amber-900">
+          <span className="font-semibold">Next step:</span> {o.next_step}
         </p>
+      ) : STAGES[o.stage]?.open ? (
+        <p className="mt-1.5 text-xs font-medium text-red-700">No next step — add one with ✎ Edit</p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <form action={setOpportunityStage} className="flex items-center gap-1">
           <input type="hidden" name="id" value={o.id} />
-          <select
-            name="stage"
-            defaultValue={o.stage}
-            aria-label="Stage"
-            className="rounded border border-stone-200 bg-stone-50 px-1 py-0.5 text-[0.68rem] text-stone-600"
-          >
-            {Object.entries(STAGES).map(([key, s]) => (
-              <option key={key} value={key}>
-                {s.icon} {s.label}
-              </option>
-            ))}
-          </select>
-          <SubmitButton
-            pendingChildren="…"
-            className="rounded bg-stone-100 px-1.5 py-0.5 text-[0.68rem] font-medium text-stone-600 hover:bg-indigo-100 hover:text-indigo-700"
-          >
-            Move
-          </SubmitButton>
+          <StageSelect stage={o.stage} stages={Object.entries(STAGES).map(([key, s]) => ({ key, label: s.label, icon: s.icon }))} />
         </form>
         {/* Expands inline (full card width) rather than as an absolutely
             positioned popover, which the board's overflow-x-auto clipped. */}
         <ClosingDetails className="group open:basis-full">
-          <summary className="cursor-pointer text-[0.68rem] text-stone-400 hover:text-indigo-600 select-none list-none">
-            <span className="group-open:hidden">✎ edit</span>
-            <span className="hidden group-open:inline">✕ close</span>
+          <summary className="cursor-pointer select-none list-none text-xs font-medium text-stone-600 hover:text-indigo-600">
+            <span className="group-open:hidden">✎ Edit</span>
+            <span className="hidden group-open:inline">✕ Close</span>
           </summary>
-          <form
-            action={updateOpportunity}
-            className="mt-1.5 space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-2.5"
-          >
+          <form action={updateOpportunity} className="mt-1.5 space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-2.5">
             <input type="hidden" name="id" value={o.id} />
             <input type="hidden" name="updated_at" value={o.updated_at ?? ""} />
-            <input
-              name="name"
-              defaultValue={o.name}
-              aria-label="Name"
-              className="w-full rounded border border-stone-300 px-2 py-1 text-xs"
-            />
+            <input name="name" defaultValue={o.name} aria-label="Name" className="w-full rounded border border-stone-300 px-2 py-1 text-xs" />
             <div className="flex gap-2">
               <select name="kind" defaultValue={o.kind} aria-label="Kind" className="min-w-0 flex-1 rounded border border-stone-300 px-1 py-1 text-xs">
                 {Object.entries(KINDS).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
+                  <option key={k} value={k}>
+                    {v.label}
+                  </option>
                 ))}
               </select>
               <select name="priority" defaultValue={o.priority} aria-label="Priority" className="rounded border border-stone-300 px-1 py-1 text-xs">
@@ -127,6 +114,13 @@ export default function OpportunityCard({ o }: { o: OpportunityJoined }) {
               label="Save"
               pendingLabel="Saving…"
               className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            />
+          </form>
+          <form action={deleteOpportunity.bind(null, o.id)} className="mt-2 text-right">
+            <ConfirmButton
+              label="Delete deal…"
+              confirm={`Delete the deal "${o.name}"? Its person, company and their history stay. This can't be undone.`}
+              className="rounded px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
             />
           </form>
         </ClosingDetails>

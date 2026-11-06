@@ -29,14 +29,14 @@ export default function EditableSection({
             {title}
           </h2>
           {subtitle ? (
-            <p className="text-xs text-stone-400 mt-0.5">{subtitle}</p>
+            <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>
           ) : null}
         </div>
       </div>
       {value ? (
         <Markdown>{value}</Markdown>
       ) : (
-        <p className="text-sm italic text-stone-400">Nothing here yet.</p>
+        <p className="text-sm italic text-stone-500">Nothing here yet.</p>
       )}
       <ClosingDetails className="mt-3 group">
         <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none list-none">

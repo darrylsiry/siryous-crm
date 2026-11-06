@@ -68,7 +68,7 @@ export default function AddInteraction({
           pendingLabel="Logging…"
           className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
         />
-        <p className="text-[0.7rem] text-stone-400">
+        <p className="text-[0.7rem] text-stone-500">
           Saved exactly as typed, no AI involved. Logging also bumps “last touch” if this is the newest interaction.
         </p>
         {aiHref ? (

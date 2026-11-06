@@ -54,8 +54,13 @@ cookie is host-scoped and the startup log prints a `127.0.0.1` sign-in link.
 `Start CRM.command` (macOS, double-clickable) is the whole first-run path for
 non-technical users, so keep it boring and idempotent. In order it:
 
-1. exits early (just opening the browser) if something already answers on
-   `http://127.0.0.1:3000/`;
+1. exits early (just opening the browser) if the CRM already answers: it
+   checks `GET /api/health` (`app/api/health/route.ts`, open without the
+   token, answers `{"app":"siryous-crm"}` and nothing else), so another program
+   on port 3000 is never mistaken for it or handed the sign-in link. If
+   something else answers, it still tries to start (a program listening on
+   every address can leave 127.0.0.1 free) and opens the browser only once
+   `/api/health` answers; otherwise it says another program has the port;
 2. checks `node` and `npm` are on PATH (it prepends `/usr/local/bin`,
    `/opt/homebrew/bin` and `~/.local/bin`) and that Node's major version is
    22–26 (`NODE_MIN`/`NODE_MAX`, kept in step with `engines`), with a
@@ -83,14 +88,15 @@ Next.js's loader (`@next/env`, production mode, as `next start` does). A
 does for the server. If that lookup fails they fall back to `data/auth-token`,
 and without a token file they open the plain URL (the sign-in page).
 
-`Stop CRM.command` kills whatever is listening on TCP 3000 (via `lsof`, or
-`pkill -f "next start"` when `lsof` is missing). `Start CRM.bat` follows the
+`Stop CRM.command` stops only the CRM: the TCP 3000 listener whose working
+folder (`lsof -d cwd`) is this one; another program on the port is left
+running (without `lsof` it `pkill`s Next processes started from this folder). `Start CRM.bat` follows the
 same sequence on Windows — the same Node range check, Node stamp and rebuild,
 and token lookup — using PowerShell for the timestamp comparisons, and runs the
 server in a separate minimised window (so there is no `data/server.log`; the
-error shows in that window); `Stop CRM.bat` kills the PID `netstat` reports on
-`127.0.0.1:3000`. `Restart CRM.command` / `Restart CRM.bat` run Stop then
-Start. The `.bat` files, including these steps, have still not been run on a
+error shows in that window); `Stop CRM.bat` checks `/api/health` first, then kills the PID `netstat`
+reports on `127.0.0.1:3000`. `Restart CRM.command` / `Restart CRM.bat` run
+Stop then Start (the Mac one waits until the CRM's own listener has gone). The `.bat` files, including these steps, have still not been run on a
 real Windows machine.
 
 Deploying a code change locally: `./Stop\ CRM.command && ./Start\ CRM.command`
@@ -139,10 +145,13 @@ except static assets) checks, in order:
 1. a valid `crm_auth` cookie → through, cookie refreshed (one-year max age,
    `httpOnly`, `sameSite: strict`);
 2. a valid `?token=` query parameter → set the cookie and redirect to the
-   clean URL; an invalid one → `/signin?bad=1`;
+   clean URL; an invalid one → `/signin?bad=1`. The value is passed through
+   `normalizeToken()` first, so the sign-in box accepts the whole sign-in link
+   or a code with stray spaces;
 3. otherwise → the `/signin` page (API routes get a 401 instead).
 
-Token comparison is constant-time. `Start CRM.command` opens the app with the
+`/api/health` alone is let through without the token (it names the app and
+nothing else) for the launchers. Token comparison is constant-time. `Start CRM.command` opens the app with the
 token applied; `npm run dev` / `npm start` print the sign-in link in the
 terminal (`instrumentation.ts`); the Settings page shows it for signing in
 another browser. The point is not multi-user security — it stops other
@@ -258,8 +267,10 @@ the `settings` table (`lib/settings.ts`, keys `ai.model`, `ai.ollama_url`,
 `coach.provider`, `coach.model`; the Inbox and News Feed pages store
 `inbox.address`, `inbox.enabled`, `inbox.poll_minutes`,
 `inbox.extra_owner_emails`, `news.enabled`, and their `*.last_poll_at` /
-`inbox.last_attempt_at` / `inbox.follow_up_at` / `*.last_run_at` / `*.last_error` status keys, and the
-sidebar's `app.last_active_at`) and apply to the next run; the defaults come from the
+`inbox.last_attempt_at` / `inbox.follow_up_at` / `*.last_run_at` / `*.last_error` status keys,
+`inbox.last_result` (the last "Check now", which now runs in the background),
+the sidebar's `app.last_active_at`, and the Dashboard's
+`setup.checklist_hidden`) and apply to the next run; the defaults come from the
 environment. `coach.provider`/`coach.model` let the coach run on a different
 model (or on Claude) than the rest of the app: `getCoachSettings().route` is
 spread into the coach's `runModel`/`runWithProgress` calls, which accept
@@ -277,15 +288,19 @@ into the profile you want to keep.
 
 ## Make it yours: owner and vocabulary config
 
-Copy `config/owner.example.json` to `config/owner.json` (gitignored) and fill
-in your name, practice, a one-line description, the research triggers that
-matter in your field, and optionally a coach persona (identity only — tone is
-a Setting) and a folder of your own notes for the coach to read
-(`coachContextDir`, `coachContextGuidance`; Settings → Coach can override or
-switch the folder off without editing the file). Every
-AI prompt, the app name and the MCP server name come from this file via
-`loadOwner()` in `lib/owner.mjs`; with no file the wording is generic. Restart
-the app after changing it.
+**Settings → About you** writes the name, first name, email, practice and
+description into `config/owner.json` (gitignored; other keys in it are kept)
+and resets `loadOwner()`'s cache, so no restart is needed in the app (the MCP
+server reads it when it starts). By hand: copy `config/owner.example.json`,
+whose fields ship empty with an `_<field>_hint` example beside each, and fill
+in what you want — the research triggers that matter in your field, a coach
+persona (identity only — tone is a Setting), a folder of your own notes for
+the coach (`coachContextDir`, `coachContextGuidance`; Settings → Coach can
+override or switch the folder off). `loadOwner()` in `lib/owner.mjs` ignores a
+field still holding one of the example's sample values (`ignoredSamples`) and
+reports a file it can't parse (`readError`, shown in Settings) instead of
+silently using the defaults. Every AI prompt, the app name and the MCP server
+name come from it; with no file the wording is generic.
 
 Statuses, action buckets, pipeline stages, opportunity kinds, relationship
 strengths and default keep-warm cadences are configurable the same way: copy
@@ -446,8 +461,20 @@ better-sqlite3 · Tailwind CSS v4 · zod for model-output schemas · `docx` for
 the Word export · Ollama (local open-weight model) for AI reasoning/writing ·
 headless Claude Code CLI for external-data steps (read-only claude.ai
 connector grants) and fallback · `@modelcontextprotocol/sdk` for the MCP
-server. No client-side state libraries; forms are plain HTML `<details>`
-disclosures posting to server actions.
+server. No client-side state libraries; most forms are plain HTML
+`<details>` disclosures posting to server actions. The few that must keep what
+was typed when a save is refused (Add to-do, Log touch, Settings) dispatch by
+hand (`components/KeepTypedForm.tsx`, `AddActionForm`, `QuickLog`) so React
+doesn't reset them. Shared UI pieces: `Toaster` (the "✓ Done · Undo" toast,
+one provider in the app layout), `ReceiptBanner` (the "Saved …" line after a
+Log or Intake confirmation, from `log_drafts.receipt` / `intake_drafts.receipt`
+via `?receipt=log-<id>`), `PeoplePicker` (the people list sent once per page
+for every person picker), `usePopoverPosition` (popovers fixed to the window so
+a sideways-scrolling table can't clip them), `AiRouteNote` and `AiWhereLine`
+(where the text was, or will be, written), and `lib/stateWords.ts` (one word
+per draft state). A running Intake, Log or Prep run can be cancelled:
+`runWithProgress` passes an `AbortSignal` per draft (`lib/progress.ts`
+`cancelRun`) through `runModel`, `runLocalStream` and `runClaudeStream`.
 
 ## Review agents
 
@@ -473,8 +500,11 @@ routing and polling, the News Feed's parsing, de-duplication, storage and
 scans, the AI pipeline (fallback rules, the bounded roster, JSON extraction and
 repair, the local-model queue), Intake/Log confirmation rollback, CSV import,
 merging, slugs in any script, the status → cadence rule, last-touch
-recomputation, section-save conflicts, to-do editing, search coverage and
-backups. Every suite that touches disk points `CRM_DB_PATH` at a
+recomputation, section-save conflicts, to-do editing, search coverage,
+backups, the sidebar badges, and the UX flows (`tests/uxFlows.test.ts`: adding
+and re-dating to-dos, Log touch, receipts, editable follow-ups, Intake's date
+check, Ignore, the LinkedIn Keep Warm choice, sign-in links, brief checks,
+Cancel and the owner file). Every suite that touches disk points `CRM_DB_PATH` at a
 temp directory first (`tests/helpers/tempdb.ts`), so `data/crm.db` and
 `data/auth-token` are never opened; each test file runs in its own process and
 cleans up after itself. The GitHub Actions workflow in

@@ -157,17 +157,25 @@ export function localQueueDepth(): number {
   return local.inQueue;
 }
 
-/** Thrown when a queued run's `stillWanted` says the work is no longer needed (its draft was discarded). */
+/** Thrown when a run is no longer wanted: its draft was discarded before it started, or the owner pressed Cancel. */
 export class RunCancelled extends Error {
-  constructor() {
-    super("This run was cancelled before it started.");
+  constructor(message = "This run was cancelled before it started.") {
+    super(message);
     this.name = "RunCancelled";
   }
 }
 
 export function runLocalStream(
   prompt: string,
-  opts: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string; stillWanted?: () => boolean } = {}
+  opts: {
+    json?: boolean;
+    timeoutMs?: number;
+    onEvent?: (e: ProgressEvent) => void;
+    model?: string;
+    stillWanted?: () => boolean;
+    /** Aborted when the owner cancels the run (lib/progress.ts cancelRun). */
+    signal?: AbortSignal;
+  } = {}
 ): Promise<string> {
   const onEvent = opts.onEvent ?? (() => {});
   const ahead = local.inQueue;
@@ -183,7 +191,7 @@ export function runLocalStream(
   }, 1500);
   const run = local.queue.then(() => {
     clearTimeout(waitNote);
-    if (opts.stillWanted && !opts.stillWanted()) throw new RunCancelled();
+    if ((opts.stillWanted && !opts.stillWanted()) || opts.signal?.aborted) throw new RunCancelled();
     if (waited) onEvent({ t: "info", label: "Model free — starting", ts: Date.now() });
     return runLocalStreamNow(prompt, opts);
   });
@@ -200,7 +208,8 @@ async function runLocalStreamNow(
     timeoutMs = 420_000,
     onEvent = () => {},
     model: modelOverride,
-  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string } = {}
+    signal,
+  }: { json?: boolean; timeoutMs?: number; onEvent?: (e: ProgressEvent) => void; model?: string; signal?: AbortSignal } = {}
 ): Promise<string> {
   // A feature may run on a different model than the default (Settings → Coach).
   const LOCAL = { ...getAiSettings(), model: modelOverride || getAiSettings().model };
@@ -219,10 +228,14 @@ async function runLocalStreamNow(
     t: "info",
     label: `Local model ${LOCAL.model} — reading your input (${Math.round(prompt.length / 4).toLocaleString()} tokens approx.)`,
     ts: started,
+    route: "local",
   });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onCancel = () => controller.abort();
+  signal?.addEventListener("abort", onCancel, { once: true });
+  const cancelled = () => new RunCancelled("You cancelled this run.");
   let res: Response;
   try {
     res = await fetch(`${LOCAL.ollamaUrl}/api/chat`, {
@@ -243,6 +256,8 @@ async function runLocalStreamNow(
     });
   } catch (err) {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onCancel);
+    if (signal?.aborted) throw cancelled();
     if (controller.signal.aborted) throw new Error(timeoutMessage(timeoutMs, LOCAL.model));
     throw new LocalUnavailable(describeFetchError(err, LOCAL.ollamaUrl), "down");
   }
@@ -316,10 +331,12 @@ async function runLocalStreamNow(
     }
     if (buffer.trim()) handleLine(buffer);
   } catch (err) {
+    if (signal?.aborted) throw cancelled();
     if (controller.signal.aborted) throw new Error(timeoutMessage(timeoutMs, LOCAL.model));
     throw err;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onCancel);
   }
 
   if (!sawDone) throw new Error("The connection to Ollama closed before the model finished (partial output discarded).");

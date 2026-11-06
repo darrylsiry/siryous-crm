@@ -6,17 +6,64 @@ import { getSetting, setSetting, validateContextDir, validateOllamaUrl } from ".
 import { isCoachTone } from "./coachTone";
 import { ensureDailyBackup, validateBackupDir } from "./backup.mjs";
 import { getDb } from "./db";
+import type { FormResult } from "./actions";
+import fs from "node:fs";
+import path from "node:path";
+import { loadOwner, OWNER_FORM_FIELDS, resetOwner } from "./owner.mjs";
 
-export async function saveAiSettings(formData: FormData) {
+/**
+ * Settings → About you: write the owner's name, practice and email into
+ * config/owner.json (keeping every other key in it), so nobody has to edit
+ * JSON by hand. Refuses when the file exists but can't be read, rather than
+ * overwriting whatever is in it.
+ */
+export async function saveOwnerProfile(formData: FormData) {
+  const owner = loadOwner();
+  if (owner.readError) {
+    redirect(`/settings?error=${encodeURIComponent(`Nothing was saved: config/owner.json couldn't be read (${owner.readError}). Fix it or remove it, then try again.`)}#about`);
+  }
+  const file = owner.configPath;
+  let current: Record<string, unknown> = {};
+  try {
+    current = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    /* no file yet */
+  }
+  for (const k of OWNER_FORM_FIELDS) {
+    const v = String(formData.get(k) ?? "").trim();
+    if (v.length > 500) redirect(`/settings?error=${encodeURIComponent("Nothing was saved: one of the About you fields is too long.")}#about`);
+    current[k] = v;
+  }
+  const email = String(current.ownerEmail ?? "");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    redirect(`/settings?error=${encodeURIComponent(`Nothing was saved: "${email}" doesn't look like an email address.`)}#about`);
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`);
+  resetOwner();
+  revalidatePath("/", "layout");
+  redirect("/settings?saved=1#about");
+}
+
+/** "Use this model": switch to a model Ollama already has, from the AI notice. */
+export async function useModel(model: string) {
+  const m = String(model ?? "").trim();
+  if (!m || m.length > 100) return;
+  setSetting("ai.model", m);
+  revalidatePath("/", "layout");
+}
+
+export async function saveAiSettings(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const str = (k: string) => String(formData.get(k) ?? "").trim();
-  // Validate what can fail before writing anything, so a bad field doesn't half-save.
+  // Validate what can fail before writing anything, so a bad field doesn't half-save
+  // (the form keeps what was typed and says which field to fix).
   const urlRaw = str("ollama_url");
   const url = urlRaw ? validateOllamaUrl(urlRaw) : null;
-  if (url && !url.ok) redirect(`/settings?error=${encodeURIComponent(`The AI address wasn't saved — ${url.reason}`)}`);
+  if (url && !url.ok) return { ok: false, message: `Ollama URL: ${url.reason}` };
   const ctx = validateContextDir(str("coach_context_dir"));
-  if (!ctx.ok) redirect(`/settings?error=${encodeURIComponent(`The coach notes folder wasn't saved — ${ctx.reason}`)}`);
+  if (!ctx.ok) return { ok: false, message: `Coach notes folder: ${ctx.reason}` };
   const backup = validateBackupDir(str("backup_dir"));
-  if (!backup.ok) redirect(`/settings?error=${encodeURIComponent(`The backup folder wasn't saved — ${backup.reason}`)}`);
+  if (!backup.ok) return { ok: false, message: `Backup folder: ${backup.reason}` };
 
   const provider = str("provider") === "claude" ? "claude" : "local";
   setSetting("ai.provider", provider);

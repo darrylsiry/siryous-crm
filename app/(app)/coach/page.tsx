@@ -7,14 +7,17 @@ import AiStatusBanner from "@/components/AiStatusBanner";
 import { getAiStatus, routeUsable } from "@/lib/aiStatus";
 import { getCoachSettings } from "@/lib/settings";
 import { coachToneSpec } from "@/lib/coachTone";
+import AiWhereLine from "@/components/AiWhereLine";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Coach" };
+
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  analyzing: { label: "Generating…", cls: "animate-pulse bg-indigo-50 text-indigo-700" },
+  analyzing: { label: "Drafting…", cls: "animate-pulse bg-indigo-50 text-indigo-700" },
   ready: { label: "In session", cls: "bg-green-50 text-green-700" },
-  closed: { label: "Closed", cls: "bg-stone-100 text-stone-500" },
-  error: { label: "Error", cls: "bg-red-50 text-red-700" },
+  closed: { label: "Closed", cls: "bg-stone-100 text-stone-600" },
+  error: { label: "Failed", cls: "bg-red-50 text-red-700" },
 };
 
 export default async function CoachPage() {
@@ -23,7 +26,10 @@ export default async function CoachPage() {
   const sessions = db
     .prepare(
       `SELECT s.id, s.week_start, s.kind, s.created_at, s.status, s.advice_md, s.summary_md,
-              (SELECT COUNT(*) FROM coach_messages m WHERE m.session_id = s.id) AS msg_count
+              (SELECT COUNT(*) FROM coach_messages m WHERE m.session_id = s.id) AS msg_count,
+              (SELECT COUNT(*) FROM coach_proposals p WHERE p.session_id = s.id AND p.status = 'pending') AS waiting,
+              (SELECT COALESCE(CAST(p.message_id AS TEXT), 'close') FROM coach_proposals p
+                 WHERE p.session_id = s.id AND p.status = 'pending' ORDER BY p.id LIMIT 1) AS first_group
        FROM coach_sessions s ORDER BY s.id DESC`
     )
     .all() as {
@@ -35,7 +41,10 @@ export default async function CoachPage() {
     advice_md: string | null;
     summary_md: string | null;
     msg_count: number;
+    waiting: number;
+    first_group: string | null;
   }[];
+  const waitingTotal = sessions.reduce((n, s) => n + s.waiting, 0);
 
   const coach = getCoachSettings();
   // The coach may run somewhere else than everything else (Settings → Coach).
@@ -49,17 +58,17 @@ export default async function CoachPage() {
       <AiStatusBanner route={coach.route} />
       <header>
         <h1 className="text-2xl font-bold tracking-tight">◎ Coach</h1>
-        <p className="mt-1 text-sm text-stone-500">
+        <p className="mt-1 text-sm text-stone-600">
           A weekly session with your coach: an objective read on the week's activity and the whole
           book of business — what's working, where you're dropping the ball, and what to work on as
           the owner of a premium consulting firm. Talk it through, then close the session to record
           your commitments. Between weekly sessions, start a check-in anytime — the coach picks up
           from the last session's commitments.
         </p>
-        <p className="mt-2 text-xs text-stone-400">
+        <p className="mt-2 text-xs text-stone-500">
           Tone: <span className="font-medium text-stone-600">{toneLabel}</span>
           {" · AI: "}
-          <span className="font-medium text-stone-600">{coach.route.provider === "claude" ? "Claude" : `${coach.route.model} on this Mac`}</span>
+          <span className="font-medium text-stone-700">{coach.route.provider === "claude" ? "Claude (sent to Anthropic)" : `${coach.route.model} on this Mac`}</span>
           {coach.contextDir ? " · reads your notes folder" : " · CRM data only"} —{" "}
           <Link href="/settings" className="underline hover:text-indigo-600">change in Settings</Link>
         </p>
@@ -94,12 +103,18 @@ export default async function CoachPage() {
         </form>
       </div>
 
+      {waitingTotal ? (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {waitingTotal} proposed CRM change{waitingTotal === 1 ? " is" : "s are"} waiting for your tick — open the session marked below.
+        </p>
+      ) : null}
+
       <section>
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
           Sessions
         </h2>
         {sessions.length === 0 ? (
-          <p className="text-sm text-stone-400">
+          <p className="text-sm text-stone-500">
             No sessions yet — start your first one above.
           </p>
         ) : (
@@ -114,8 +129,8 @@ export default async function CoachPage() {
               return (
                 <li key={s.id}>
                   <Link
-                    href={`/coach/${s.id}`}
-                    className="block rounded-xl border border-stone-200 bg-white p-4 hover:border-indigo-300"
+                    href={s.waiting && s.first_group ? `/coach/${s.id}#proposals-${s.first_group}` : `/coach/${s.id}`}
+                    className={`block rounded-xl border bg-white p-4 hover:border-indigo-300 ${s.waiting ? "border-amber-300" : "border-stone-200"}`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-stone-800">
@@ -131,8 +146,13 @@ export default async function CoachPage() {
                         >
                           {s.kind === "checkin" ? "Check-in" : "Weekly"}
                         </span>
+                        {s.waiting ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                            {s.waiting} proposal{s.waiting === 1 ? "" : "s"} waiting →
+                          </span>
+                        ) : null}
                         {s.msg_count > 0 ? (
-                          <span className="text-xs text-stone-400">
+                          <span className="text-xs text-stone-500">
                             💬 {s.msg_count}
                           </span>
                         ) : null}
@@ -142,7 +162,7 @@ export default async function CoachPage() {
                       </span>
                     </div>
                     {snippet ? (
-                      <p className="mt-1.5 text-xs leading-relaxed text-stone-500">{snippet}…</p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">{snippet}…</p>
                     ) : null}
                   </Link>
                 </li>
@@ -152,7 +172,8 @@ export default async function CoachPage() {
         )}
       </section>
 
-      <p className="text-xs text-stone-400">
+      <AiWhereLine route={coach.route} />
+      <p className="text-xs text-stone-500">
         The coach reads what&apos;s in your CRM, plus any notes folder you&apos;ve named in Settings (goals, strengths,
         pitfalls) — nothing else. The commitments you make when closing a session are carried into the next one, so you&apos;re
         held accountable week over week.

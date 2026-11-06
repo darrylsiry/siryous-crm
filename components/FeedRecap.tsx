@@ -15,7 +15,7 @@ export default function FeedRecap({ progress }: { progress: string | null }) {
     <details className="rounded-xl border border-stone-200 bg-white">
       <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-stone-500 select-none">
         How this was produced{" "}
-        <span className="font-normal text-stone-400">
+        <span className="font-normal text-stone-500">
           ({events.length} steps{searches ? `, ${searches} web search${searches === 1 ? "" : "es"}` : ""}
           {secs ? `, ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} min` : ""})
         </span>

@@ -1,5 +1,7 @@
 import { getDb, STAGES } from "./db";
-import { EFFECTIVE_BUCKET, followUps } from "./queries";
+import { DEAL_COLD_DAYS, EFFECTIVE_BUCKET, allOpportunities, dealQuietDays, followUps } from "./queries";
+import { openInboxItems } from "./inbox";
+import { todayLocal } from "./dates.mjs";
 import { getSetting, setSetting } from "./settings";
 import { newsEnabled } from "./news";
 import { urgentFindingCount } from "./agentActivity";
@@ -7,10 +9,12 @@ import { urgentFindingCount } from "./agentActivity";
 /**
  * Sidebar badges. Each entry is keyed by nav href. `tone` picks the colour:
  * "alert" (red, needs you now), "warn" (amber), "muted" (grey, just a size).
- * A missing key or n = 0 means no badge.
+ * A missing key or n = 0 means no badge. Every count is of something that
+ * needs the owner (an overdue to-do, a draft to review), never a plain size.
+ * `dot`: also lights the phone menu's red dot (overdue to-dos and failed drafts only).
  */
 export type NavTone = "alert" | "warn" | "muted";
-export type NavBadge = { n: number; tone: NavTone; title: string };
+export type NavBadge = { n: number; tone: NavTone; title: string; dot?: boolean };
 export type NavCounts = Record<string, NavBadge>;
 
 const RESOLVED = `('confirmed','discarded')`;
@@ -58,8 +62,8 @@ export function markNewsSeen() {
 
 export function navCounts(): NavCounts {
   const out: NavCounts = {};
-  const put = (href: string, count: number, tone: NavTone, title: string) => {
-    if (count > 0) out[href] = { n: count, tone, title };
+  const put = (href: string, count: number, tone: NavTone, title: string, dot = false) => {
+    if (count > 0) out[href] = { n: count, tone, title, ...(dot ? { dot } : {}) };
   };
   const safe = (fn: () => void) => {
     try {
@@ -69,25 +73,33 @@ export function navCounts(): NavCounts {
     }
   };
 
-  safe(() => put("/inbox", n(`SELECT COUNT(*) n FROM inbox_messages m WHERE ${INBOX_UNREAD_COND}`), "alert", "Unread emails"));
-
-  safe(() => put("/intake", n(`SELECT COUNT(*) n FROM intake_drafts WHERE status='ready'`), "muted", "Intake drafts waiting for review"));
-
+  // Inbox: emails with a draft ready to review or failed, opened or not. Their
+  // drafts are counted here only, so one email doesn't light Log and Intake too.
   safe(() => {
-    const ready = n(`SELECT COUNT(*) n FROM log_drafts WHERE status='ready'`);
-    const failed = n(`SELECT COUNT(*) n FROM log_drafts WHERE status='error'`);
-    put(
-      "/log",
-      ready + failed,
-      failed > 0 ? "alert" : "muted",
-      failed > 0 ? `${ready} waiting for review, ${failed} failed` : "Log drafts waiting for review"
-    );
+    const items = openInboxItems();
+    const failed = items.filter((m) => m.state === "error").length;
+    const ready = items.filter((m) => m.state === "ready").length;
+    put("/inbox", ready + failed, "alert", failed ? `${ready} to review, ${failed} failed` : "Emails with a draft to review", failed > 0);
+  });
+
+  const FROM_EMAIL_LOG = `id IN (SELECT log_draft_id FROM inbox_messages WHERE log_draft_id IS NOT NULL)`;
+  const FROM_EMAIL_INTAKE = `id IN (SELECT j.value FROM inbox_messages m, json_each(COALESCE(NULLIF(m.intake_draft_ids,''),'[]')) j)`;
+  safe(() => {
+    const ready = n(`SELECT COUNT(*) n FROM intake_drafts WHERE status='ready' AND NOT ${FROM_EMAIL_INTAKE}`);
+    const failed = n(`SELECT COUNT(*) n FROM intake_drafts WHERE status='error' AND NOT ${FROM_EMAIL_INTAKE}`);
+    put("/intake", ready + failed, failed ? "alert" : "muted", failed ? `${ready} to review, ${failed} failed` : "Intake drafts to review", failed > 0);
   });
 
   safe(() => {
-    const open = n(`SELECT COUNT(*) n FROM action_items WHERE status='open'`);
+    const ready = n(`SELECT COUNT(*) n FROM log_drafts WHERE status='ready' AND NOT ${FROM_EMAIL_LOG}`);
+    const failed = n(`SELECT COUNT(*) n FROM log_drafts WHERE status='error' AND NOT ${FROM_EMAIL_LOG}`);
+    put("/log", ready + failed, failed ? "alert" : "muted", failed ? `${ready} to review, ${failed} failed` : "Log drafts to review", failed > 0);
+  });
+
+  // Actions: overdue to-dos only. The open count is on the page.
+  safe(() => {
     const overdue = n(`SELECT COUNT(*) n FROM action_items a WHERE a.status='open' AND ${EFFECTIVE_BUCKET} = 'overdue'`);
-    put("/actions", open, overdue > 0 ? "alert" : "muted", overdue > 0 ? `${open} open, ${overdue} overdue` : `${open} open`);
+    put("/actions", overdue, "alert", `${overdue} overdue`, true);
   });
 
   safe(() => {
@@ -95,23 +107,20 @@ export function navCounts(): NavCounts {
     put("/followups", due, "warn", "People past their follow-up cadence");
   });
 
+  // Pipeline: only deals that are slipping (quiet over a month, or no next step).
   safe(() => {
-    const openStages = Object.entries(STAGES)
-      .filter(([, s]) => s.open)
-      .map(([k]) => k);
-    const active = openStages.length
-      ? (
-          getDb()
-            .prepare(`SELECT COUNT(*) n FROM opportunities WHERE stage IN (${openStages.map(() => "?").join(",")})`)
-            .get(...openStages) as { n: number }
-        ).n
-      : 0;
-    put("/pipeline", active, "muted", "Active opportunities");
+    const today = todayLocal();
+    const slipping = allOpportunities().filter((o) => {
+      if (!STAGES[o.stage]?.open) return false;
+      const q = dealQuietDays(o, today);
+      return !o.next_step || q == null || q > DEAL_COLD_DAYS;
+    }).length;
+    put("/pipeline", slipping, "warn", "Deals that need attention: quiet a month, or no next step");
   });
 
   safe(() => put("/outreach", n(`SELECT COUNT(*) n FROM outreach WHERE status='draft'`), "muted", "Unsent outreach drafts"));
 
-  safe(() => put("/news", newsUnseen(), "alert", "New since you last looked"));
+  safe(() => put("/news", newsUnseen(), "muted", "New since you last looked"));
 
   safe(() => put("/coach", n(`SELECT COUNT(*) n FROM coach_proposals WHERE status='pending'`), "warn", "Coach proposals to review"));
 

@@ -286,13 +286,15 @@ function roster(db: Database.Database): RosterEntry[] {
  * were already confirmed), so a re-route doesn't leave duplicates — and a
  * discarded draft's queued model run is skipped (see lib/drafts.ts).
  */
-function discardDrafts(db: Database.Database, row: InboxRow): void {
+export function discardDrafts(db: Database.Database, row: InboxRow): number {
+  let n = 0;
   if (row.log_draft_id) {
-    db.prepare(`UPDATE log_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(row.log_draft_id);
+    n += db.prepare(`UPDATE log_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(row.log_draft_id).changes;
   }
   for (const id of parseIds(row.intake_draft_ids)) {
-    db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(id);
+    n += db.prepare(`UPDATE intake_drafts SET status='discarded' WHERE id=? AND status IN ('analyzing','ready','error')`).run(id).changes;
   }
+  return n;
 }
 
 export function parseIds(json: string | null): number[] {
