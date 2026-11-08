@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BUCKETS } from "@/lib/db";
+import { BUCKETS, PICKABLE_BUCKETS } from "@/lib/db";
 import { companyOptions, doneActionCount, doneActionItems, openActionItems, peopleOptions } from "@/lib/queries";
 import { ActionRow } from "@/components/ActionList";
 import AddActionForm from "@/components/AddActionForm";
@@ -35,7 +35,7 @@ export default async function ActionsPage({ searchParams }: { searchParams: Prom
           <summary className="cursor-pointer text-sm font-medium text-indigo-600 select-none">＋ Add a to-do</summary>
           <div className="mt-3">
             <AddActionForm
-              buckets={buckets.map(([key, b]) => ({ key, label: b.label, icon: b.icon }))}
+              buckets={buckets.filter(([key]) => Object.hasOwn(PICKABLE_BUCKETS, key)).map(([key, b]) => ({ key, label: b.label, icon: b.icon }))}
               companies={companyOptions()}
             />
           </div>

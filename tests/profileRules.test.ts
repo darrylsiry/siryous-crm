@@ -1,4 +1,4 @@
-import { tmp } from "./helpers/tempdb";
+import { dbPath, tmp } from "./helpers/tempdb";
 import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -14,10 +14,10 @@ import {
   updateSection,
   updateStatus,
 } from "../lib/actions";
-import { openActionItems, search } from "../lib/queries";
+import { followUps, openActionItems, search } from "../lib/queries";
 import { COMPANY_SEARCH_COLUMNS, PEOPLE_SEARCH_COLUMNS, likeAnySql, likeNeedle } from "../lib/rules.mjs";
 import { importCsvText } from "../lib/importCsv";
-import { slugFor, slugify } from "../lib/rules.mjs";
+import { daysOver, slugFor, slugify } from "../lib/rules.mjs";
 import { slugParam } from "../lib/slug";
 import { openDatabase } from "../lib/schema.mjs";
 import Markdown from "../components/Markdown";
@@ -114,7 +114,7 @@ describe("cadence follows a status change", () => {
   const cadence = () => one<{ cadence_days: number | null }>(`SELECT cadence_days FROM people WHERE id=?`, id).cadence_days;
 
   test("the full status editor moves a default cadence to the new default", async () => {
-    await run(() => updateStatus(form({ id: String(id), status_key: "dormant" })));
+    await run(() => updateStatus(null, form({ id: String(id), status_key: "dormant" })));
     assert.equal(cadence(), 180);
   });
 
@@ -131,7 +131,7 @@ describe("cadence follows a status change", () => {
 
   test("an unset cadence picks up the new default", async () => {
     db.prepare(`UPDATE people SET cadence_days=NULL WHERE id=?`).run(id);
-    await run(() => updateStatus(form({ id: String(id), status_key: "client" })));
+    await run(() => updateStatus(null, form({ id: String(id), status_key: "client" })));
     assert.equal(cadence(), 14);
   });
 });
@@ -224,9 +224,9 @@ describe("editing a to-do", () => {
         .lastInsertRowid
     );
     assert.equal(openActionItems()[0].bucket, "overdue");
-    await run(() => updateActionItem(form({ id: String(id), title: "Send the deck", bucket: "this_week", due_date: "2020-01-01" })));
+    await run(() => updateActionItem(null, form({ id: String(id), title: "Send the deck", bucket: "this_week", due_date: "2020-01-01" })));
     assert.equal(one<{ due_label: string }>(`SELECT due_label FROM action_items WHERE id=?`, id).due_label, "early Jan");
-    await run(() => updateActionItem(form({ id: String(id), title: "Send the deck", bucket: "awaiting", due_date: "2999-01-01" })));
+    await run(() => updateActionItem(null, form({ id: String(id), title: "Send the deck", bucket: "awaiting", due_date: "2999-01-01" })));
     const item = openActionItems()[0];
     assert.equal(item.bucket, "awaiting");
     assert.equal(item.title, "Send the deck");
@@ -236,7 +236,7 @@ describe("editing a to-do", () => {
   test("a bucket that doesn't exist and a blank title are ignored; a blank date clears it", async () => {
     db.exec(`DELETE FROM action_items;`);
     const id = Number(db.prepare(`INSERT INTO action_items (title, bucket, due_date) VALUES ('Call', 'this_week', '2026-01-01')`).run().lastInsertRowid);
-    await run(() => updateActionItem(form({ id: String(id), title: " ", bucket: "nope", due_date: "" })));
+    await run(() => updateActionItem(null, form({ id: String(id), title: " ", bucket: "nope", due_date: "" })));
     assert.deepEqual(db.prepare(`SELECT title, bucket, due_date FROM action_items WHERE id=?`).get(id), {
       title: "Call",
       bucket: "this_week",
@@ -299,3 +299,43 @@ describe("importing a CSV", () => {
   });
 });
 
+
+describe("one keep-warm rule for the app and Claude Desktop (CR-053)", () => {
+  test("Keep Warm and the MCP agenda list the same overdue people in the same order", async () => {
+    const db = getDb();
+    db.exec(`DELETE FROM interactions; DELETE FROM action_items; DELETE FROM people;`);
+    const add = db.prepare(`INSERT INTO people (slug, name, status_key, cadence_days, last_touch) VALUES (?, ?, 'active', ?, ?)`);
+    const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toLocaleDateString("sv-SE");
+    add.run("never", "Never Touched", 30, null);
+    add.run("long", "Long Ago", 30, `${ago(100)} 09:00`); // a time after the date: both read the date
+    add.run("bit", "A Bit Late", 30, ago(40));
+    add.run("fine", "Not Due", 30, ago(5));
+    const app = followUps()
+      .filter((p) => (p.days_over ?? -1) > 0)
+      .map((p) => p.name);
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const client = new Client({ name: "rules-test", version: "1.0.0" });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [path.resolve("scripts/mcp-server.mjs")],
+        env: { ...(process.env as Record<string, string>), CRM_DB_PATH: dbPath },
+        stderr: "ignore",
+      })
+    );
+    try {
+      const r = await client.callTool({ name: "get_agenda", arguments: {} });
+      const text = (r.content as { text: string }[]).map((c) => c.text).join("\n");
+      const section = text.slice(text.indexOf("Due for a keep-warm touch"));
+      const mcp = [...section.matchAll(/^- (.+?) \[/gm)].map((m) => m[1]);
+      assert.deepEqual(app, ["Never Touched", "Long Ago", "A Bit Late"]);
+      assert.deepEqual(mcp, app);
+    } finally {
+      await client.close();
+    }
+    assert.equal(daysOver(null, 5), null);
+    assert.equal(daysOver(30, null), 9999);
+    assert.equal(daysOver(30, 10), -20);
+  });
+});

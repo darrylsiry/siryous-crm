@@ -8,6 +8,7 @@ import SearchSelect from "@/components/SearchSelect";
 import { first, type Param } from "@/lib/params";
 import { profilePath } from "@/lib/slug";
 import { shortDate, todayLocal } from "@/lib/dates.mjs";
+import FlashBanner from "@/components/FlashBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const metadata = { title: "People" };
 export default async function PeoplePage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: Param; q?: Param; duplicate?: Param; sort?: Param; add?: Param }>;
+  searchParams: Promise<{ saved?: Param; status?: Param; q?: Param; duplicate?: Param; sort?: Param; add?: Param }>;
 }) {
   const sp = await searchParams;
   const status = first(sp.status);
@@ -46,11 +47,19 @@ export default async function PeoplePage({
     return qs ? `/people?${qs}` : "/people";
   };
   const companies = allCompanies();
+  // A LinkedIn connection date stands in for last touch until something is logged: say which it is.
+  const connectedOnly = (p: (typeof people)[number]) => !!p.connected_on && p.last_touch === p.connected_on && !p.logged;
+  const monthYear = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
   // An edit opened from this list comes back to it, filters and all.
   const editHref = (slug: string) => `${profilePath("people", slug)}/edit?back=${encodeURIComponent(keep({}))}`;
 
   return (
     <div className="space-y-6">
+      {first(sp.saved) ? (
+        <FlashBanner cleanHref={keep({})} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+          ✓ Saved.
+        </FlashBanner>
+      ) : null}
       {duplicate ? (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           Not created — <Link href={profilePath("people", duplicate)} className="font-semibold underline">a profile with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
@@ -176,6 +185,7 @@ export default async function PeoplePage({
                 {p.role_title ? (
                   <div className="truncate text-xs text-stone-500">{p.role_title}</div>
                 ) : null}
+                {p.status_note ? <div className="text-xs text-stone-600">{p.status_note}</div> : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
@@ -193,7 +203,9 @@ export default async function PeoplePage({
                 <span>{p.company_note.split("(")[0].trim()}</span>
               ) : null}
               {p.relationship_strength ? <span>{p.relationship_strength}</span> : null}
-              {p.last_touch ? (
+              {p.last_touch && connectedOnly(p) ? (
+                <span className="text-stone-500">connected {monthYear(p.last_touch)}</span>
+              ) : p.last_touch ? (
                 <span className="tabular-nums text-stone-500">touched {shortDate(p.last_touch, today)}{p.last_touch_note ? ` · ${p.last_touch_note}` : ""}</span>
               ) : null}
             </div>
@@ -251,7 +263,17 @@ export default async function PeoplePage({
                   <StatusPicker entity="person" id={p.id} statusKey={p.status_key} note={p.status_note} updatedAt={p.updated_at} statuses={STATUS} compact />
                 </td>
                 <td className="px-4 py-3 text-xs text-stone-500">{p.relationship_strength ?? "—"}</td>
-                <td className="px-4 py-3 tabular-nums text-xs text-stone-500">{p.last_touch ? shortDate(p.last_touch, today) : p.last_touch_note ? `undated — ${p.last_touch_note}` : "—"}</td>
+                <td className="px-4 py-3 tabular-nums text-xs text-stone-500">
+                  {p.last_touch && connectedOnly(p) ? (
+                    <span className="text-stone-500">connected {monthYear(p.last_touch)}</span>
+                  ) : p.last_touch ? (
+                    shortDate(p.last_touch, today)
+                  ) : p.last_touch_note ? (
+                    `undated — ${p.last_touch_note}`
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-3 text-xs text-stone-600 max-w-72">
                   <span className="line-clamp-2">{p.next_action ?? "—"}</span>
                 </td>

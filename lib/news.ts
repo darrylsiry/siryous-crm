@@ -31,6 +31,25 @@ import {
 const DUE_AFTER_MS = 22 * 3_600_000;
 /** Stop a scan after this many failed batches in a row (expired login, no network…). */
 const MAX_FAILS_IN_A_ROW = 2;
+/** After a scheduled scan that checked nobody, wait this long before the next, doubling each time up to a day. */
+const FIRST_BACKOFF_MS = 3_600_000;
+
+/**
+ * When the background loop may scan again after `failures` scans in a row
+ * that checked nobody (each try can be two full Claude web-search runs, so a
+ * cause that persists mustn't be retried every 15 minutes). Pure.
+ */
+export function newsRetryAt(failures: number, lastFailedAt: number): number {
+  if (failures <= 0) return 0;
+  return lastFailedAt + Math.min(FIRST_BACKOFF_MS * 2 ** (failures - 1), DUE_AFTER_MS);
+}
+
+/** Whether the background loop is waiting out a backoff (news.fail_streak / news.failed_at). "Check now" ignores it. */
+export function newsBackingOff(now = Date.now()): boolean {
+  const failures = Number(getSetting("news.fail_streak")) || 0;
+  const at = Date.parse(getSetting("news.failed_at") ?? "");
+  return failures > 0 && Number.isFinite(at) && now < newsRetryAt(failures, at);
+}
 
 export interface NewsSettings {
   enabled: boolean;
@@ -260,6 +279,14 @@ async function scanInner(force: boolean): Promise<ScanResult> {
   result.error = lastError;
   if (result.searched) setSetting("news.last_run_at", new Date().toISOString());
   setSetting("news.last_error", lastError);
+  // A scan that checked nobody counts toward the backoff; one that checked anyone ends it.
+  if (result.searched) {
+    setSetting("news.fail_streak", null);
+    setSetting("news.failed_at", null);
+  } else if (lastError) {
+    setSetting("news.fail_streak", String((Number(getSetting("news.fail_streak")) || 0) + 1));
+    setSetting("news.failed_at", new Date().toISOString());
+  }
   return result;
 }
 
@@ -274,6 +301,7 @@ export function startNewsLoop(): void {
   const tick = async () => {
     try {
       if (!getNewsSettings().enabled || !claudeBin() || state.scanning) return;
+      if (newsBackingOff()) return;
       if (!dueSubjects(newsSubjects()).length) return;
       const r = await runNewsScan();
       console.log(`[news] searched ${r.searched}, ${r.added} new item(s)${r.error ? ` — ${r.error}` : ""}`);

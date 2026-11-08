@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isCurrent } from "@/components/SideNav";
 import { Badge, useNavCounts } from "@/components/NavBadge";
 import type { NavCounts } from "@/lib/navCounts";
 
@@ -73,11 +74,12 @@ export default function MobileNav({
                 ) : null}
                 <div className="grid grid-cols-2 gap-1">
                   {g.items.map((n) => {
-                    const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+                    const active = isCurrent(pathname, n.href);
                     return (
                       <Link
                         key={n.href}
                         href={n.href}
+                        aria-current={active ? "page" : undefined}
                         className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium ${
                           active ? "bg-stone-100 text-stone-900" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
                         }`}

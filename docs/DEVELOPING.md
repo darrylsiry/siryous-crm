@@ -94,7 +94,9 @@ does for the server. If that fails they open the plain URL (the sign-in page).
 folder (`lsof -d cwd`) is this one; another program on the port is left
 running (without `lsof` it `pkill`s Next processes started from this folder). `Start CRM.bat` follows the
 same sequence on Windows — the same Node range check, Node stamp and rebuild,
-and token lookup — using PowerShell for the timestamp comparisons, and runs the
+and token lookup — using PowerShell for the timestamp comparisons and
+`node scripts\crm-check.mjs` (exit 0, 1 or 2, as on the Mac) to tell whether
+the CRM is already running and, after starting it, that it came up (no sign-in code is opened without that), and runs the
 server in a separate minimised window (so there is no `data/server.log`; the
 error shows in that window); `Stop CRM.bat` checks `/api/health` first, then kills the PID `netstat`
 reports on `127.0.0.1:3000`. `Restart CRM.command` / `Restart CRM.bat` run
@@ -126,7 +128,7 @@ create and use a separate, empty `data/crm.db`.
 | `LOCAL_LLM_MODEL` | `gemma4:26b` | Model name as Ollama lists it. |
 | `LOCAL_LLM_NUM_CTX` | `32768` | Context window passed to Ollama. |
 | `LOCAL_LLM_TEMPERATURE` | `0.3` | Sampling temperature. |
-| `LOCAL_LLM_ALLOW_REMOTE` | unset | Set to `1` to allow a non-private Ollama host. The prompt carries the whole roster, so the URL guard in `lib/llm.ts` refuses public hosts otherwise. |
+| `LOCAL_LLM_ALLOW_REMOTE` | unset | Set to `1` to allow a non-private Ollama host. The prompt carries the whole roster, so the URL guard (`validateOllamaUrl` in `lib/settings.ts`) refuses public hosts otherwise. |
 | `AI_PROVIDER` | `local` | `local` or `claude` for the tool-less write steps. |
 | `AI_FALLBACK` | `none` | `claude` or `none`: what to do when Ollama is unavailable. Never applies to the Coach or to drafts made from Inbox emails (`runModel`'s `fallback: false`). |
 | `CLAUDE_BIN` | unset | Path to the Claude Code CLI if it isn't on PATH, in `~/.local/bin` or `/opt/homebrew/bin`. |
@@ -157,10 +159,13 @@ except static assets) checks, in order:
    through. Each sign-in gets its own session (`createSession()`): a random
    id, signed with an HMAC of the token, listed with its expiry in
    `data/sessions.json` (0600). The cookie never holds the token (cookies
-   aren't separated by port). A session ends 30 days after its last use
-   (`touchSession()` extends it, at most once a day), when Settings → **Sign
-   out other browsers** runs (`endOtherSessions()`), or when the token
-   changes. A cookie from before sessions, holding the token itself, signs in
+   aren't separated by port). Each entry is `{created, expires}`. A session
+   ends 30 days after its last use (`touchSession()` extends it, at most once
+   a day) and never later than 90 days after it was created
+   (`SESSION_MAX_DAYS`), when Settings → **Sign out other browsers** runs
+   (`endOtherSessions()`), or when the token changes. Settings lists the live
+   ones (`listSessions()`). The sign-in box (`/api/signin`) takes the token or
+   a pasted one-time link (`?once=…`, `consumeSignInCode()`). A cookie from before sessions, holding the token itself, signs in
    once and is swapped for a session;
 3. otherwise → the `/signin` page (API routes get a 401 instead).
 
@@ -211,7 +216,7 @@ and server actions share them however Next.js bundles those entries.
 | Log     | paste: none · Zoom / Gmail / Meet (Calendar to identify the meeting, then Drive for its notes doc): retrieve the transcript or thread | write the interaction-log entries |
 | Prep    | two separate runs: (1) Calendar + Gmail, no web — what's changed since last touch (and which meeting is next, in auto mode); (2) web only, given just the person's public name/role/company — recent public news. Kept apart so a session that reads your email never holds a tool that can send data out | write the brief |
 | Coach   | none | advice, chat replies, closing summary |
-| Inbox   | Two Gmail runs on Haiku, each limited by `scripts/gmail-guard.mjs` (a PreToolUse hook passed with `--settings`): first the messages delivered to the CRM address since the last check, as headers only (metadata views, never a subject or text); then `get_message` for the owner's own messages, by id. Anyone else's is stored as ignored, headers only. Mail Gmail labels SENT is `verified` (only then is a note at its top read as instructions). Runs on a schedule, or "Check now". A check must actually reach Gmail to count, and `inboxCheckDue()` in `lib/inboxRoute.ts` sets the pace: `inbox.poll_minutes` while the owner is using the app, every four hours otherwise | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
+| Inbox   | Two Gmail runs on Haiku, each limited by `scripts/gmail-guard.mjs` (a PreToolUse hook passed with `--settings`, `\|\| exit 2` so a hook that can't start blocks too): first the messages delivered to the CRM address since the last check, as headers only (metadata views, never a subject or text); then `get_message` for the owner's own messages, by id. The same script, as a PostToolUse hook, writes what Gmail returned to `<tmp run dir>/gmail.jsonl` (0600, removed after the run), and that record is all the CRM reads (`GmailRecordSchema` / `parseGmailRecord` in `lib/schemas.ts`): the model's reply is ignored, so a message can't make it misreport a sender, and a run that never reached Gmail doesn't count. Anyone else's is stored as ignored, headers only. Mail Gmail labels SENT is `verified` (only then is a note at its top read as instructions), and the second run's sender must match the first's. Runs on a schedule, or "Check now". A check must actually reach Gmail to count, and `inboxCheckDue()` in `lib/inboxRoute.ts` sets the pace: `inbox.poll_minutes` while the owner is using the app, every four hours otherwise | routed locally by `lib/inboxRoute.ts` into Log / Intake drafts, written by the local model as above |
 | News Feed | web search/fetch only, ~10 contacts per run, daily once turned on (opt-in; `news.enabled`) | none — Claude returns the stories as JSON; `lib/newsCore.ts` validates and de-duplicates them |
 
 If a fetch step fails (expired Claude login, connector hiccup), Intake and Prep
@@ -362,6 +367,12 @@ closed/unknown group in the UI (statuses sort last, stages leave the board,
 actions disappear from the bucket view) until you edit them. Keep the keys the
 app falls back to (`new`, `this_week`, `identified`, `engagement`).
 
+`overdue` is a computed bucket (`COMPUTED_BUCKETS` in `lib/vocab.mjs`): an
+item shows there when its date has passed, and it is never stored. Menus, saves,
+prompts and the MCP server use `PICKABLE_BUCKETS` / `pickableBucketKeys()`,
+which leave it out; a one-time migration (`migrated.no_stored_overdue`) moved
+rows that had it stored to `this_week`.
+
 ## One database, three ways in
 
 **The SQLite database (`data/crm.db`, WAL mode) is the single source of
@@ -492,10 +503,17 @@ the Word export · Ollama (local open-weight model) for AI reasoning/writing ·
 headless Claude Code CLI for external-data steps (read-only claude.ai
 connector grants) and fallback · `@modelcontextprotocol/sdk` for the MCP
 server. No client-side state libraries; most forms are plain HTML
-`<details>` disclosures posting to server actions. The few that must keep what
-was typed when a save is refused (Add to-do, Log touch, Settings) dispatch by
-hand (`components/KeepTypedForm.tsx`, `AddActionForm`, `QuickLog`) so React
-doesn't reset them. Shared UI pieces: `Toaster` (the "✓ Done · Undo" toast,
+`<details>` disclosures posting to server actions. Forms whose save can be
+refused (edit pages, deal and to-do edits, status, Log a longer entry, Add
+deal, Settings, Inbox settings) use `components/KeepTypedForm.tsx` (with
+`AddActionForm` and `QuickLog` doing the same by hand): the action has the
+`useActionState` shape `(prev, formData) => FormResult` from `lib/actions.ts`,
+`{ ok, message, fresh? }`. A refusal keeps what was typed; a stale save
+returns `staleResult(table, id)`, whose `fresh.updated_at` makes the next Save
+overwrite on purpose; a success raises a "✓ message" toast as soon as the
+action answers (so it survives the save moving the row), then closes the
+enclosing `<details>`. A save that redirects (`?saved=1`, `?added=deal`) is
+confirmed by the page's `FlashBanner`. Shared UI pieces: `Toaster` (the "✓ Done · Undo" toast,
 one provider in the app layout), `ReceiptBanner` (the "Saved …" line after a
 Log or Intake confirmation, from `log_drafts.receipt` / `intake_drafts.receipt`
 via `?receipt=log-<id>`), `PeoplePicker` (the people list sent once per page

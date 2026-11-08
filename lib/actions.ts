@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getDb, STATUS, STAGES, KINDS, BUCKETS, DEFAULT_CADENCE } from "./db";
-import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
+import { getDb, STATUS, STAGES, KINDS, BUCKETS, PICKABLE_BUCKETS, DEFAULT_CADENCE } from "./db";
+import { isIsoDate, parseDueDate, shortDate, todayLocal } from "./dates.mjs";
 import { applyStatusCadence, bumpLastTouch, markActionDone, profilePath, slugFor } from "./rules.mjs";
 import { localPath } from "./params";
 
@@ -167,7 +167,18 @@ export async function deleteCompany(id: number) {
 /** The bucket whose items are meant to carry a date ("Dated — this week & upcoming"). */
 const DATED_BUCKET = "this_week";
 
-export type FormResult = { ok: boolean; message: string } | null;
+/**
+ * What a form's save says back (components/KeepTypedForm.tsx shows it). `fresh`:
+ * field values to put back into the form after a refusal, e.g. a record's new
+ * version after someone else changed it, so saving again overwrites on purpose.
+ */
+export type FormResult = { ok: boolean; message: string; fresh?: Record<string, string> } | null;
+
+/** Refuse a save on a record that changed since its form was opened, keeping what was typed. */
+function staleResult(table: "people" | "companies" | "opportunities", id: number): FormResult {
+  const row = getDb().prepare(`SELECT updated_at FROM ${table} WHERE id=?`).get(id) as { updated_at: string | null } | undefined;
+  return { ok: false, message: "This record changed since you opened it (perhaps from another window, or from Claude). Save again to replace it with what you typed.", fresh: { updated_at: row?.updated_at ?? "" } };
+}
 
 /**
  * Add a to-do. One "due" box takes a date or free text ("Fri 7/25", "ASAP");
@@ -177,7 +188,7 @@ export type FormResult = { ok: boolean; message: string } | null;
 export async function addActionItem(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return { ok: false, message: "Say what needs doing." };
-  const bucket = oneOf(formData.get("bucket"), BUCKETS, DATED_BUCKET);
+  const bucket = oneOf(formData.get("bucket"), PICKABLE_BUCKETS, DATED_BUCKET);
   const typed = String(formData.get("due") ?? formData.get("due_label") ?? "").trim() || null;
   const dueDateRaw = String(formData.get("due_date") ?? "").trim();
   const dueDate = isIsoDate(dueDateRaw) ? dueDateRaw : isIsoDate(typed) ? typed : parseDueDate(typed);
@@ -204,21 +215,22 @@ export async function addActionItem(_prev: FormResult, formData: FormData): Prom
  * Edit a to-do's title, group, person or due date (re-date a late one). A
  * blank date clears it; a quick-date button ("Tomorrow") sends quick_due.
  */
-export async function updateActionItem(formData: FormData) {
+export async function updateActionItem(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const id = Number(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "That to-do no longer exists." };
   const db = getDb();
   const current = db.prepare(`SELECT title, bucket, due_date, due_label, person_id FROM action_items WHERE id=?`).get(id) as
     | { title: string; bucket: string; due_date: string | null; due_label: string | null; person_id: number | null }
     | undefined;
-  if (!current) return;
+  if (!current) return { ok: false, message: "That to-do no longer exists." };
   const quick = String(formData.get("quick_due") ?? "").trim();
   const dueRaw = isIsoDate(quick) ? quick : String(formData.get("due_date") ?? "").trim();
   const dueDate = isIsoDate(dueRaw) ? dueRaw : null;
   const personId = formData.has("person_id") ? Number(formData.get("person_id")) || null : current.person_id;
   db.prepare(`UPDATE action_items SET title=?, bucket=?, due_date=?, due_label=?, person_id=? WHERE id=?`).run(
     str(formData, "title") ?? current.title,
-    oneOf(formData.get("bucket"), BUCKETS, current.bucket),
+    // A to-do still filed under the old "Overdue" moves to the dated group, so re-dating it works.
+    oneOf(formData.get("bucket"), PICKABLE_BUCKETS, Object.hasOwn(PICKABLE_BUCKETS, current.bucket) ? current.bucket : DATED_BUCKET),
     dueDate,
     // A free-text label ("~late summer") stays until the date itself changes.
     dueDate === current.due_date ? current.due_label : dueDate,
@@ -226,6 +238,8 @@ export async function updateActionItem(formData: FormData) {
     id
   );
   revalidatePath("/", "layout");
+  if (dueDate === current.due_date) return { ok: true, message: "Saved" };
+  return { ok: true, message: dueDate ? `Re-dated to ${new Date(`${dueDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}` : "Saved, with no date" };
 }
 
 /**
@@ -274,33 +288,48 @@ export async function logTouch(_prev: FormResult, formData: FormData): Promise<F
   const what = channel ? `${channel.toLowerCase()} with ${name}` : `a touch with ${name}`;
   return {
     ok: true,
-    message: `Logged ${what}${date === todayLocal() ? " today" : ` on ${date}`}${nextStep && nextDue ? " · next step added to your to-dos" : ""}`,
+    message: `Logged ${what}${date === todayLocal() ? " today" : ` on ${shortDate(date)}`}${nextStep && nextDue ? " · next step added to your to-dos" : ""}`,
   };
 }
 
 /** Set a deal's next step from the Dashboard, without opening the board. */
-export async function setDealNextStep(formData: FormData) {
+export async function setDealNextStep(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const id = Number(formData.get("id"));
   const nextStep = str(formData, "next_step");
-  if (!id || !nextStep) return;
+  if (!id || !nextStep) return { ok: false, message: "Write the next step first." };
   getDb().prepare(`UPDATE opportunities SET next_step=?, updated_at=datetime('now') WHERE id=?`).run(nextStep, id);
   revalidatePath("/", "layout");
+  return { ok: true, message: "Next step saved" };
 }
 
-export async function addInteraction(formData: FormData) {
+/**
+ * A profile's "＋ Log interaction": saved exactly as typed. Like Log touch, it
+ * refuses a date in the future: last touch only moves forward, so one would
+ * freeze it (and drop the contact from Keep Warm) until that date passed.
+ */
+export async function addInteraction(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const db = getDb();
   const personId = Number(formData.get("person_id")) || null;
   const companyId = Number(formData.get("company_id")) || null;
   const date = String(formData.get("date") ?? "").trim();
   const channel = String(formData.get("channel") ?? "").trim() || null;
   const summary = String(formData.get("summary") ?? "").trim();
-  if (!isIsoDate(date) || !summary || (!personId && !companyId)) return;
-  db.prepare(
-    `INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`
-  ).run(personId, companyId, date, channel, summary);
-  if (personId) bumpLastTouch(db, "people", personId, date);
-  if (companyId) bumpLastTouch(db, "companies", companyId, date);
+  if (!personId && !companyId) return { ok: false, message: "Nobody to log this on." };
+  if (!isIsoDate(date)) return { ok: false, message: "Pick the date it happened." };
+  if (date > todayLocal()) return { ok: false, message: "That date is in the future; log an interaction once it has happened." };
+  if (!summary) return { ok: false, message: "Write what happened first." };
+  db.transaction(() => {
+    db.prepare(`INSERT INTO interactions (person_id, company_id, date, channel, summary) VALUES (?,?,?,?,?)`).run(personId, companyId, date, channel, summary);
+    if (personId) bumpLastTouch(db, "people", personId, date);
+    if (companyId) bumpLastTouch(db, "companies", companyId, date);
+  })();
   revalidatePath("/", "layout");
+  const who = (
+    personId
+      ? db.prepare(`SELECT name FROM people WHERE id=?`).get(personId)
+      : db.prepare(`SELECT name FROM companies WHERE id=?`).get(companyId)
+  ) as { name: string } | undefined;
+  return { ok: true, message: `Logged on ${who?.name ?? "the profile"} · ${shortDate(date)}` };
 }
 
 /**
@@ -322,17 +351,17 @@ function profileHref(table: "people" | "companies", id: number): string {
   return row ? profilePath(table, row.slug) : `/${table}`;
 }
 
-export async function updateStatus(formData: FormData) {
+export async function updateStatus(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const table = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));
   const statusKey = oneOf(formData.get("status_key"), STATUS, "new");
   const statusNote = String(formData.get("status_note") ?? "").trim() || null;
   const nextAction = String(formData.get("next_action") ?? "").trim() || null;
-  if (!id) return;
-  if (isStale(table, id, formData)) redirect(`${profileHref(table, id)}?stale=1`);
+  if (!id) return { ok: false, message: "This profile no longer exists." };
+  if (isStale(table, id, formData)) return staleResult(table, id);
   const db = getDb();
   const before = db.prepare(`SELECT status_key FROM ${table} WHERE id=?`).get(id) as { status_key: string } | undefined;
-  if (!before) return;
+  if (!before) return { ok: false, message: "This profile no longer exists." };
   // "Also add to my to-dos": the next step becomes a to-do too, dated if a date was given.
   const todoDueRaw = String(formData.get("todo_due") ?? "").trim();
   const todoDue = isIsoDate(todoDueRaw) ? todoDueRaw : null;
@@ -361,6 +390,7 @@ export async function updateStatus(formData: FormData) {
     }
   })();
   revalidatePath("/", "layout");
+  return { ok: true, message: alsoTodo ? "Saved · the next step is on your to-dos too" : "Saved" };
 }
 
 /**
@@ -447,17 +477,15 @@ function sameText(a: string | null, b: string | null): boolean {
  * status and the snapshot fields. Then goes `back` (the profile, or the list
  * the edit was opened from); a refused stale save returns to the edit page.
  */
-export async function updateSnapshot(formData: FormData) {
+export async function updateSnapshot(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const entity = formData.get("entity") === "company" ? "companies" : "people";
   const id = Number(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "This profile no longer exists." };
   const back = localPath(formData.get("back"));
-  if (isStale(entity, id, formData)) {
-    redirect(back ? `${profileHref(entity, id)}/edit?stale=1&back=${encodeURIComponent(back)}` : `${profileHref(entity, id)}?stale=1`);
-  }
+  if (isStale(entity, id, formData)) return staleResult(entity, id);
   const db = getDb();
   const before = db.prepare(`SELECT status_key FROM ${entity} WHERE id=?`).get(id) as { status_key: string } | undefined;
-  if (!before) return;
+  if (!before) return { ok: false, message: "This profile no longer exists." };
   const statusKey = formData.has("status_key") ? oneOf(formData.get("status_key"), STATUS, before.status_key) : before.status_key;
   db.transaction(() => {
     // A rename keeps the slug, so links and bookmarks to the profile still work.
@@ -504,7 +532,9 @@ export async function updateSnapshot(formData: FormData) {
     }
   })();
   revalidatePath("/", "layout");
-  if (back) redirect(back);
+  // Back where the edit was opened, which says it was saved.
+  if (back) redirect(`${back}${back.includes("?") ? "&" : "?"}saved=1`);
+  return { ok: true, message: "Saved" };
 }
 
 function str(fd: FormData, key: string): string | null {
@@ -575,16 +605,25 @@ export async function setOpportunityStage(formData: FormData) {
   revalidatePath("/", "layout");
 }
 
-export async function updateOpportunity(formData: FormData) {
+export async function updateOpportunity(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const id = Number(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "That deal no longer exists." };
   const current = getDb().prepare(`SELECT name, stage FROM opportunities WHERE id=?`).get(id) as { name: string; stage: string } | undefined;
-  if (!current) return;
-  if (isStale("opportunities", id, formData)) redirect("/pipeline?stale=1");
+  if (!current) return { ok: false, message: "That deal no longer exists." };
+  if (isStale("opportunities", id, formData)) return staleResult("opportunities", id);
   // Stage is owned by the "Move" form / MCP; the edit form omits it so a stage
   // moved elsewhere isn't clobbered. Only honour it when explicitly supplied.
   const stage = formData.has("stage") ? oneOf(formData.get("stage"), STAGES, current.stage) : current.stage;
-  getDb()
+  const db = getDb();
+  // Who the deal is with, set after the fact too (a deal added without anyone stayed "needs attention" for good).
+  const linked = (field: "person_id" | "company_id", table: "people" | "companies") => {
+    const n = Number(formData.get(field)) || null;
+    return n && db.prepare(`SELECT 1 FROM ${table} WHERE id=?`).get(n) ? n : null;
+  };
+  if (formData.has("person_id") || formData.has("company_id")) {
+    db.prepare(`UPDATE opportunities SET person_id=?, company_id=? WHERE id=?`).run(linked("person_id", "people"), linked("company_id", "companies"), id);
+  }
+  db
     .prepare(
       `UPDATE opportunities SET name=?, kind=?, stage=?, value_note=?, priority=?, next_step=?, notes=?, updated_at=datetime('now') WHERE id=?`
     )
@@ -599,11 +638,17 @@ export async function updateOpportunity(formData: FormData) {
       id
     );
   revalidatePath("/", "layout");
+  return { ok: true, message: "Deal saved" };
 }
 
-export async function createOpportunity(formData: FormData) {
+/**
+ * Add a deal. Opened from a profile ("⚑ Add deal"), it goes back to that
+ * profile, which says it was added; on the Pipeline the form clears and a
+ * toast says so, so the same deal isn't added twice.
+ */
+export async function createOpportunity(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const name = String(formData.get("name") ?? "").trim();
-  if (!name) return;
+  if (!name) return { ok: false, message: "Give the deal a name." };
   getDb()
     .prepare(
       `INSERT INTO opportunities (name, kind, stage, person_id, company_id, value_note, priority, next_step)
@@ -620,6 +665,9 @@ export async function createOpportunity(formData: FormData) {
       str(formData, "next_step")
     );
   revalidatePath("/", "layout");
+  const back = localPath(formData.get("back"));
+  if (back) redirect(`${back}${back.includes("?") ? "&" : "?"}added=deal`);
+  return { ok: true, message: `Deal added: ${name}` };
 }
 
 export async function deleteOpportunity(id: number) {

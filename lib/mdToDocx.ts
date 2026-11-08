@@ -13,7 +13,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-import { safeHref } from "./safeHref";
+import { linkHost, safeHref, withoutQuery } from "./safeHref";
 
 /**
  * Convert a Markdown prep brief into an editable Word document. Covers what
@@ -50,16 +50,21 @@ function inlineRuns(
         break;
       case "link": {
         // Only web, mail and phone links become hyperlinks (lib/safeHref.ts);
-        // a file:, javascript: or site-relative link is just its text.
+        // a file:, javascript: or site-relative link is just its text. The
+        // export is of a brief a model wrote, so a web link loses its query
+        // string and says which site it opens (as the page does).
         const link = t as Tokens.Link;
         const href = safeHref(link.href);
         if (href && /^(https?:|mailto:|tel:)/i.test(href)) {
+          const to = /^https?:/i.test(href) ? withoutQuery(href) : href;
+          const host = /^https?:/i.test(href) ? linkHost(to) : "";
           out.push(
             new ExternalHyperlink({
-              link: href,
-              children: [new TextRun({ text: link.text || href, style: "Hyperlink", ...style })],
+              link: to,
+              children: [new TextRun({ text: link.text || to, style: "Hyperlink", ...style })],
             })
           );
+          if (host && !(link.text || "").toLowerCase().includes(host.toLowerCase())) out.push(new TextRun({ text: ` (${host})`, ...style }));
         } else {
           out.push(...inlineRuns(link.tokens, style));
         }

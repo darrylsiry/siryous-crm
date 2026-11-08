@@ -1,16 +1,9 @@
 import type Database from "better-sqlite3";
 import { getDb } from "./db";
-import {
-  buildInboxBodiesPrompt,
-  buildInboxHeadersPrompt,
-  claudeBin,
-  extractJsonWithRepair,
-  runClaudeStream,
-  TOOLS,
-  type GmailGuard,
-  type InboxFetchedMessage,
-  type InboxHeader,
-} from "./ai";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { buildInboxBodiesPrompt, buildInboxHeadersPrompt, claudeBin, GMAIL_GUARD, runClaudeStream, TOOLS } from "./ai";
 import { discardDraft, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import {
   inboxCheckDue,
@@ -28,7 +21,7 @@ import {
 } from "./inboxRoute";
 import { loadOwner } from "./owner.mjs";
 import { getSetting, setSetting } from "./settings";
-import { parseInboxHeaders, parseInboxListing } from "./schemas";
+import { parseGmailRecord, type GmailRecordParsed } from "./schemas";
 import { shared } from "./serverState";
 
 /**
@@ -58,6 +51,8 @@ import { shared } from "./serverState";
  */
 
 export const INBOX_MAX_PER_POLL = 20;
+/** Threads one listing asks Gmail for (its page size). */
+const INBOX_SEARCH_THREADS = 20;
 /** A poll only fetches and copies text; a side-by-side run returned the same mail as Sonnet at a fraction of the cost. */
 const INBOX_MODEL = "haiku";
 /** inbox_messages.route for mail that wasn't sent from one of the owner's addresses. */
@@ -180,32 +175,23 @@ async function pollInboxInner(): Promise<PollResult> {
     const since = new Date();
     if (s.lastPollAt) since.setTime(new Date(s.lastPollAt).getTime() - LOOKBACK_DAYS * 86_400_000);
     else since.setTime(since.getTime() - FIRST_LOOKBACK_DAYS * 86_400_000);
-    // Everything already stored from inside the look-back window, so a window
-    // holding more mail than one check returns still moves on to the rest.
-    const seen = (
-      db
-        .prepare(`SELECT gmail_id FROM inbox_messages WHERE COALESCE(date, substr(created_at, 1, 10)) >= ? ORDER BY id DESC LIMIT ?`)
-        .all(isoDate(since), MAX_SEEN_IDS) as { gmail_id: string }[]
-    ).map((r) => r.gmail_id);
     // Step 1: headers only. The owner's addresses, with and without plus-tags, filter the search itself.
     const fromAddrs = [...new Set(inboxOwnerEmails(s).flatMap((e) => [e, stripPlusTag(e)]))];
-    const listing = parseInboxHeaders(
-      await gmailRun(buildInboxHeadersPrompt(s.address, gmailDate(since), seen, INBOX_MAX_PER_POLL, fromAddrs), TOOLS.gmailHeaders, { step: "headers" })
-    );
-    if (!listing) throw new Error(`Couldn't read the mailbox listing: the answer had no "messages" list.`);
-    const messages: InboxHeader[] = listing.messages.map((m) => ({
-      ...m,
-      date: m.date && /^\d{4}-\d{2}-\d{2}/.test(m.date) ? m.date.slice(0, 10) : null,
-    }));
-    result.fetched = messages.length;
-    if (listing.dropped) result.dropped = listing.dropped;
-    const owners = inboxOwnerEmails(s);
+    const listed = await gmailRun(buildInboxHeadersPrompt(s.address, gmailDate(since), INBOX_SEARCH_THREADS, fromAddrs), TOOLS.gmailHeaders, "headers");
+    // What reached the CRM address, oldest first, read from Gmail's own answers.
+    const crm = s.address.trim().toLowerCase();
+    const delivered = [...listed.records.values()]
+      .filter((m) => [...m.to, ...m.cc, ...m.bcc].some((r) => (senderAddress(r) ?? r.trim().toLowerCase()) === crm))
+      .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
     const known = db.prepare(`SELECT 1 FROM inbox_messages WHERE gmail_id=?`);
-    const mine: InboxHeader[] = [];
+    const fresh = delivered.filter((m) => !known.get(m.id));
+    result.skipped = delivered.length - fresh.length;
+    const messages = fresh.slice(0, INBOX_MAX_PER_POLL);
+    result.fetched = messages.length;
+    const owners = inboxOwnerEmails(s);
+    const mine: GmailRecordParsed[] = [];
     for (const m of messages) {
-      if (known.get(m.id)) {
-        result.skipped++;
-      } else if (sentByOwner(m, owners)) {
+      if (sentByOwner({ from: m.sender }, owners)) {
         mine.push(m);
       } else {
         // Anyone else's message: its headers are kept (so it isn't listed again); its text was never read.
@@ -216,20 +202,23 @@ async function pollInboxInner(): Promise<PollResult> {
     // Step 2: read the owner's own messages, by id and nothing else.
     if (mine.length) {
       const ids = mine.map((m) => m.id);
-      const read = parseInboxListing(await gmailRun(buildInboxBodiesPrompt(ids), TOOLS.gmailMessage, { step: "bodies", ids }));
-      if (!read) throw new Error(`Couldn't read the owner's messages: the answer had no "messages" list.`);
-      const byId = new Map(read.messages.map((m) => [m.id, m]));
+      const read = await gmailRun(buildInboxBodiesPrompt(ids), TOOLS.gmailMessage, "bodies", ids);
       for (const h of mine) {
-        const m = byId.get(h.id);
-        // Not returned this time: not stored, so the next check lists it again.
-        if (!m) continue;
-        // The headers decide who sent it; a reading that disagrees is kept out.
-        if (senderAddress(m.from) !== senderAddress(h.from)) {
+        const m = read.records.get(h.id);
+        // Not read this time: not stored, so the next check lists it again.
+        if (!m || m.body === undefined) continue;
+        // Both answers come from Gmail; one that names a different sender is kept out.
+        if (m.sender.trim().toLowerCase() !== h.sender.trim().toLowerCase()) {
           storeIgnored(db, h);
           result.ignored++;
           continue;
         }
-        const stored = storeMessage(db, { ...m, thread_id: h.thread_id ?? m.thread_id, date: h.date ?? m.date, from: h.from, to: h.to, cc: h.cc }, h.labels.includes("SENT"));
+        const stored = storeMessage(
+          db,
+          { id: h.id, thread_id: h.threadId, date: day(h.date), subject: m.subject ?? "", from: named(h.sender, h), to: h.to.map((a) => named(a, h)), cc: h.cc.map((a) => named(a, h)), body: m.body },
+          // Gmail filed it as sent from the owner's own account: the label is Gmail's, not the model's.
+          h.labels.includes("SENT")
+        );
         if (!stored) {
           result.skipped++;
           continue;
@@ -238,7 +227,8 @@ async function pollInboxInner(): Promise<PollResult> {
         result.routed++;
       }
     }
-    const full = messages.length + (listing.dropped ?? 0) >= INBOX_MAX_PER_POLL;
+    // More waiting than one check stores, or the search itself came back full.
+    const full = fresh.length > INBOX_MAX_PER_POLL || listed.searchedThreads >= INBOX_SEARCH_THREADS;
     const storedNew = result.routed + result.ignored;
     result.capped = full && storedNew > 0;
     if (result.capped) {
@@ -252,7 +242,7 @@ async function pollInboxInner(): Promise<PollResult> {
       // move the look-back up to the newest of it instead of asking again.
       // With no dates to go by it stays put, rather than jumping to now and
       // skipping mail in the window that was never fetched.
-      const past = lookBackPast(messages, s.lastPollAt);
+      const past = lookBackPast(delivered.map((m) => ({ date: day(m.date) })), s.lastPollAt);
       if (!past) throw new Error("Gmail's answer gave no dates for its messages, so the next check looks back from the same point instead of skipping ahead.");
       setSetting("inbox.last_poll_at", past.toISOString());
     } else {
@@ -267,32 +257,76 @@ async function pollInboxInner(): Promise<PollResult> {
 }
 
 /**
- * One of the poll's two Claude runs, with the guard that limits its Gmail
- * calls. Without the reached-Gmail check, a model that couldn't reach Gmail
- * can look like an empty mailbox: its explanation may quote {"messages": []},
- * which parses fine.
+ * One of the poll's two Claude runs. The guard (scripts/gmail-guard.mjs)
+ * limits its Gmail calls and records Gmail's answers in a private folder for
+ * this run; those records are what the poll reads, never the model's reply.
+ * A run that reached Gmail but left no record (the guard didn't run) fails,
+ * rather than looking like an empty mailbox.
  */
-async function gmailRun(prompt: string, allowedTools: string, gmailGuard: GmailGuard): Promise<unknown> {
-  let reachedGmail = false;
-  const text = await runClaudeStream(prompt, {
-    model: INBOX_MODEL,
-    allowedTools,
-    gmailGuard,
-    timeoutMs: 300_000,
-    onEvent: (e) => {
-      if (e.t === "gmail") reachedGmail = true;
-    },
-  });
-  if (!reachedGmail) throw new Error("The check never reached Gmail, so nothing was fetched. Is the Gmail connector still connected in Claude?");
-  return extractJsonWithRepair(text);
+async function gmailRun(
+  prompt: string,
+  allowedTools: string,
+  step: "headers" | "bodies",
+  ids: string[] = []
+): Promise<{ records: Map<string, GmailRecordParsed>; searchedThreads: number }> {
+  if (!fs.existsSync(GMAIL_GUARD())) {
+    throw new Error("The Gmail guard (scripts/gmail-guard.mjs) is missing, so the mailbox wasn't read. Update or reinstall the CRM.");
+  }
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-gmail-"));
+  try {
+    let reachedGmail = false;
+    await runClaudeStream(prompt, {
+      model: INBOX_MODEL,
+      allowedTools,
+      gmailGuard: step === "headers" ? { step, runDir } : { step, runDir, ids },
+      timeoutMs: 300_000,
+      onEvent: (e) => {
+        if (e.t === "gmail") reachedGmail = true;
+      },
+    });
+    if (!reachedGmail) throw new Error("The check never reached Gmail, so nothing was fetched. Is the Gmail connector still connected in Claude?");
+    let lines: unknown[] = [];
+    try {
+      lines = fs
+        .readFileSync(path.join(runDir, "gmail.jsonl"), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
+    } catch {
+      /* no record */
+    }
+    const calls = lines.filter((l): l is { call: string; threads?: number } => !!l && typeof l === "object" && "call" in l);
+    if (!calls.length) throw new Error("The CRM couldn't see Gmail's answers (its guard recorded nothing), so nothing was stored this time.");
+    const records = new Map<string, GmailRecordParsed>();
+    for (const l of lines) {
+      const r = parseGmailRecord(l);
+      // A message can appear in the search and again in its thread: the later, fuller answer wins.
+      if (r) records.set(r.id, { ...records.get(r.id), ...r });
+    }
+    return { records, searchedThreads: calls.reduce((n, c) => n + (c.call === "search_threads" ? (c.threads ?? 0) : 0), 0) };
+  } finally {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  }
+}
+
+/** YYYY-MM-DD of an ISO time from Gmail, or null. */
+function day(iso: string | null): string | null {
+  return iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : null;
+}
+
+/** "Name <address>" with the display name Gmail gave, stripped of anything that could pass for an address. */
+function named(address: string, m: GmailRecordParsed): string {
+  const n = m.names.find((x) => (x.emailAddress ?? "").toLowerCase() === address.toLowerCase())?.displayName ?? "";
+  const clean = n.replace(/[<>"@,;()\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  return clean ? `${clean} <${address}>` : address;
 }
 
 /** Store a message nobody may read: its headers, so it isn't listed again, and no subject or text. */
-function storeIgnored(db: Database.Database, m: InboxHeader): void {
+function storeIgnored(db: Database.Database, m: GmailRecordParsed): void {
   db.prepare(
     `INSERT OR IGNORE INTO inbox_messages (gmail_id, thread_id, subject, sender, recipients, date, body, status, route)
      VALUES (?,?,'',?,?,?,'','ignored',?)`
-  ).run(m.id, m.thread_id, m.from, JSON.stringify({ to: m.to, cc: m.cc }), m.date, UNKNOWN_SENDER_ROUTE);
+  ).run(m.id, m.threadId, named(m.sender, m), JSON.stringify({ to: m.to, cc: m.cc }), day(m.date), UNKNOWN_SENDER_ROUTE);
 }
 
 /**
@@ -314,7 +348,11 @@ function lookBackPast(messages: { date: string | null }[], lastPollAt: string | 
  * Insert the message if it is new; null when it was seen before or is empty.
  * `verified`: Gmail filed it as Sent from the owner's own account.
  */
-function storeMessage(db: Database.Database, m: InboxFetchedMessage, verified: boolean): number | null {
+function storeMessage(
+  db: Database.Database,
+  m: { id: string; thread_id: string | null; date: string | null; subject: string; from: string; to: string[]; cc: string[]; body: string },
+  verified: boolean
+): number | null {
   if (!m.body.trim() && !m.subject.trim()) return null;
   const r = db
     .prepare(

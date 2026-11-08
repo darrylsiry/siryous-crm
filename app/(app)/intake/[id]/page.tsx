@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDb, STATUS, STRENGTHS, BUCKETS } from "@/lib/db";
+import { getDb, STATUS, STRENGTHS, BUCKETS, PICKABLE_BUCKETS } from "@/lib/db";
 import type { IntakeAnalysis, ProgressEvent } from "@/lib/ai";
 import { confirmIntake, discardIntake, intakeToLog, retryIntake } from "@/lib/intake";
 import { draftFromInbox } from "@/lib/drafts";
@@ -147,7 +147,7 @@ export default async function IntakeReviewPage({
 
       <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Summary</h2>
-        <div className="mt-1"><Markdown>{a.summary_md}</Markdown></div>
+        <div className="mt-1"><Markdown modelWritten>{a.summary_md}</Markdown></div>
       </section>
 
       {blockedName ? (
@@ -317,7 +317,7 @@ export default async function IntakeReviewPage({
                       className={`rounded-lg border px-2 py-1.5 text-sm ${s.due && !parsed ? "border-amber-400 bg-amber-50" : "border-stone-300"}`}
                     />
                     <select name={`action_bucket_${i}`} defaultValue={BUCKETS[s.bucket] ? s.bucket : "this_week"} aria-label="Group" className="rounded-lg border border-stone-300 px-2 py-1.5 text-sm sm:col-span-2">
-                      {Object.entries(BUCKETS).map(([k, b]) => (
+                      {Object.entries(PICKABLE_BUCKETS).map(([k, b]) => (
                         <option key={k} value={k}>
                           {b.icon} {b.label}
                         </option>

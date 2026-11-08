@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../lib/db";
 import { NEWS_BATCH_SIZE } from "../lib/newsCore";
-import { newsEnabled, runNewsScan } from "../lib/news";
+import { newsBackingOff, newsEnabled, newsRetryAt, runNewsScan } from "../lib/news";
 import { getSetting, setSetting } from "../lib/settings";
 
 // A stand-in for the Claude CLI: counts its runs, optionally asks the scan to
@@ -43,7 +43,7 @@ describe("runNewsScan", () => {
     db.prepare(`DELETE FROM news_checks`).run();
     fs.rmSync(runsFile, { force: true });
     delete process.env.FAKE_STOP;
-    for (const k of ["news.enabled", "news.last_run_at", "news.last_error", "news.stop"]) setSetting(k, null);
+    for (const k of ["news.enabled", "news.last_run_at", "news.last_error", "news.stop", "news.fail_streak", "news.failed_at"]) setSetting(k, null);
   });
 
   test("a batch that searched and found nothing is checked", async () => {
@@ -58,6 +58,23 @@ describe("runNewsScan", () => {
     await runNewsScan(true);
     assert.ok(getSetting("news.last_run_at"));
     assert.equal(newsEnabled(), false);
+  });
+
+  test("scans that keep checking nobody back off, doubling up to a day; one that checks anyone ends it (CR-048)", async () => {
+    const H = 3_600_000;
+    assert.equal(newsRetryAt(1, 0), H);
+    assert.equal(newsRetryAt(2, 0), 2 * H);
+    assert.equal(newsRetryAt(10, 0), 22 * H, "never longer than the daily cycle");
+    cli(result("no search"));
+    await runNewsScan(true);
+    await runNewsScan(true);
+    assert.equal(getSetting("news.fail_streak"), "2");
+    assert.equal(newsBackingOff(), true, "the background loop waits");
+    assert.equal(newsBackingOff(Date.now() + 2 * H + 1000), false);
+    cli(searched, result('{"items": []}'));
+    await runNewsScan(true);
+    assert.equal(getSetting("news.fail_streak"), null);
+    assert.equal(newsBackingOff(), false);
   });
 
   test("an answer that never searched is a failure, and nothing is marked checked", async () => {

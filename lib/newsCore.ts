@@ -3,6 +3,8 @@
  * and cleaning what the model returns. lib/news.ts does the I/O.
  */
 
+import { withoutQuery } from "./safeHref";
+
 /** A person or company to search for. ref is "p:<slug>" or "c:<slug>". */
 export interface NewsSubject {
   ref: string;
@@ -127,7 +129,8 @@ export function cleanItems(raw: unknown, batch: NewsSubject[], since: string, to
     seen.add(key);
     out.push({
       headline,
-      url,
+      // The page only: a link a steered search wrote could carry data out in its query string.
+      url: withoutQuery(url),
       source: str(o.source).slice(0, 120) || null,
       published,
       summary: str(o.summary).slice(0, 1200),

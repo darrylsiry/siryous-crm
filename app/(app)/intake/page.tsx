@@ -74,7 +74,7 @@ export default async function IntakePage({ searchParams }: { searchParams: Promi
         {hasClaude ? (
           <label className="flex items-center gap-2 text-sm text-stone-600">
             <input type="checkbox" name="research" value="1" defaultChecked />
-            Look them up on the web first (sends what you pasted to Claude)
+            Look them up on the web first (sends their name, role, employer and location to Claude — never what you pasted)
           </label>
         ) : (
           <p className="text-xs text-stone-500">Web look-up needs Claude Code — see &ldquo;If you use Claude&rdquo; in the README. Without it, the analysis works from the pasted text only.</p>

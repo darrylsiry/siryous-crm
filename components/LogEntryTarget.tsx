@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import SearchSelect from "@/components/SearchSelect";
+import { nameFromSlug } from "@/lib/names";
 
 /**
  * One draft log entry: "Log on <person>", the entry itself (`children`), then
@@ -68,21 +69,21 @@ export default function LogEntryTarget({
               ...companies.map((c) => ({ value: `company:${c.slug}`, label: c.name, group: "A company (no specific person)" })),
             ]}
             allowEmpty={!valid}
-            emptyLabel={`${modelSlug} (not in your CRM)`}
+            emptyLabel={`${nameFromSlug(modelSlug)} (not in your CRM)`}
             className={`rounded-lg border px-2 py-1 text-sm ${untargeted ? "border-amber-300 bg-amber-50 text-amber-900" : "border-stone-300 bg-white"}`}
           />
         </span>
       </label>
       {untargeted ? (
         <p className="text-xs text-amber-800">
-          <span className="font-semibold">{modelSlug}</span> is not in your CRM —{" "}
+          <span className="font-semibold">{nameFromSlug(modelSlug)}</span> is not in your CRM —{" "}
           <Link href={intakeHref} className="font-medium underline">
             create a profile from these notes
           </Link>{" "}
           first, or pick the right contact above. Until then this entry is skipped.
         </p>
       ) : !valid ? (
-        <p className="text-xs text-stone-600">The AI wrote “{modelSlug}”, which isn&apos;t in your CRM — you picked this person instead.</p>
+        <p className="text-xs text-stone-600">The AI wrote “{nameFromSlug(modelSlug)}”, who isn&apos;t in your CRM — you picked this person instead.</p>
       ) : null}
       {children}
       {!isCompany && !untargeted && (aiNext || current) ? (

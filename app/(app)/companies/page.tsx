@@ -7,6 +7,7 @@ import PendingButton from "@/components/PendingButton";
 import { first, type Param } from "@/lib/params";
 import { profilePath } from "@/lib/slug";
 import { shortDate, todayLocal } from "@/lib/dates.mjs";
+import FlashBanner from "@/components/FlashBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const metadata = { title: "Companies" };
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: Param; duplicate?: Param; q?: Param; sort?: Param; add?: Param }>;
+  searchParams: Promise<{ saved?: Param; status?: Param; duplicate?: Param; q?: Param; sort?: Param; add?: Param }>;
 }) {
   const sp = await searchParams;
   const status = first(sp.status);
@@ -49,6 +50,11 @@ export default async function CompaniesPage({
 
   return (
     <div className="space-y-6">
+      {first(sp.saved) ? (
+        <FlashBanner cleanHref={keep({})} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+          ✓ Saved.
+        </FlashBanner>
+      ) : null}
       {duplicate ? (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           Not created — <Link href={profilePath("companies", duplicate)} className="font-semibold underline">a company with that name already exists</Link>. Open it, or add a distinguishing detail to the name.
@@ -145,9 +151,12 @@ export default async function CompaniesPage({
         {companies.map((c) => (
           <li key={c.id} className="rounded-xl border border-stone-200 bg-white p-4">
             <div className="flex items-start justify-between gap-2">
-              <Link href={`/companies/${c.slug}`} className="min-w-0 font-semibold text-stone-900 hover:text-indigo-700">
-                {c.name}
-              </Link>
+              <div className="min-w-0">
+                <Link href={`/companies/${c.slug}`} className="font-semibold text-stone-900 hover:text-indigo-700">
+                  {c.name}
+                </Link>
+                {c.status_note ? <div className="text-xs text-stone-600">{c.status_note}</div> : null}
+              </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusPicker entity="company" id={c.id} statusKey={c.status_key} note={c.status_note} updatedAt={c.updated_at} statuses={STATUS} compact />
                 <Link href={editHref(c.slug)} aria-label={`Edit ${c.name}`} className="whitespace-nowrap rounded-md border border-stone-300 px-2 py-1 text-xs font-medium text-stone-600 hover:border-indigo-400 hover:text-indigo-700">

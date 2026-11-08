@@ -3,10 +3,12 @@ import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_CADENCE, getDb } from "../lib/db";
+import { DEFAULT_CADENCE, getDb, PICKABLE_BUCKETS, VOCAB } from "../lib/db";
+import { bucketList } from "../lib/vocab.mjs";
 import { localPath } from "../lib/params";
 import {
   addActionItem,
+  addInteraction,
   clearNextStep,
   createPerson,
   deleteCompany,
@@ -15,14 +17,15 @@ import {
   setOutreachStatus,
   tickActionItem,
   updateActionItem,
+  updateOpportunity,
   updateSnapshot,
   updateStatus,
 } from "../lib/actions";
-import { confirmLog } from "../lib/logmeeting";
+import { analyzeLog, confirmLog } from "../lib/logmeeting";
 import { confirmIntake } from "../lib/intake";
 import { ignoreInboxMessage } from "../lib/inboxActions";
 import { importCsvText } from "../lib/importCsv";
-import { search } from "../lib/queries";
+import { openActionItems, search } from "../lib/queries";
 import { readReceipt, receiptLine } from "../lib/receipts";
 import { ago, localDateOf, localStamp, shortDate, todayLocal } from "../lib/dates.mjs";
 import { normalizeToken } from "../lib/auth.mjs";
@@ -89,8 +92,18 @@ describe("editing and ticking a to-do", () => {
     db.prepare(`INSERT INTO people (id, slug, name, status_key) VALUES (2, 'priya-rao', 'Priya Rao', 'new')`).run();
     db.prepare(`INSERT INTO action_items (id, title, bucket, due_date, person_id) VALUES (10, 'Intro', 'this_week', '2020-01-01', 1)`).run();
     const tomorrow = plusDays(1);
-    await run(() => updateActionItem(form({ id: "10", title: "Intro", bucket: "this_week", due_date: "2020-01-01", quick_due: tomorrow, person_id: "2" })));
+    await run(() => updateActionItem(null, form({ id: "10", title: "Intro", bucket: "this_week", due_date: "2020-01-01", quick_due: tomorrow, person_id: "2" })));
     assert.deepEqual(one(`SELECT due_date, person_id FROM action_items WHERE id=10`), { due_date: tomorrow, person_id: 2 });
+  });
+
+  test("a to-do filed under the old Overdue group leaves it when re-dated, and Overdue can't be picked (UX-062)", async () => {
+    db.prepare(`INSERT INTO action_items (id, title, bucket, due_date, person_id) VALUES (12, 'Chase the SOW', 'overdue', '2020-01-01', 1)`).run();
+    const tomorrow = plusDays(1);
+    await run(() => updateActionItem(null, form({ id: "12", title: "Chase the SOW", bucket: "overdue", due_date: "2020-01-01", quick_due: tomorrow })));
+    assert.deepEqual(one(`SELECT bucket, due_date FROM action_items WHERE id=12`), { bucket: "this_week", due_date: tomorrow });
+    assert.ok(!openActionItems().some((a) => a.id === 12 && a.bucket === "overdue"), "no longer late");
+    assert.doesNotMatch(bucketList(VOCAB), /overdue/);
+    assert.ok(!Object.hasOwn(PICKABLE_BUCKETS, "overdue"));
   });
 
   test("ticking marks it done; the matching next step is cleared only on request, and only if unchanged", async () => {
@@ -134,15 +147,15 @@ describe("Log touch", () => {
 describe("profile edits", () => {
   test("status editor: the next step can also become a to-do", async () => {
     await run(() =>
-      updateStatus(form({ entity: "person", id: "1", status_key: "active", next_action: "Draft the SOW", also_todo: "on", todo_due: "2027-01-15" }))
+      updateStatus(null, form({ entity: "person", id: "1", status_key: "active", next_action: "Draft the SOW", also_todo: "on", todo_due: "2027-01-15" }))
     );
     assert.deepEqual(one(`SELECT title, due_date, bucket FROM action_items`), { title: "Draft the SOW", due_date: "2027-01-15", bucket: "this_week" });
   });
 
   test("a rename keeps the slug; a typed company links to an existing one by name, or is created", async () => {
-    await run(() => updateSnapshot(form({ entity: "person", id: "1", name: "Samuel Lee", new_company: "acme inc", company_id: "" })));
+    await run(() => updateSnapshot(null, form({ entity: "person", id: "1", name: "Samuel Lee", new_company: "acme inc", company_id: "" })));
     assert.deepEqual(one(`SELECT slug, name, company_id FROM people WHERE id=1`), { slug: "sam-lee", name: "Samuel Lee", company_id: 1 });
-    await run(() => updateSnapshot(form({ entity: "person", id: "1", new_company: "Beta Co", company_id: "1" })));
+    await run(() => updateSnapshot(null, form({ entity: "person", id: "1", new_company: "Beta Co", company_id: "1" })));
     const beta = one<{ id: number }>(`SELECT id FROM companies WHERE name='Beta Co'`);
     assert.equal(one<{ company_id: number }>(`SELECT company_id FROM people WHERE id=1`).company_id, beta.id);
   });
@@ -151,7 +164,7 @@ describe("profile edits", () => {
     const was = String(DEFAULT_CADENCE.active ?? "");
     db.prepare(`UPDATE people SET cadence_days=? WHERE id=1`).run(DEFAULT_CADENCE.active ?? null);
     await run(() =>
-      updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: was, cadence_was: was, email: "sam@example.com" }))
+      updateSnapshot(null, form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: was, cadence_was: was, email: "sam@example.com" }))
     );
     assert.deepEqual(one(`SELECT status_key, cadence_days, email FROM people WHERE id=1`), {
       status_key: "client",
@@ -161,26 +174,26 @@ describe("profile edits", () => {
   });
 
   test("a cadence typed in the same form wins over the new status's default", async () => {
-    await run(() => updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: "10", cadence_was: "" })));
+    await run(() => updateSnapshot(null, form({ entity: "person", id: "1", name: "Sam Lee", status_key: "client", cadence_days: "10", cadence_was: "" })));
     assert.deepEqual(one(`SELECT status_key, cadence_days FROM people WHERE id=1`), { status_key: "client", cadence_days: 10 });
   });
 
   test("an unknown status keeps the current one; a company's status saves with its snapshot", async () => {
-    await run(() => updateSnapshot(form({ entity: "person", id: "1", name: "Sam Lee", status_key: "nonsense" })));
+    await run(() => updateSnapshot(null, form({ entity: "person", id: "1", name: "Sam Lee", status_key: "nonsense" })));
     assert.equal(one<{ status_key: string }>(`SELECT status_key FROM people WHERE id=1`).status_key, "active");
-    await run(() => updateSnapshot(form({ entity: "company", id: "1", name: "Acme Inc", status_key: "active", industry: "Insurance" })));
+    await run(() => updateSnapshot(null, form({ entity: "company", id: "1", name: "Acme Inc", status_key: "active", industry: "Insurance" })));
     assert.deepEqual(one(`SELECT status_key, industry FROM companies WHERE id=1`), { status_key: "active", industry: "Insurance" });
   });
 
-  test("a stale save from the edit page goes back to it, keeping where to return to", async () => {
-    let target = "";
-    try {
-      await updateSnapshot(form({ entity: "person", id: "1", name: "X", updated_at: "1999-01-01 00:00:00", back: "/people?status=active" }));
-    } catch (e) {
-      target = String((e as { digest?: string }).digest ?? "");
-    }
-    assert.match(target, /\/people\/sam-lee\/edit\?stale=1&back=%2Fpeople%3Fstatus%3Dactive/);
-    assert.equal(one<{ name: string }>(`SELECT name FROM people WHERE id=1`).name, "Sam Lee");
+  test("a stale save from the edit page keeps what was typed, and saving again goes through (UX-022)", async () => {
+    const r = await updateSnapshot(null, form({ entity: "person", id: "1", name: "Samuel", updated_at: "1999-01-01 00:00:00", back: "/people?status=active" }));
+    assert.equal(r?.ok, false);
+    assert.match(r?.message ?? "", /changed since you opened it/);
+    const fresh = r?.fresh?.updated_at;
+    assert.equal(fresh, one<{ updated_at: string }>(`SELECT updated_at FROM people WHERE id=1`).updated_at, "the form gets the newer version");
+    assert.equal(one<{ name: string }>(`SELECT name FROM people WHERE id=1`).name, "Sam Lee", "nothing saved yet");
+    await run(() => updateSnapshot(null, form({ entity: "person", id: "1", name: "Samuel", updated_at: fresh! })));
+    assert.equal(one<{ name: string }>(`SELECT name FROM people WHERE id=1`).name, "Samuel");
   });
 
   test("an edit page only returns to a page of this app", () => {
@@ -198,6 +211,34 @@ describe("profile edits", () => {
     await run(() => deletePerson(1));
     await run(() => deleteCompany(1));
     assert.equal(one<{ n: number }>(`SELECT COUNT(*) n FROM section_history`).n, 0);
+  });
+
+  test("Log interaction refuses a future date, saves in one go and says what it saved (CR-049, UX-069)", async () => {
+    const r = await addInteraction(null, form({ person_id: "1", date: plusDays(1), summary: "Planned call" }));
+    assert.deepEqual(r, { ok: false, message: "That date is in the future; log an interaction once it has happened." });
+    assert.equal(one<{ n: number }>(`SELECT COUNT(*) n FROM interactions`).n, 0);
+    assert.equal(one<{ last_touch: string }>(`SELECT last_touch FROM people WHERE id=1`).last_touch, "2026-01-01");
+    const ok = await run(() => addInteraction(null, form({ person_id: "1", date: "2026-02-03", summary: "Coffee" })));
+    assert.equal(one<{ last_touch: string }>(`SELECT last_touch FROM people WHERE id=1`).last_touch, "2026-02-03");
+    if (ok) assert.match((ok as { message: string }).message, /^Logged on Sam Lee · Feb 3/);
+  });
+
+  test("a deal's person and company can be set after it was added (UX-060)", async () => {
+    db.prepare(`INSERT INTO opportunities (id, name, kind, stage, priority) VALUES (40, 'Board seat intro', 'engagement', 'lead', 2)`).run();
+    await run(() => updateOpportunity(null, form({ id: "40", name: "Board seat intro", kind: "engagement", priority: "2", person_id: "1", company_id: "1" })));
+    assert.deepEqual(one(`SELECT person_id, company_id FROM opportunities WHERE id=40`), { person_id: 1, company_id: 1 });
+    await run(() => updateOpportunity(null, form({ id: "40", name: "Board seat intro", kind: "engagement", priority: "2", person_id: "999", company_id: "" })));
+    assert.deepEqual(one(`SELECT person_id, company_id FROM opportunities WHERE id=40`), { person_id: null, company_id: null }, "an unknown id links nobody");
+  });
+
+  test("Prep's Log this meeting sends its date and channel to the draft (UX-061)", async () => {
+    await run(() =>
+      analyzeLog(form({ raw_text: "Talked through the scope and next steps.", source: "paste", context: "Meeting with Sam Lee.", date: "2026-02-03", channel: "Zoom", hint_person_id: "1" }))
+    );
+    const d = one<{ raw_text: string; meeting_date: string; meeting_channel: string }>(`SELECT raw_text, meeting_date, meeting_channel FROM log_drafts ORDER BY id DESC LIMIT 1`);
+    assert.equal(d.meeting_date, "2026-02-03");
+    assert.equal(d.meeting_channel, "Zoom");
+    assert.match(d.raw_text, /^Meeting with Sam Lee\. Date: 2026-02-03\. Channel: Zoom\./);
   });
 
   test("Add person keeps the phone", async () => {
@@ -277,6 +318,15 @@ describe("saving an Intake draft", () => {
     await run(() => confirmIntake(form({ draft_id: "5", name: "Lena Park", interaction_include: "on", interaction_summary: "Met.", interaction_date: "" })));
     assert.equal(one<{ n: number }>(`SELECT COUNT(*) n FROM people WHERE slug='lena-park'`).n, 0);
     assert.equal(one<{ status: string }>(`SELECT status FROM intake_drafts WHERE id=5`).status, "ready");
+  });
+
+  test("an unknown status or strength isn't stored: the status falls back to new, with its cadence (CR-051)", async () => {
+    await run(() => confirmIntake(form({ draft_id: "5", name: "Lena Park", status_key: "bogus", relationship_strength: "bogus", company_mode: "none" })));
+    assert.deepEqual(one(`SELECT status_key, relationship_strength, cadence_days FROM people WHERE slug='lena-park'`), {
+      status_key: "new",
+      relationship_strength: null,
+      cadence_days: DEFAULT_CADENCE.new ?? null,
+    });
   });
 
   test("the phone is saved and the receipt names the new profile", async () => {
@@ -409,6 +459,22 @@ describe("the owner profile", () => {
       const bad = loadOwner();
       assert.equal(bad.configured, false);
       assert.match(bad.readError ?? "", /curly quotes/);
+    } finally {
+      process.env.OWNER_CONFIG = before;
+      resetOwner();
+    }
+  });
+
+  test("a change to the file is picked up without resetOwner, as the background Inbox check needs (CR-054)", () => {
+    const file = path.join(fs.mkdtempSync(path.join(tmp.dir, "owner-")), "owner.json");
+    const before = process.env.OWNER_CONFIG;
+    process.env.OWNER_CONFIG = file;
+    try {
+      fs.writeFileSync(file, JSON.stringify({ ownerName: "Pat Doe", ownerEmail: "pat@old.example" }));
+      assert.equal(loadOwner().ownerEmail, "pat@old.example");
+      fs.writeFileSync(file, JSON.stringify({ ownerName: "Pat Doe", ownerEmail: "pat@new.example.org" }));
+      fs.utimesSync(file, new Date(), new Date(Date.now() + 2000));
+      assert.equal(loadOwner().ownerEmail, "pat@new.example.org");
     } finally {
       process.env.OWNER_CONFIG = before;
       resetOwner();

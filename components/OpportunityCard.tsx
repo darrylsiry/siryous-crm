@@ -7,12 +7,19 @@ import ClosingDetails from "@/components/ClosingDetails";
 import ConfirmButton from "@/components/ConfirmButton";
 import PendingButton from "@/components/PendingButton";
 import StageSelect from "@/components/StageSelect";
+import { CompanySelect, PersonSelect } from "@/components/PeoplePicker";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 /** A deal on the board. `quiet` is the days since the last contact with its person or company (null = none logged). */
 export default function OpportunityCard({ o, quiet }: { o: OpportunityJoined; quiet?: number | null }) {
   const kind = KINDS[o.kind] ?? KINDS.engagement;
   const profile = o.person_slug ? `/people/${o.person_slug}` : o.company_slug ? `/companies/${o.company_slug}` : null;
-  const q = quiet === undefined || !STAGES[o.stage]?.open ? null : dealQuietLabel(quiet);
+  const q =
+    quiet === undefined || !STAGES[o.stage]?.open
+      ? null
+      : !o.person_id && !o.company_id
+        ? { text: "nobody linked: ✎ Edit to link someone", tone: "text-red-700" }
+        : dealQuietLabel(quiet);
   return (
     <div
       id={`opp-${o.id}`}
@@ -68,10 +75,18 @@ export default function OpportunityCard({ o, quiet }: { o: OpportunityJoined; qu
             <span className="group-open:hidden">✎ Edit</span>
             <span className="hidden group-open:inline">✕ Close</span>
           </summary>
-          <form action={updateOpportunity} className="mt-1.5 space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-2.5">
+          <KeepTypedForm action={updateOpportunity} className="mt-1.5 space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-2.5">
             <input type="hidden" name="id" value={o.id} />
             <input type="hidden" name="updated_at" value={o.updated_at ?? ""} />
             <input name="name" defaultValue={o.name} aria-label="Name" className="w-full rounded border border-stone-300 px-2 py-1 text-xs" />
+            <label className="block text-[0.7rem] font-medium text-stone-500">
+              Person
+              <PersonSelect defaultValue={o.person_id} className="mt-0.5 rounded border border-stone-300 bg-white px-2 py-1 text-xs" />
+            </label>
+            <label className="block text-[0.7rem] font-medium text-stone-500">
+              Company
+              <CompanySelect defaultValue={o.company_id} className="mt-0.5 rounded border border-stone-300 bg-white px-2 py-1 text-xs" />
+            </label>
             <div className="flex gap-2">
               <select name="kind" defaultValue={o.kind} aria-label="Kind" className="min-w-0 flex-1 rounded border border-stone-300 px-1 py-1 text-xs">
                 {Object.entries(KINDS).map(([k, v]) => (
@@ -115,7 +130,7 @@ export default function OpportunityCard({ o, quiet }: { o: OpportunityJoined; qu
               pendingLabel="Saving…"
               className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             />
-          </form>
+          </KeepTypedForm>
           <form action={deleteOpportunity.bind(null, o.id)} className="mt-2 text-right">
             <ConfirmButton
               label="Delete deal…"

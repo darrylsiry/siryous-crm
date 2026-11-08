@@ -19,10 +19,10 @@ import { AUTH_COOKIE, createSignInCode, endOtherSessions, sessionFor } from "./a
  * JSON by hand. Refuses when the file exists but can't be read, rather than
  * overwriting whatever is in it.
  */
-export async function saveOwnerProfile(formData: FormData) {
+export async function saveOwnerProfile(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const owner = loadOwner();
   if (owner.readError) {
-    redirect(`/settings?error=${encodeURIComponent(`Nothing was saved: config/owner.json couldn't be read (${owner.readError}). Fix it or remove it, then try again.`)}#about`);
+    return { ok: false, message: `config/owner.json couldn't be read (${owner.readError}). Fix it or remove it, then try again.` };
   }
   const file = owner.configPath;
   let current: Record<string, unknown> = {};
@@ -33,12 +33,12 @@ export async function saveOwnerProfile(formData: FormData) {
   }
   for (const k of OWNER_FORM_FIELDS) {
     const v = String(formData.get(k) ?? "").trim();
-    if (v.length > 500) redirect(`/settings?error=${encodeURIComponent("Nothing was saved: one of the About you fields is too long.")}#about`);
+    if (v.length > 500) return { ok: false, message: "One of the fields is too long (500 characters at most)." };
     current[k] = v;
   }
   const email = String(current.ownerEmail ?? "");
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    redirect(`/settings?error=${encodeURIComponent(`Nothing was saved: "${email}" doesn't look like an email address.`)}#about`);
+    return { ok: false, message: `"${email}" doesn't look like an email address.` };
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`);

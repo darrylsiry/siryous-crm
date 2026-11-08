@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDb, BUCKETS } from "@/lib/db";
+import { getDb, BUCKETS, PICKABLE_BUCKETS } from "@/lib/db";
 import type { LogAnalysis, ProgressEvent } from "@/lib/ai";
 import { confirmLog, discardLog, logToIntake, retryLog, retryLogOn, saveLogAsTyped } from "@/lib/logmeeting";
 import { draftFromInbox, NOBODY_FOUND } from "@/lib/drafts";
@@ -19,6 +19,7 @@ import { COMPANY_TARGET } from "@/lib/logHint";
 import { stateWord } from "@/lib/stateWords";
 import { typicalRunSeconds } from "@/lib/progress";
 import ErrorExplain from "@/components/ErrorExplain";
+import { nameFromSlug, sourceName } from "@/lib/names";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,8 @@ export default async function LogReviewPage({
         progress: string | null;
         hint_person_id: number | null;
         hint_company_id: number | null;
+        meeting_date: string | null;
+        meeting_channel: string | null;
       }
     | undefined;
   if (!draft) notFound();
@@ -76,7 +79,7 @@ export default async function LogReviewPage({
     </div>
   );
   const sourceText = draft.fetched_text ?? draft.raw_text;
-  const what = draft.source === "paste" ? "Your notes" : draft.fetched_text ? `What was fetched from ${draft.source}` : "What you asked for";
+  const what = draft.source === "paste" ? "Your notes" : draft.fetched_text ? `What was fetched from ${sourceName(draft.source)}` : "What you asked for";
 
   if (draft.status === "analyzing" || draft.status === "pending") {
     let events: ProgressEvent[] = [];
@@ -204,7 +207,11 @@ export default async function LogReviewPage({
   const resolvable = a.resolves_action_ids
     .map((aid) => db.prepare(`SELECT id, title, bucket FROM action_items WHERE id=? AND status='open'`).get(aid) as { id: number; title: string; bucket: string } | undefined)
     .filter(Boolean) as { id: number; title: string; bucket: string }[];
-  const dateFound = isIsoDate(a.meeting.date);
+  // A date the owner gave on the form (Prep's "Log this meeting") wins over what the AI read.
+  const fromForm = isIsoDate(draft.meeting_date);
+  const dateFound = fromForm || isIsoDate(a.meeting.date);
+  const meetingDate = fromForm ? draft.meeting_date! : isIsoDate(a.meeting.date) ? a.meeting.date! : today;
+  const meetingChannel = draft.meeting_channel ?? a.meeting.channel ?? "";
   const intakeHref = `/intake?from_log=${draft.id}`;
   const personOptions = roster.map((p) => ({ value: p.slug, label: p.name }));
 
@@ -228,7 +235,7 @@ export default async function LogReviewPage({
           <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Summary</h2>
             <div className="mt-1">
-              <Markdown>{a.summary_md}</Markdown>
+              <Markdown modelWritten>{a.summary_md}</Markdown>
             </div>
           </section>
 
@@ -246,7 +253,7 @@ export default async function LogReviewPage({
           {unknownEntries.length ? (
             <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               The AI drafted {unknownEntries.length === 1 ? "an entry" : `${unknownEntries.length} entries`} for{" "}
-              <span className="font-semibold">{unknownEntries.map((e) => e.person_slug).join(", ")}</span>, who{" "}
+              <span className="font-semibold">{unknownEntries.map((e) => nameFromSlug(e.person_slug)).join(", ")}</span>, who{" "}
               {unknownEntries.length === 1 ? "isn't" : "aren't"} in your CRM. Those entries are unticked below — re-target them to an
               existing contact, or{" "}
               <Link href={intakeHref} className="font-medium underline">
@@ -279,16 +286,18 @@ export default async function LogReviewPage({
                     name="date"
                     required
                     max={today}
-                    defaultValue={dateFound ? a.meeting.date! : today}
+                    defaultValue={meetingDate}
                     className={`${input} ${dateFound ? "" : "border-amber-400 bg-amber-50"}`}
                   />
-                  {dateFound ? null : (
+                  {fromForm ? (
+                    <span className="mt-1 block font-normal text-stone-500">From the Prep form · change it here if needed</span>
+                  ) : dateFound ? null : (
                     <span className="mt-1 block font-normal text-amber-800">The notes don&apos;t give a date. Today is a guess; please check.</span>
                   )}
                 </label>
                 <label className={label}>
                   Channel
-                  <input name="channel" defaultValue={a.meeting.channel ?? ""} placeholder="Call · Zoom · Email…" className={input} />
+                  <input name="channel" defaultValue={meetingChannel} placeholder="Call · Zoom · Email…" className={input} />
                 </label>
               </div>
             </section>
@@ -358,7 +367,7 @@ export default async function LogReviewPage({
                           aria-label="Group"
                           className="rounded-lg border border-stone-300 px-2 py-1.5 text-sm sm:col-span-2"
                         >
-                          {Object.entries(BUCKETS).map(([k, b]) => (
+                          {Object.entries(PICKABLE_BUCKETS).map(([k, b]) => (
                             <option key={k} value={k}>
                               {b.icon} {b.label}
                             </option>

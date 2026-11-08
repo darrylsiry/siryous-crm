@@ -9,6 +9,7 @@ import { STATUS, STRENGTHS } from "@/lib/db";
 import { first, localPath, type Param } from "@/lib/params";
 import { profilePath, slugParam } from "@/lib/slug";
 import type { Metadata } from "next";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export default async function EditPersonPage({
         </p>
       </header>
 
-      <form action={updateSnapshot} className="grid gap-3 rounded-xl border border-stone-200 bg-white p-5 sm:grid-cols-2">
+      <KeepTypedForm action={updateSnapshot} className="grid gap-3 rounded-xl border border-stone-200 bg-white p-5 sm:grid-cols-2">
         <input type="hidden" name="entity" value="person" />
         <input type="hidden" name="id" value={p.id} />
         <input type="hidden" name="updated_at" value={p.updated_at ?? ""} />
@@ -143,7 +144,7 @@ export default async function EditPersonPage({
             Cancel
           </Link>
         </div>
-      </form>
+      </KeepTypedForm>
     </div>
   );
 }

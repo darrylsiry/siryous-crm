@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BUCKETS, getDb } from "@/lib/db";
+import { BUCKETS, PICKABLE_BUCKETS, getDb } from "@/lib/db";
 import { backupDir } from "@/lib/backup.mjs";
 import type { ActionItemJoined } from "@/lib/types";
 import { ActionRow } from "@/components/ActionList";
@@ -34,7 +34,7 @@ export function ProfileActions({
   person?: { id: number; slug: string; name: string; company_id: number | null; email: string | null; phone: string | null };
   company?: { id: number; slug: string; name: string; website: string | null };
 }) {
-  const buckets = Object.entries(BUCKETS).map(([key, b]) => ({ key, label: b.label, icon: b.icon }));
+  const buckets = Object.entries(PICKABLE_BUCKETS).map(([key, b]) => ({ key, label: b.label, icon: b.icon }));
   const tel = person?.phone ? telHref(person.phone) : null;
   const mail = person?.email ? mailHref(person.email) : null;
   const dealHref = person ? `/pipeline?person=${encodeURIComponent(person.slug)}#add` : `/pipeline?company=${encodeURIComponent(company!.slug)}#add`;

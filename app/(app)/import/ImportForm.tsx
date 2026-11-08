@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { importCsvAction, type ImportState } from "@/lib/importActions";
 import type { ImportField, ImportReport } from "@/lib/importCsv";
@@ -97,6 +97,8 @@ function ReportView({ report, update, future }: { report: ImportReport; update: 
 
 export default function ImportForm() {
   const [state, action] = useActionState(importCsvAction, initial);
+  // The Keep Warm choice below the preview: "Not yet" means nobody gets a cadence, so the preview shows none.
+  const [keepWarm, setKeepWarm] = useState<"no" | "yes">("no");
 
   return (
     <div className="space-y-6">
@@ -181,8 +183,8 @@ export default function ImportForm() {
                         <td className="py-1 pr-3">{p.company ?? "—"}</td>
                         <td className="py-1 pr-3">{p.email ?? "—"}</td>
                         <td className="py-1 pr-3">{p.location ?? "—"}</td>
-                        <td className="py-1 pr-3 capitalize">{p.status_key.replace(/_/g, " ")}</td>
-                        <td className="py-1 pr-3">{p.cadence_days ? `${p.cadence_days}d` : "—"}</td>
+                        <td className="py-1 pr-3">{state.statusLabels[p.status_key] ?? p.status_key}</td>
+                        <td className="py-1 pr-3">{p.cadence_days && (state.cadenceInFile || keepWarm === "yes") ? `${p.cadence_days}d` : "—"}</td>
                         <td className="py-1 pr-3">
                           {p.last_touch ? (state.touchIsConnected ? monthYear(p.last_touch) : p.last_touch) : p.last_touch_note ? `(${p.last_touch_note})` : "—"}
                         </td>
@@ -204,14 +206,14 @@ export default function ImportForm() {
               <fieldset className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2.5 text-sm text-stone-700">
                 <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-stone-500">Add these people to Keep Warm?</legend>
                 <label className="flex items-start gap-2 py-0.5">
-                  <input type="radio" name="keep_warm" value="no" defaultChecked className="mt-1" />
+                  <input type="radio" name="keep_warm" value="no" checked={keepWarm === "no"} onChange={() => setKeepWarm("no")} className="mt-1" />
                   <span>
                     <b className="font-medium">Not yet — I&apos;ll choose who matters</b> (recommended). They&apos;re on the People page; give
                     someone a cadence from their profile to start keeping them warm.
                   </span>
                 </label>
                 <label className="flex items-start gap-2 py-0.5">
-                  <input type="radio" name="keep_warm" value="yes" className="mt-1" />
+                  <input type="radio" name="keep_warm" value="yes" checked={keepWarm === "yes"} onChange={() => setKeepWarm("yes")} className="mt-1" />
                   <span>
                     <b className="font-medium">Yes, everyone</b> on their status&apos;s default cadence
                     {state.report.overdueIfKeptWarm

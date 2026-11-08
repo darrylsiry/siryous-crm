@@ -17,7 +17,7 @@ import { senderAddress, sentByOwner } from "../lib/inboxRoute";
 import { setSetting, validateOllamaUrl } from "../lib/settings";
 import { validateBackupDir } from "../lib/backup.mjs";
 import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft } from "../lib/drafts";
-import { parseInboxListing } from "../lib/schemas";
+import { parseGmailRecord } from "../lib/schemas";
 import { markdownToDocx } from "../lib/mdToDocx";
 import { purgeIgnoredMail, routeMessage } from "../lib/inbox";
 import { runNewsScan } from "../lib/news";
@@ -106,20 +106,19 @@ describe("Inbox: only the owner's own From line counts as the owner (SEC-002)", 
   });
 });
 
-describe("Inbox: a model-returned message is checked before it is stored (SEC-022)", () => {
-  const base = { id: "18c2f0a1b2", thread_id: null, date: null, subject: "s", from: "a@b.co", to: [], cc: [], body: "b" };
+describe("Inbox: a recorded Gmail message is checked before it is stored (SEC-022)", () => {
+  const base = { id: "18c2f0a1b2", threadId: null, date: null, sender: "a@b.co", to: [], cc: [], bcc: [], labels: [], names: [], subject: "s", body: "b" };
 
   test("a Gmail id with spaces or punctuation is dropped", () => {
-    const bad = ["18c2 f0a1", "../../x", "id;DROP", ""];
-    const r = parseInboxListing({ messages: [base, ...bad.map((id) => ({ ...base, id }))] });
-    assert.deepEqual(r?.messages.map((m) => m.id), [base.id]);
-    assert.equal(r?.dropped, bad.length);
+    for (const id of ["18c2 f0a1", "../../x", "id;DROP", ""]) assert.equal(parseGmailRecord({ ...base, id }), null, id);
+    assert.equal(parseGmailRecord(base)?.id, base.id);
+    assert.equal(parseGmailRecord({ call: "search_threads" }), null, "a call marker is not a message");
   });
 
   test("oversized text is cut, not stored whole", () => {
-    const m = parseInboxListing({ messages: [{ ...base, subject: "x".repeat(5000), body: "y".repeat(200_000), to: Array(500).fill("a@b.co") }] })!.messages[0];
-    assert.equal(m.subject.length, 500);
-    assert.equal(m.body.length, 100_000);
+    const m = parseGmailRecord({ ...base, subject: "x".repeat(5000), body: "y".repeat(200_000), to: Array(500).fill("a@b.co") })!;
+    assert.equal(m.subject?.length, 500);
+    assert.equal(m.body?.length, 100_000);
     assert.equal(m.to.length, 100);
   });
 });
@@ -320,6 +319,16 @@ describe("The Word export only links web, mail and phone addresses (SEC-019)", (
     for (const bad of ["javascript:", "file:", "evil.example", "tracker.example"]) assert.ok(!rels.includes(bad) && !doc.includes(bad), bad);
     assert.match(doc, />tracker</, "the image keeps its description");
     assert.ok(!Object.keys(zip.files).some((f) => f.startsWith("word/media/")));
+  });
+
+  test("a web link loses its query string and names the site it opens (SEC-029)", async () => {
+    const buf = await markdownToDocx("Met at the summit [(per calendar)](https://evil.example/c?r=sam-lee,active#x).");
+    const zip = await JSZip.loadAsync(buf);
+    const rels = await zip.file("word/_rels/document.xml.rels")!.async("string");
+    const doc = await zip.file("word/document.xml")!.async("string");
+    assert.match(rels, /Target="https:\/\/evil\.example\/c"/);
+    assert.ok(!rels.includes("sam-lee") && !doc.includes("sam-lee"));
+    assert.match(doc, /\(evil\.example\)/);
   });
 });
 

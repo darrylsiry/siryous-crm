@@ -198,4 +198,27 @@ describe("date normalisation migration", () => {
       db.close();
     }
   });
+
+  test("a stored 'overdue' group is moved to this_week once, since overdue is computed from the date", () => {
+    const db = new Database(path.join(tmp.dir, "no-stored-overdue.db"));
+    try {
+      initSchema(db);
+      db.exec(`DELETE FROM settings WHERE key = 'migrated.no_stored_overdue'`);
+      const add = db.prepare(`INSERT INTO action_items (title, bucket, due_date) VALUES (?, ?, ?)`);
+      add.run("Stored as overdue", "overdue", "2026-10-01");
+      add.run("Waiting on them", "waiting", "2026-10-01");
+      initSchema(db);
+      const rows = () => db.prepare(`SELECT title, bucket FROM action_items ORDER BY id`).all();
+      assert.deepEqual(rows(), [
+        { title: "Stored as overdue", bucket: "this_week" },
+        { title: "Waiting on them", bucket: "waiting" },
+      ]);
+      // Once only: a later run leaves rows alone (nothing should store it again, but the migration doesn't repeat).
+      db.prepare(`UPDATE action_items SET bucket = 'overdue' WHERE title = 'Stored as overdue'`).run();
+      initSchema(db);
+      assert.equal((db.prepare(`SELECT bucket FROM action_items WHERE title = 'Stored as overdue'`).get() as { bucket: string }).bucket, "overdue");
+    } finally {
+      db.close();
+    }
+  });
 });

@@ -1,12 +1,14 @@
 import { KINDS, STAGES, separateKindsLast } from "@/lib/db";
 import { allCompanies, allOpportunities, allPeople, dealQuietDays } from "@/lib/queries";
 import { todayLocal } from "@/lib/dates.mjs";
-import { slugParam } from "@/lib/slug";
+import { profilePath, slugParam } from "@/lib/slug";
 import { createOpportunity } from "@/lib/actions";
 import OpportunityCard from "@/components/OpportunityCard";
 import PendingButton from "@/components/PendingButton";
 import StaleNotice from "@/components/StaleNotice";
 import SearchSelect from "@/components/SearchSelect";
+import { CompanyOptions, PeopleOptions } from "@/components/PeoplePicker";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,8 @@ export default async function PipelinePage({
   const companies = allCompanies();
   const presetPerson = sp.person ? people.find((p) => p.slug === slugParam(sp.person!)) : undefined;
   const presetCompany = sp.company ? companies.find((c) => c.slug === slugParam(sp.company!)) : undefined;
+  // Opened from a profile's "⚑ Add deal": back to that profile after adding.
+  const backTo = presetPerson ? profilePath("people", presetPerson.slug) : presetCompany ? profilePath("companies", presetCompany.slug) : null;
   const today = todayLocal();
   const quiet = new Map(opps.map((o) => [o.id, dealQuietDays(o, today)]));
 
@@ -33,6 +37,8 @@ export default async function PipelinePage({
   const closed = separateKindsLast(opps.filter((o) => !STAGES[o.stage]?.open));
 
   return (
+    <PeopleOptions options={people.map((p) => ({ value: String(p.id), label: p.name, hint: p.company_name ?? undefined }))}>
+    <CompanyOptions options={companies.map((c) => ({ value: String(c.id), label: c.name }))}>
     <div className="space-y-6">
       {sp.stale ? <StaleNotice href="/pipeline" /> : null}
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -50,7 +56,8 @@ export default async function PipelinePage({
         <summary className="cursor-pointer text-sm font-medium text-indigo-600 select-none">
           ＋ Add a deal
         </summary>
-        <form action={createOpportunity} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <KeepTypedForm action={createOpportunity} clearOnSave className="mt-3 grid gap-3 sm:grid-cols-2">
+          {backTo ? <input type="hidden" name="back" value={backTo} /> : null}
           <label className="text-xs font-medium text-stone-600 sm:col-span-2">
             Name *
             <input name="name" required placeholder="e.g. Acme — AI strategy engagement" className="mt-1 w-full rounded-lg border border-stone-300 px-2 py-1.5 text-sm" />
@@ -98,7 +105,7 @@ export default async function PipelinePage({
           <div className="sm:col-span-2">
             <PendingButton label="Add to pipeline" pendingLabel="Adding…" className={"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"} />
           </div>
-        </form>
+        </KeepTypedForm>
       </details>
 
       <div className="full-bleed -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-2 sm:snap-none sm:px-2">
@@ -140,5 +147,7 @@ export default async function PipelinePage({
       )}
 
     </div>
+    </CompanyOptions>
+    </PeopleOptions>
   );
 }

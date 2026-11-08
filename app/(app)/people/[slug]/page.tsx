@@ -16,6 +16,7 @@ import { opportunityHref } from "@/lib/queries";
 import { STAGES, STATUS } from "@/lib/db";
 import { shortDate, todayLocal } from "@/lib/dates.mjs";
 import type { Metadata } from "next";
+import FlashBanner from "@/components/FlashBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,10 @@ export default async function PersonPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ stale?: string }>;
+  searchParams: Promise<{ stale?: string; saved?: string; added?: string }>;
 }) {
   const slug = slugParam((await params).slug);
-  const { stale } = await searchParams;
+  const { stale, saved, added } = await searchParams;
   const p = personBySlug(slug);
   if (!p) notFound();
   const interactions = interactionsFor({ personId: p.id });
@@ -51,6 +52,18 @@ export default async function PersonPage({
     <PeopleOptions options={peopleOptions()}>
       <div className="space-y-6">
         {stale ? <StaleNotice href={profilePath("people", slug)} kept={stale === "kept"} /> : null}
+        {saved ? (
+          <FlashBanner cleanHref={profilePath("people", slug)} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+            ✓ Saved.
+          </FlashBanner>
+        ) : added === "deal" ? (
+          <FlashBanner cleanHref={profilePath("people", slug)} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+            ✓ Deal added.{" "}
+            <Link href="/pipeline" className="font-medium underline">
+              See it on the Pipeline →
+            </Link>
+          </FlashBanner>
+        ) : null}
         <header>
           <Link href="/people" className="text-xs text-stone-500 hover:text-indigo-600">
             ← People
@@ -87,13 +100,14 @@ export default async function PersonPage({
             {p.company_note ? <span className="text-stone-500"> · {p.company_note}</span> : null}
           </div>
           <ProfileActions person={p} />
-          {p.next_action ? (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-              <span className="font-semibold">Next step:</span> {p.next_action}
-              {p.last_touch ? <span className="ml-2 text-xs text-amber-800">last touch {shortDate(p.last_touch, today)}</span> : null}
-            </div>
-          ) : null}
-          <div className="mt-3">
+          {/* One place for the next step (and the status note with it): the box shows it, ✎ Change edits it. */}
+          <div className={p.next_action ? "mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900" : "mt-3"}>
+            {p.next_action ? (
+              <p>
+                <span className="font-semibold">Next step:</span> {p.next_action}
+                {p.last_touch ? <span className="ml-2 text-xs text-amber-800">last touch {shortDate(p.last_touch, today)}</span> : null}
+              </p>
+            ) : null}
             <StatusEditor
               entity="person"
               id={p.id}
@@ -101,6 +115,7 @@ export default async function PersonPage({
               statusNote={p.status_note}
               nextAction={p.next_action}
               updatedAt={p.updated_at}
+              label={p.next_action ? "✎ Change" : "✎ Add a next step"}
             />
           </div>
         </header>

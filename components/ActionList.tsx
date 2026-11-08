@@ -6,6 +6,7 @@ import Markdown from "./Markdown";
 import SubmitButton from "./SubmitButton";
 import ActionEdit from "./ActionEdit";
 import DoneTick from "./DoneTick";
+import { shortDate } from "@/lib/dates.mjs";
 
 /** A to-do's one-line wording, the same on every screen: its title, markup stripped. */
 export function todoTitle(item: Pick<ActionItemJoined, "title">): string {
@@ -52,7 +53,7 @@ export function ActionRow({ item, done = false }: { item: ActionItemJoined; done
         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-stone-500">
           {item.due_date || item.due_label ? (
             <span className={`font-medium ${!done && item.bucket === "overdue" && item.bucket_raw !== "overdue" ? "text-red-700" : "text-amber-700"}`}>
-              due {item.due_date ?? item.due_label}
+              due {item.due_date ? shortDate(item.due_date) : item.due_label}
               {item.due_date && item.due_label && item.due_label !== item.due_date ? ` (${item.due_label})` : ""}
             </span>
           ) : null}
@@ -68,7 +69,7 @@ export function ActionRow({ item, done = false }: { item: ActionItemJoined; done
             </Link>
           ) : null}
           {item.source ? <span>· {item.source}</span> : null}
-          {done && item.completed_at ? <span>done {item.completed_at}</span> : null}
+          {done && item.completed_at ? <span>done {shortDate(item.completed_at) || item.completed_at}</span> : null}
           {!done ? <ActionEdit item={item}>✎ Edit</ActionEdit> : null}
         </div>
       </div>

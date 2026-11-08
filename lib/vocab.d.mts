@@ -88,6 +88,8 @@ export function loadVocab(root?: string): LoadedVocab;
 
 export function statusList(v: Vocab): string;
 export function bucketList(v: Vocab): string;
+export const COMPUTED_BUCKETS: string[];
+export function pickableBucketKeys(v: Vocab): string[];
 export function stageList(v: Vocab): string;
 export function kindList(v: Vocab): string;
 export function cadenceSentence(v: Vocab): string;

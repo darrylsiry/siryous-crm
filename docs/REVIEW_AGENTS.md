@@ -33,7 +33,8 @@ on your Claude plan: each run reads the whole repository. `REVIEW_MODEL` overrid
    `npm audit` (security agent) itself, before the agent starts, and puts their output in the snapshot's
    `checks/` folder. No agent runs a package script or anything that needs the network.
 5. **The operating system.** On a Mac the run is wrapped in `sandbox-exec`, so the agent and anything it
-   starts can read only its snapshot and the parts of the home folder its tools need. The repository, memory,
+   starts can read only its snapshot and the parts of the home folder its tools need, and can't write to the
+   snapshot either, so nothing it changes there shapes what it reads next. The repository, memory,
    transcripts, scheduled tasks and other tools' credentials are refused, and nothing in the home folder can
    be written except caches: not `~/.claude` or `~/.claude.json` (settings, hooks, agents, MCP servers),
    which would run outside the sandbox later. Two things stay open because the CLI needs them: reading

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getDb } from "./db";
+import { getDb, STATUS } from "./db";
 import { IMPORT_FIELDS, importPeople, parseImportCsv, type ImportField, type ImportReport, type MappedPerson } from "./importCsv";
 
 /** State returned to the /import form after each step. */
@@ -20,6 +20,8 @@ export type ImportState =
       touchIsConnected: boolean;
       columns: { header: string; field: ImportField | null }[];
       sample: MappedPerson[];
+      /** Each status key's label, for the preview (the form can't read the vocabulary itself). */
+      statusLabels: Record<string, string>;
       report: ImportReport;
     }
   | { kind: "done"; fileName: string; update: boolean; keepWarm: boolean; report: ImportReport };
@@ -73,6 +75,7 @@ export async function importCsvAction(_prev: ImportState, formData: FormData): P
       touchIsConnected: parsed.mapping.last_touch !== undefined && /connect/i.test(parsed.headers[parsed.mapping.last_touch] ?? ""),
       columns: parsed.headers.map((header, i) => ({ header, field: fieldFor.get(i) ?? null })),
       sample: parsed.people.slice(0, 10),
+      statusLabels: Object.fromEntries(Object.entries(STATUS).map(([k, s]) => [k, `${s.emoji} ${s.label}`])),
       report,
     };
   }

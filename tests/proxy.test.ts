@@ -162,6 +162,23 @@ describe("proxy (access control)", () => {
     assert.equal(proxy(request("/favicon.ico/x")).status, 307);
   });
 
+  test("the sign-in box takes a pasted one-time link, once (UX-068)", async () => {
+    const { POST } = await import("../app/api/signin/route");
+    const post = (token: string) => {
+      const body = new FormData();
+      body.set("token", token);
+      return POST(new Request(`${ORIGIN}/api/signin`, { method: "POST", body }));
+    };
+    const link = `http://127.0.0.1:3000/?once=${createSignInCode()}`;
+    const first = await post(link);
+    assert.equal(first.status, 303);
+    assert.equal(first.headers.get("location"), `${ORIGIN}/`);
+    assert.ok(newSession(first), "signed in");
+    const again = await post(link);
+    assert.equal(again.headers.get("location"), `${ORIGIN}/signin?bad=1`, "it works once");
+    assert.ok(newSession(await post(token)), "the token itself still works");
+  });
+
   test("bad cookie is treated like no cookie", () => {
     const page = proxy(request("/people", { cookie: "wrong" }));
     assert.equal(page.status, 307);

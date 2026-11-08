@@ -14,7 +14,7 @@ import {
   type LogAnalysis,
 } from "./ai";
 import { applyLogHintFallback, loadLogHint } from "./logHint";
-import { noteProgress, runWithProgress } from "./progress";
+import { abortRun, noteProgress, runWithProgress } from "./progress";
 import { IntakeAnalysisSchema, IntakeIdentitySchema, LogAnalysisSchema, validateModelJson } from "./schemas";
 import { RunCancelled } from "./llm";
 import { inboxMessageFor } from "./receipts";
@@ -30,9 +30,12 @@ export function discardDraft(db: Database.Database, kind: "log" | "intake", id: 
   const table = kind === "log" ? "log_drafts" : "intake_drafts";
   const extra = kind === "log" ? ", fetched_text=NULL" : "";
   const guard = onlyIf?.length ? ` AND status IN (${onlyIf.map(() => "?").join(",")})` : "";
-  return db
+  const changed = db
     .prepare(`UPDATE ${table} SET status='discarded', raw_text='', result_json=NULL, progress=NULL, error=NULL${extra} WHERE id=?${guard}`)
     .run(id, ...(onlyIf ?? [])).changes;
+  // A run still drafting it stops, rather than holding the local model for minutes on text nobody wants.
+  if (changed) abortRun(kind, id);
+  return changed;
 }
 
 /** How a Log draft's error starts when nobody it mentions is in the CRM (the draft page offers Intake then). */
@@ -85,6 +88,9 @@ export interface LogDraftInput {
   content?: string | null;
   /** "inbox": made from a mail-in email, so it never switches to Claude by itself. */
   origin?: "inbox" | null;
+  /** The meeting's date and channel when a form already gave them (Prep's "Log this meeting"). */
+  meetingDate?: string | null;
+  meetingChannel?: string | null;
 }
 
 export function insertLogDraft(db: Database.Database, input: LogDraftInput): number {
@@ -92,7 +98,7 @@ export function insertLogDraft(db: Database.Database, input: LogDraftInput): num
   return Number(
     db
       .prepare(
-        `INSERT INTO log_drafts (source, raw_text, fetched_text, status, hint_person_id, hint_company_id, origin) VALUES (?,?,?,'analyzing',?,?,?)`
+        `INSERT INTO log_drafts (source, raw_text, fetched_text, status, hint_person_id, hint_company_id, origin, meeting_date, meeting_channel) VALUES (?,?,?,'analyzing',?,?,?,?,?)`
       )
       .run(
         input.source,
@@ -100,7 +106,9 @@ export function insertLogDraft(db: Database.Database, input: LogDraftInput): num
         input.content ?? null,
         hint?.kind === "person" ? input.hintPersonId : null,
         hint?.kind === "company" ? input.hintCompanyId : null,
-        input.origin ?? null
+        input.origin ?? null,
+        input.meetingDate ?? null,
+        input.meetingChannel ?? null
       ).lastInsertRowid
   );
 }
@@ -148,7 +156,7 @@ export async function processLogDraft(draftId: number): Promise<void> {
       }
       content = fetched;
       // Keep what was retrieved so the review page can show entries next to their source.
-      db.prepare(`UPDATE log_drafts SET fetched_text=? WHERE id=?`).run(fetched, draftId);
+      db.prepare(`UPDATE log_drafts SET fetched_text=? WHERE id=? AND status='analyzing'`).run(fetched, draftId);
     }
     // Step 2 (local model): write the log entries.
     const request = row.source === "paste" ? null : row.raw_text;

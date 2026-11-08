@@ -15,3 +15,29 @@ export function safeHref(href: string | null | undefined): string | null {
 export function isExternal(href: string): boolean {
   return /^https?:/i.test(href);
 }
+
+/** The site an external link really goes to ("www." dropped), shown next to the link so its text can't disguise it. */
+export function linkHost(href: string): string {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * An external link without its query string or fragment. Text a model wrote
+ * can come from a steered run, and a link is how it would carry data out:
+ * one click sends whatever is in the address. So model-written links keep
+ * only the page itself.
+ */
+export function withoutQuery(href: string): string {
+  try {
+    const u = new URL(href);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return href;
+  }
+}

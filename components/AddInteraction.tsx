@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { addInteraction } from "@/lib/actions";
 import ClosingDetails from "@/components/ClosingDetails";
+import KeepTypedForm from "@/components/KeepTypedForm";
 import PendingButton from "@/components/PendingButton";
 
 /**
@@ -25,12 +26,9 @@ export default function AddInteraction({
   return (
     <ClosingDetails className="group">
       <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none list-none">
-        ＋ Log interaction
+        ＋ Log a longer entry
       </summary>
-      <form
-        action={addInteraction}
-        className="mt-3 rounded-xl border border-stone-200 bg-white p-4 space-y-3"
-      >
+      <KeepTypedForm action={addInteraction} clearOnSave className="mt-3 rounded-xl border border-stone-200 bg-white p-4 space-y-3">
         {personId ? <input type="hidden" name="person_id" value={personId} /> : null}
         {companyId ? <input type="hidden" name="company_id" value={companyId} /> : null}
         <div className="flex flex-wrap gap-3">
@@ -40,6 +38,7 @@ export default function AddInteraction({
               type="date"
               name="date"
               defaultValue={today}
+              max={today}
               required
               className="mt-1 block rounded-lg border border-stone-300 px-2 py-1.5 text-sm"
             />
@@ -79,7 +78,7 @@ export default function AddInteraction({
             </Link>
           </p>
         ) : null}
-      </form>
+      </KeepTypedForm>
     </ClosingDetails>
   );
 }

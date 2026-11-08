@@ -16,6 +16,7 @@ import {
   tokenMatches,
   tokenPath,
   touchSession,
+  listSessions,
 } from "../lib/auth.mjs";
 
 after(() => tmp.cleanup());
@@ -141,5 +142,19 @@ describe("authEnabled / constants", () => {
   test("cookie constants", () => {
     assert.equal(AUTH_COOKIE, "crm_auth");
     assert.equal(COOKIE_MAX_AGE, 30 * 24 * 60 * 60);
+  });
+});
+
+describe("sign-in sessions have a hard limit (SEC-009)", () => {
+  const DAY = 86_400_000;
+  test("however much it is used, a sign-in ends 90 days after it started, and Settings can list it", () => {
+    const t0 = Date.now();
+    const s = createSession(t0);
+    const id = sessionFor(s, t0)!;
+    for (let d = 20; d <= 100; d += 20) touchSession(id, t0 + d * DAY);
+    assert.equal(sessionFor(s, t0 + 89 * DAY), id);
+    assert.equal(sessionFor(s, t0 + 91 * DAY), null, "used every 20 days, still over at day 90");
+    const listed = listSessions(t0).find((x) => x.id === id);
+    assert.ok(listed && listed.created === t0);
   });
 });

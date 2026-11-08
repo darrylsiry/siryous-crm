@@ -28,3 +28,25 @@ export function PersonSelect({
   const options = useContext(PeopleContext);
   return <SearchSelect name={name} options={options} defaultValue={defaultValue} emptyLabel="Nobody" className={className} ariaLabel={ariaLabel} />;
 }
+
+/** The companies list for every company picker on a page, sent once (as PeopleOptions does for people). */
+const CompanyContext = createContext<SearchOption[]>([]);
+
+export function CompanyOptions({ options, children }: { options: SearchOption[]; children: React.ReactNode }) {
+  return <CompanyContext.Provider value={options}>{children}</CompanyContext.Provider>;
+}
+
+export function CompanySelect({
+  name = "company_id",
+  defaultValue,
+  className,
+  ariaLabel = "Company",
+}: {
+  name?: string;
+  defaultValue?: number | string | null;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const options = useContext(CompanyContext);
+  return <SearchSelect name={name} options={options} defaultValue={defaultValue} emptyLabel="No company" className={className} ariaLabel={ariaLabel} />;
+}

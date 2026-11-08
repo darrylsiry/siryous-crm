@@ -58,57 +58,34 @@ const gmailId = z.preprocess((v) => asString(v)?.trim(), z.string().regex(/^[A-Z
 const capped = (n: number) => z.preprocess((v) => asString(v) ?? "", z.string().transform((s) => s.slice(0, n)));
 const capList = (xs: string[]) => xs.slice(0, 100).map((x) => x.slice(0, 320));
 
-/** One message from the Inbox's mailbox listing: null fields → "", a lone address → [address]. */
-const InboxMessageSchema = z.object({
-  id: gmailId,
-  thread_id: z.preprocess((v) => (v == null || v === "" ? null : v), gmailId.nullable()),
-  date: nstr,
-  subject: capped(500),
-  from: capped(500),
-  to: strList.transform(capList),
-  cc: strList.transform(capList),
-  body: capped(100_000),
-});
-export type InboxListedMessage = z.output<typeof InboxMessageSchema>;
-
-/** One message from the Inbox's headers listing (step 1): no subject, no text. */
-const InboxHeaderSchema = z.object({
-  id: gmailId,
-  thread_id: z.preprocess((v) => (v == null || v === "" ? null : v), gmailId.nullable()),
-  date: nstr,
-  from: capped(500),
-  to: strList.transform(capList),
-  cc: strList.transform(capList),
-  labels: strList.transform((xs) => xs.slice(0, 50).map((x) => x.slice(0, 64))),
-});
-export type InboxHeaderListed = z.output<typeof InboxHeaderSchema>;
-
-/** The headers listing, each entry checked on its own like parseInboxListing; null when it isn't a listing. */
-export function parseInboxHeaders(v: unknown): { messages: InboxHeaderListed[]; dropped: number } | null {
-  const list = v && typeof v === "object" ? (v as { messages?: unknown }).messages : undefined;
-  if (!Array.isArray(list)) return null;
-  const messages: InboxHeaderListed[] = [];
-  for (const m of list) {
-    const r = InboxHeaderSchema.safeParse(m);
-    if (r.success) messages.push(r.data);
-  }
-  return { messages, dropped: list.length - messages.length };
-}
-
 /**
- * The mailbox listing, each message checked on its own: one the model wrote
- * oddly is dropped and counted rather than failing the whole check. null when
- * the answer isn't a listing at all.
+ * One message as the Inbox's Gmail guard recorded it from Gmail's own answer
+ * (scripts/gmail-guard.mjs). Checked and capped like anything else read back:
+ * the record holds what a stranger can write (display names, a subject).
  */
-export function parseInboxListing(v: unknown): { messages: InboxListedMessage[]; dropped: number } | null {
-  const list = v && typeof v === "object" ? (v as { messages?: unknown }).messages : undefined;
-  if (!Array.isArray(list)) return null;
-  const messages: InboxListedMessage[] = [];
-  for (const m of list) {
-    const r = InboxMessageSchema.safeParse(m);
-    if (r.success) messages.push(r.data);
-  }
-  return { messages, dropped: list.length - messages.length };
+const GmailRecordSchema = z.object({
+  id: gmailId,
+  threadId: z.preprocess((v) => (v == null || v === "" ? null : v), gmailId.nullable()),
+  sender: capped(320),
+  to: strList.transform(capList),
+  cc: strList.transform(capList),
+  bcc: strList.transform(capList),
+  labels: strList.transform((xs) => xs.slice(0, 50).map((x) => x.slice(0, 64))),
+  date: nstr,
+  names: z.preprocess(
+    (v) => (Array.isArray(v) ? v.slice(0, 100) : []),
+    z.array(z.object({ displayName: nstr.optional(), emailAddress: nstr.optional() }).passthrough().catch({}))
+  ),
+  subject: capped(500).optional(),
+  body: capped(100_000).optional(),
+});
+export type GmailRecordParsed = z.output<typeof GmailRecordSchema>;
+
+/** One line of a guard's record: a message, or null for a call marker or a line that doesn't check out. */
+export function parseGmailRecord(v: unknown): GmailRecordParsed | null {
+  if (!v || typeof v !== "object" || !("id" in v)) return null;
+  const r = GmailRecordSchema.safeParse(v);
+  return r.success ? r.data : null;
 }
 
 const nullableObject = <T extends z.ZodTypeAny>(schema: T) =>

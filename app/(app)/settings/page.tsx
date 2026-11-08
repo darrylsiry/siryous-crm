@@ -5,7 +5,8 @@ import { getAiStatus } from "@/lib/aiStatus";
 import { getDb } from "@/lib/db";
 import { backupHealth } from "@/lib/backup.mjs";
 import { loadOwner } from "@/lib/owner.mjs";
-import { authEnabled, SESSION_DAYS } from "@/lib/auth.mjs";
+import { AUTH_COOKIE, authEnabled, listSessions, sessionFor, SESSION_DAYS, SESSION_MAX_DAYS } from "@/lib/auth.mjs";
+import { cookies } from "next/headers";
 import SignInLink from "@/components/SignInLink";
 import { signOutOtherBrowsers } from "@/lib/settingsActions";
 import { saveAiSettings, saveOwnerProfile } from "@/lib/settingsActions";
@@ -30,6 +31,9 @@ export default async function SettingsPage({
   searchParams: Promise<{ saved?: string; error?: string; signedout?: string }>;
 }) {
   const { saved, error, signedout } = await searchParams;
+  const thisSession = sessionFor((await cookies()).get(AUTH_COOKIE)?.value);
+  const sessions = authEnabled() ? listSessions() : [];
+  const when = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   const s = getAiSettings();
   const ai = await getAiStatus();
   const models = ai.model.available;
@@ -71,14 +75,32 @@ export default async function SettingsPage({
         {authEnabled() ? (
           <div className="mt-2 space-y-3 text-sm text-stone-700">
             <p>
-              This browser is signed in, and stays signed in while you use it ({SESSION_DAYS} days after your last visit). To sign
-              in another browser on this Mac, make a link and open it there:
+              This browser is signed in, and stays signed in while you use it ({SESSION_DAYS} days after your last visit, and{" "}
+              {SESSION_MAX_DAYS} days at most). To sign in another browser on this Mac, make a link and open it there:
             </p>
             <SignInLink />
             {signedout ? (
               <p role="status" className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-800">
                 Every other browser is signed out. This one stays signed in.
               </p>
+            ) : null}
+            {sessions.length ? (
+              <div>
+                <p className="text-xs font-medium text-stone-600">
+                  Signed in now: {sessions.length} {sessions.length === 1 ? "browser" : "browsers"}
+                </p>
+                <ul className="mt-1 space-y-0.5 text-xs text-stone-600">
+                  {sessions.map((s) => (
+                    <li key={s.id}>
+                      {s.id === thisSession ? <b className="text-stone-800">This browser</b> : "Another browser"} · signed in {when(s.created)} ·{" "}
+                      {/* At the cap, using it no longer moves the date: say so rather than promise it would. */}
+                      {s.expires >= s.created + (SESSION_MAX_DAYS - 1) * 86_400_000
+                        ? `signed out on ${when(s.expires)}, ${SESSION_MAX_DAYS} days after signing in`
+                        : `signed out by ${when(s.expires)} unless used before then`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             <form action={signOutOtherBrowsers} className="flex flex-wrap items-center gap-2">
               <button className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:border-red-300 hover:text-red-700">
@@ -120,7 +142,7 @@ export default async function SettingsPage({
             {owner.ignoredSamples.join(", ")}.
           </p>
         ) : null}
-        <form action={saveOwnerProfile} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <KeepTypedForm action={saveOwnerProfile} className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className={label}>
             Your name
             <input name="ownerName" defaultValue={owner.configured ? owner.ownerName : ""} placeholder="e.g. Sam Lee" className={input} />
@@ -164,7 +186,7 @@ export default async function SettingsPage({
               it up next time they start.
             </span>
           </div>
-        </form>
+        </KeepTypedForm>
       </section>
 
       <section id="ai" className="scroll-mt-4 rounded-xl border border-stone-200 bg-white p-5">

@@ -159,8 +159,9 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   - **Due a touch** — the people most overdue on Keep Warm, each with **Log
     touch**.
   - **Deals in motion** — open opportunities, with the ones that **need
-    attention** first (quiet for a month, or no next step: set one right
-    there, or log a touch); the rest grouped by stage, furthest along first,
+    attention** first (quiet for a month, no next step — set one right there,
+    or log a touch — or no person or company linked, with **Link one →**);
+    the rest grouped by stage, furthest along first,
     with the days since you last logged contact (amber after two weeks, red
     after a month). Job opportunities sit at the bottom of each stage on a
     tinted row.
@@ -177,16 +178,24 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   Notes) and a log of every interaction. Under the name is a bar for what you
   came to do: **Log touch**, **Prep**, **Add to-do**, **Add deal**, **Call**
   or **Email** when the snapshot has a number or address, and **✎ Edit**. What
-  you have open with them is listed right below it. **✎ Edit** in that bar
+  you have open with them is listed right below it, next to a **Next step**
+  box: **✎ Change** there edits the next step and the status together, and a
+  profile's **＋ Log a longer entry** records an interaction with a date and
+  notes (no future dates). **✎ Edit** in that bar
   (or beside each name in the People and Companies lists, which you return to
   after saving) opens one form for the name (links keep working), company
   (pick one, or type a new one), status, contact details, strength, tags and
-  keep-warm cadence; a company's has its name, status and snapshot.
+  keep-warm cadence; a company's has its name, status and snapshot. Saving
+  takes you back with "✓ Saved".
   **✎ Edit** on each section edits that section. Click the status badge — on
   a profile or in the People/Companies lists — to change the status on the
-  spot. If Claude (or another window) changed the same section while you were
-  typing, nothing is lost: your text is saved below the newer version, marked
-  ⚠, for you to merge. You can delete a person, company, log entry or to-do
+  spot. The lists also show each status note, and "connected Apr 2025" where
+  the only date you have is a LinkedIn connection. If Claude (or another window)
+  changed the same section while you were typing, nothing is lost: your text
+  is saved below the newer version, marked ⚠, for you to merge. A form that
+  was changed elsewhere while you edited it (a profile's details, a deal, a
+  status) keeps what you typed, says so, and **Save** again overwrites on
+  purpose. You can delete a person, company, log entry or to-do
   from the profile page (permanent — the Danger zone says where your backups
   are, or that they are off).
 - **Keep Warm** — every contact scored against how often you want to be in
@@ -200,15 +209,20 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   partnerships, referrals, ventures — and job opportunities) across the stages
   a consultant actually goes through: Identified → In conversation →
   Scoping/proposal → Negotiating → Engaged. Choosing a stage on a card saves it;
-  each card shows the days since contact, and **✎ Edit** changes the rest or
-  deletes a deal made by mistake. ★ marks the important ones. Job opportunities are listed after
+  each card shows the days since contact, and **✎ Edit** changes the rest
+  (including the person and company it is with) or deletes a deal made by
+  mistake; a card with nobody linked says so. **Add deal** on a profile brings
+  you back to that profile. ★ marks the important ones. Job opportunities are listed after
   everything else in each column, on a tinted card, so a job search stays
   apart from business development at a glance.
 - **Actions** — everything you have promised or are waiting for, grouped by
   urgency (overdue, this week, awaiting the other party, high potential, keep
   warm, missing details). Items carry a real due date — the one **Due** box
-  takes a date or "Fri 7/25" and shows what it understood. Tick things off;
-  **✎ Edit** changes an item's wording, date, person or group; "Recently
+  takes a date or "Fri 7/25" and shows what it understood. Overdue isn't a
+  group you pick: an item moves there by itself when its date passes. Tick
+  things off; **✎ Edit** changes an item's wording, date, person or group, or
+  re-dates it in one click, and says what changed ("✓ Re-dated to Fri,
+  Nov 13"); "Recently
   completed" (the last 30 days, with **Show older**) lets you reopen.
 - **✨ Intake (AI)** — paste anything about a person (a LinkedIn profile, an
   email thread, your own rough notes) and the AI extracts the person and their
@@ -229,8 +243,8 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   date, person) can be changed first. Saving says what was saved ("Saved 2
   entries · closed 1 to-do · added 1 follow-up") and offers the next draft
   waiting. If nobody in the notes is in your CRM yet, it offers **Create a
-  profile from these notes**. **Log touch** and a profile's own "Log
-  interaction" form are the no-AI routes (what you type is what is saved).
+  profile from these notes**. **Log touch** and a profile's own **＋ Log a
+  longer entry** are the no-AI routes (what you type is what is saved).
 - **📥 Inbox (AI, needs Claude)** — a CRM email address. Forward an email
   there, or copy the address on one you send, and it becomes a Log draft for
   the people already in your CRM, an Intake draft for anyone who isn't, or
@@ -246,7 +260,7 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   model. `#log` or `#intake` in the subject decides for you; a note you type
   above a forwarded message is passed to the AI as your instruction ("log this
   on Sam — next step is the proposal"). The CRM checks the mailbox on a
-  schedule, or on demand, with one Claude run each time: at the pace you set
+  schedule, or on demand, with two short Claude runs each time: at the pace you set
   while you're using the app, and every four hours while you're away (mail
   that arrives meanwhile isn't lost). The page shows where each
   draft is in the model's queue and updates by itself, and an email's
@@ -258,7 +272,10 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   can write to a plus-address. Each check first lists the new messages by
   sender, recipients and date only (no subject or text), then reads just your
   own, by message id; a guard on the Gmail connector blocks every other kind of
-  call. So anyone else's message, a reply-all in a thread you copied the CRM
+  call. The sender, recipients, labels and text the CRM goes by are the ones
+  Gmail itself returned to those calls, recorded as they happen, never Claude's
+  account of them, so an email can't talk the AI into misreporting who sent
+  it. So anyone else's message, a reply-all in a thread you copied the CRM
   on included, isn't read by any AI: it is listed as ignored, headers only.
   A note you write at the top of an email is followed as your instruction
   ("log this on Sam") only when Gmail filed the email as sent from your own
@@ -269,7 +286,8 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   for news about every person and company in the CRM, about ten at a time,
   and keeps only stories clearly about them (for a big organisation, only
   stories that name one of your contacts there or touch the business you know
-  them for). Each item has the headline linked to the source, a short summary
+  them for). Each item has the headline linked to the source (with the site's
+  name beside it), a short summary
   and the contacts it concerns; the feed stays in date order until you dismiss
   an item, and a dismissed story never comes back. It is **off until you turn
   it on** with **Turn daily search on** on the News Feed page, because each
@@ -449,6 +467,11 @@ kept in the database's section history.
 
 Text that came from an email, a transcript or the web is shown as text: links
 open only when you click them, and images are never loaded by themselves.
+A link to another site shows where it goes (↗ example.com). Links in a Prep
+briefing, a Coach session, an outreach draft or a news item, and every link in
+a Word export, also lose anything after a `?`. That limits what a link the AI
+wrote can carry in its address but doesn't rule it out, so look before you
+click one you didn't write.
 
 ## Where your data lives, and backups
 
@@ -506,11 +529,13 @@ remember:
 - **To sign in a second browser on this Mac** (or after clearing your
   browser's cookies), open **Settings → Access** in a browser that is signed
   in, click **Make a sign-in link** and open that link in the other browser
-  within two minutes: it works once. Or paste the contents of the file
-  `data/auth-token` into the box on the sign-in page.
+  within two minutes (or paste it into the box on its sign-in page): it works
+  once. Or paste the contents of the file `data/auth-token` into that box.
 - **Staying signed in:** each browser stays signed in while you use it, and
-  is signed out after 30 days without a visit. **Sign out other browsers** on
-  the same page ends every sign-in but the one you are using.
+  is signed out after 30 days without a visit, and 90 days after it signed in
+  however much it is used. The same page lists the browsers signed in now,
+  with when each signed in and when it will be signed out. **Sign out other
+  browsers** ends every sign-in but the one you are using.
 - **"That didn't match":** the code was copied incompletely, or a one-time
   link was used already or is more than two minutes old. Make a new one, or
   just double-click **Start CRM.command**, which signs the browser in for you.

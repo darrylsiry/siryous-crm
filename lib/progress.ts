@@ -29,8 +29,24 @@ export const CANCELLED = "You cancelled this run. Your text is kept: try again, 
 export function cancelRun(kind: Exclude<ProgressKind, "coach">, id: number): boolean {
   const table = PROGRESS_TABLES[kind];
   const changed = getDb().prepare(`UPDATE ${table} SET status='error', error=? WHERE id=? AND status IN ('analyzing','pending')`).run(CANCELLED, id).changes;
-  runs.get(`${kind}:${id}`)?.abort();
+  abortRun(kind, id);
   return changed > 0;
+}
+
+/** Stop the step a run is on, if any (a discarded draft's run must not go on writing to it, or hold the model). */
+export function abortRun(kind: ProgressKind, id: number): void {
+  runs.get(`${kind}:${id}`)?.abort();
+}
+
+/**
+ * The progress write for a row: a draft's feed is written only while it is
+ * drafting, so a run that outlives its draft (discarded, cancelled) writes
+ * nothing back to the emptied row.
+ */
+function progressUpdate(kind: ProgressKind) {
+  const table = PROGRESS_TABLES[kind];
+  const whileDrafting = kind === "log" || kind === "intake" ? ` AND status IN ('analyzing','pending')` : "";
+  return getDb().prepare(`UPDATE ${table} SET progress=? WHERE id=?${whileDrafting}`);
 }
 
 /**
@@ -103,10 +119,8 @@ export function runWithProgress(
     fallback?: boolean;
   } = {}
 ): Promise<string> {
-  const table = PROGRESS_TABLES[kind];
-  const db = getDb();
   const events: ProgressEvent[] = readProgress(kind, id)?.events ?? [];
-  const update = db.prepare(`UPDATE ${table} SET progress=? WHERE id=?`);
+  const update = progressUpdate(kind);
   const onEvent = (e: ProgressEvent) => {
     events.push(e);
     try {
@@ -132,10 +146,9 @@ export function runWithProgress(
 
 /** Append a one-off note to a draft row's activity feed (e.g. "research skipped: …"). */
 export function noteProgress(kind: ProgressKind, id: number, label: string, detail?: string) {
-  const table = PROGRESS_TABLES[kind];
   const events = readProgress(kind, id)?.events ?? [];
   events.push({ t: "info", label, detail, ts: Date.now() });
   try {
-    getDb().prepare(`UPDATE ${table} SET progress=? WHERE id=?`).run(JSON.stringify(events), id);
+    progressUpdate(kind).run(JSON.stringify(events), id);
   } catch {}
 }

@@ -38,6 +38,8 @@ export default function InboxRedo({
     );
   }
   const ready = drafts.some((d) => d === "ready");
+  // Ignore discards unsaved drafts and the email's text: it asks first when a draft is waiting or being written.
+  const unsaved = drafts.some((d) => d === "ready" || d === "analyzing" || d === "pending");
   const routed = status === "routed";
   const Redo = ({ as, label, what }: { as: "log" | "intake"; label: string; what: string }) => (
     <form action={rerouteInboxMessage} className="flex items-start gap-2">
@@ -74,7 +76,15 @@ export default function InboxRedo({
           <form action={ignoreInboxMessage} className="flex items-start gap-2">
             <input type="hidden" name="id" value={id} />
             {back ? <input type="hidden" name="back" value={back} /> : null}
-            <button className={btn}>Ignore</button>
+            {unsaved ? (
+              <ConfirmButton
+                label="Ignore"
+                confirm="Ignore this email? Its draft waiting for review is discarded and the email's text is deleted from the CRM. To record it later you'd forward it again."
+                className={btn}
+              />
+            ) : (
+              <button className={btn}>Ignore</button>
+            )}
             <span className="pt-1 text-xs text-stone-500">Leave it out, and discard its drafts that weren&apos;t saved.</span>
           </form>
         ) : null}

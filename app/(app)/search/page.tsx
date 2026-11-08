@@ -3,6 +3,7 @@ import { opportunityHref, search, SEARCH_LIMIT, type SearchResults } from "@/lib
 import StatusBadge from "@/components/StatusBadge";
 import { STAGES } from "@/lib/db";
 import { first, type Param } from "@/lib/params";
+import { shortDate } from "@/lib/dates.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -120,7 +121,7 @@ export default async function SearchPage({
               <ul className="space-y-2">
                 {results.interactions.map((i) => (
                   <li key={i.id} className="text-sm">
-                    <span className="tabular-nums text-xs text-stone-500">{i.date}</span>{" "}
+                    <span className="tabular-nums text-xs text-stone-500">{shortDate(i.date) || i.date}</span>{" "}
                     {i.person_slug ? (
                       <Link href={`/people/${i.person_slug}`} className="font-medium hover:text-indigo-700">
                         {i.person_name}
@@ -164,7 +165,7 @@ export default async function SearchPage({
                       ) : (
                         "Actions"
                       )}
-                      {a.due_date || a.due_label ? ` · due ${a.due_date ?? a.due_label}` : ""}
+                      {a.due_date || a.due_label ? ` · due ${a.due_date ? shortDate(a.due_date) : a.due_label}` : ""}
                     </span>
                   </li>
                 ))}

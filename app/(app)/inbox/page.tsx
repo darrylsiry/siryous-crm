@@ -17,6 +17,7 @@ import PendingButton from "@/components/PendingButton";
 import FlashBanner from "@/components/FlashBanner";
 import { first, type Param } from "@/lib/params";
 import { localStamp, shortDate } from "@/lib/dates.mjs";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +120,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
   // The address form: first on the page until an address is set, below the queue after.
   const setup = (
-      <form action={saveInboxSettings} className="space-y-4">
+      <KeepTypedForm action={saveInboxSettings} className="space-y-4">
       <section className="rounded-xl border border-stone-200 bg-white p-5 space-y-4">
         <h2 className={h2}>Your CRM address</h2>
         <label className={label}>
@@ -174,7 +175,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         </label>
         <PendingButton label="Save" pendingLabel="Saving…" pendingNote="" className={smallBtn} />
       </section>
-    </form>
+    </KeepTypedForm>
   );
 
   return (

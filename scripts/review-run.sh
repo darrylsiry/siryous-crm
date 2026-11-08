@@ -126,7 +126,9 @@ OUT="$LOGS/$KEY-$STAMP.out"
 # read only the parts of the home folder its tools need, so not the repository (and the database in it),
 # anyone's memory and transcripts, or other tools' credentials; and it can write nothing in the home
 # folder but caches, so nothing in ~/.claude or ~/.claude.json (settings, hooks, agents, MCP servers,
-# scheduled tasks) that would run outside the sandbox later. The CLI needs no more (tested 2026-11-06).
+# scheduled tasks) that would run outside the sandbox later. Its own snapshot is read-only too, so no
+# command the guard misses can rewrite the guard itself (.claude/hooks in the snapshot): agents write
+# nothing, and the runner keeps their final message. The CLI needs no more (tested 2026-11-06).
 # Two things stay open, because the CLI can't work without them: reading ~/Library/Keychains (its
 # login lives there; the guard refuses the `security` tool) and the network (the CLI talks to
 # Anthropic, and the profile language can't allow one host; the guard refuses network tools).
@@ -141,7 +143,8 @@ if [ "$(uname)" = Darwin ] && command -v sandbox-exec >/dev/null; then
 (allow file-read* (subpath "$HOME/.claude") (regex #"^$HOME/\.claude\.json") (subpath "$HOME/.local") (subpath "$HOME/Library/Keychains") (subpath "$HOME/Library/Preferences") (literal "$HOME/.gitconfig"))
 (allow file-read* file-write* (subpath "$HOME/.npm") (subpath "$HOME/.cache") (subpath "$HOME/Library/Caches"))
 (deny file-read* file-write* (subpath "$HOME/.claude/projects") (subpath "$HOME/.claude/scheduled-tasks") (literal "$HOME/.claude/history.jsonl"))
-(allow file-read* file-write* (subpath "$WS"))
+(allow file-read* (subpath "$WS"))
+(deny file-write* (subpath "$WS"))
 (allow file-read* (literal "$ROOT") (literal "$(dirname "$ROOT")") (literal "$ROOT/.review"))
 SB
   SANDBOX=(sandbox-exec -f "$PROFILE")

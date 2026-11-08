@@ -191,7 +191,9 @@ describe("lib/db exports and prompts follow the config", () => {
     const log = buildLogPrompt("Some transcript", "paste");
     const coach = buildCoachReplyPrompt("2026-08-24", "advice", [], "hello");
     for (const p of [intake, log, coach]) {
-      assert.match(p, /overdue, log_gap, this_week, board_prep, awaiting, high_potential, keep_warm, venture, data_gap/);
+      // "overdue" is worked out from a date, never filed, so it isn't offered (UX-062).
+      assert.match(p, /log_gap, this_week, board_prep, awaiting, high_potential, keep_warm, venture, data_gap/);
+      assert.doesNotMatch(p, /one of:? overdue/);
     }
     assert.match(intake, /status_suggestion one of: new, exploring, active, on_hold, client, won, lost, dormant/);
     assert.match(intake, /cadence_days by status: new 21, exploring 45, active 30, on_hold 60, client 14, won 90, dormant 180; lost none/);

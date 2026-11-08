@@ -142,7 +142,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
             ) : null}
           </div>
           <article className="rounded-xl border border-stone-200 bg-white p-8 print:border-0 print:p-0">
-            <Markdown>{brief.content_md ?? "*Still generating…*"}</Markdown>
+            <Markdown modelWritten>{brief.content_md ?? "*Still generating…*"}</Markdown>
             <p className="mt-6 border-t border-stone-100 pt-3 text-xs text-stone-500 print:hidden">
               Prepared {localStamp(brief.created_at)}
               {brief.focus ? ` · focus: ${brief.focus}` : ""} — verify anything attributed to Gmail or the web before relying on it.
@@ -158,7 +158,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
               <input
                 type="hidden"
                 name="context"
-                value={`Meeting${who ? ` with ${who}` : ""} — ${today}. Prepped in the brief "${brief.title}"${brief.focus ? ` (focus: ${brief.focus})` : ""}.`}
+                value={`Meeting${who ? ` with ${who}` : ""}. Prepped in the brief "${brief.title}"${brief.focus ? ` (focus: ${brief.focus})` : ""}.`}
               />
               <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
                 <span>Meeting{who ? ` with ${who}` : ""} on</span>

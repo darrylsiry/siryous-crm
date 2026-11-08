@@ -28,10 +28,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { openDatabase } from "../lib/schema.mjs";
 import { loadOwner } from "../lib/owner.mjs";
-import { loadVocab, kindList, stageList, bucketList, keepWarmSql } from "../lib/vocab.mjs";
+import { loadVocab, kindList, stageList, bucketList, pickableBucketKeys, keepWarmSql } from "../lib/vocab.mjs";
 import { isIsoDate, parseDueDate, todayLocal } from "../lib/dates.mjs";
 import {
-  slugFor, applyStatusCadence, bumpLastTouch as bumpTouch, effectiveBucketSql, markActionDone,
+  slugFor, applyStatusCadence, bumpLastTouch as bumpTouch, effectiveBucketSql, markActionDone, daysSinceTouchSql, daysOver,
   likeNeedle, likeAnySql, LIKE_ESCAPE, PEOPLE_SEARCH_COLUMNS, COMPANY_SEARCH_COLUMNS,
 } from "../lib/rules.mjs";
 
@@ -44,7 +44,8 @@ const VOCAB = loadVocab(ROOT);
 const STATUS = Object.fromEntries(Object.entries(VOCAB.status).map(([k, s]) => [k, `${s.emoji} ${s.label}`.trim()]));
 const DEFAULT_CADENCE = VOCAB.cadence;
 const STAGES = Object.keys(VOCAB.stages);
-const BUCKETS = Object.keys(VOCAB.buckets);
+// The groups a to-do can be filed under: "overdue" is worked out from its date, never stored (lib/vocab.mjs).
+const BUCKETS = pickableBucketKeys(VOCAB);
 const KINDS = Object.keys(VOCAB.kinds);
 const SECTIONS = ["relationship_intel", "business_context", "engagement_strategy", "notes", "extra_sections"];
 
@@ -276,9 +277,9 @@ server.registerTool(
     }
     const due = db.prepare(
       `SELECT name, slug, cadence_days, last_touch, last_touch_note,
-              CAST(julianday('now','localtime') - julianday(last_touch) AS INTEGER) AS days_since
+              ${daysSinceTouchSql()} AS days_since
        FROM people WHERE cadence_days IS NOT NULL AND ${keepWarmSql(VOCAB)}`
-    ).all().map((r) => ({ ...r, over: r.days_since == null ? 9999 : r.days_since - r.cadence_days }))
+    ).all().map((r) => ({ ...r, over: daysOver(r.cadence_days, r.days_since) }))
       .filter((r) => r.over > 0).sort((a, b) => b.over - a.over).slice(0, 12);
     if (due.length) out.push(`## ♨ Due for a keep-warm touch\n` + due.map((r) =>
       `- ${r.name} [${r.slug}] — ${r.over >= 9999 ? (r.last_touch_note ? "no dated touch" : "no touch logged") : `${r.over}d over cadence`} (last: ${r.last_touch ?? r.last_touch_note ?? "never"})`

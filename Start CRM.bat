@@ -15,14 +15,17 @@ title Siryous CRM
 set "URL=http://127.0.0.1:3000"
 set "NEXT_TELEMETRY_DISABLED=1"
 
-rem Already running? Just open it. The CRM identifies itself at /api/health,
-rem so another program on port 3000 is never mistaken for it.
+rem Already running? Just open it. scripts\crm-check.mjs proves it is this CRM
+rem (a keyed answer only this CRM's token can make), so another program on
+rem port 3000 is never mistaken for it, and it needs nothing but Node: exit 0
+rem is the CRM, 1 nothing answering, 2 another program. A sign-in code is only
+rem ever opened after this check passes.
 set "OTHER_ON_PORT=no"
-where curl >nul 2>nul
+where node >nul 2>nul
 if not errorlevel 1 (
-  rem scripts\crm-check.mjs proves it is this CRM (a keyed answer only this CRM's token can make).
-  where node >nul 2>nul && node scripts\crm-check.mjs %URL% >nul 2>nul && goto :open
-  curl -s -o NUL --max-time 2 %URL%/ && set "OTHER_ON_PORT=yes"
+  node scripts\crm-check.mjs %URL% >nul 2>nul
+  if not errorlevel 1 goto :open
+  if errorlevel 2 set "OTHER_ON_PORT=yes"
 )
 if "%OTHER_ON_PORT%"=="yes" echo Another program is answering on port 3000 ^(it isn't the CRM^) -- trying to start the CRM beside it...
 
@@ -126,12 +129,8 @@ echo Starting Siryous CRM...
 if not exist "data\" mkdir data
 start "Siryous CRM server" /min cmd /c "set CRM_NO_OPEN=1&& npm start"
 
-rem Wait for it to answer (up to 60 seconds), then open the browser signed in.
-where curl >nul 2>nul
-if errorlevel 1 (
-  timeout /t 8 /nobreak >nul
-  goto :open
-)
+rem Wait for it to prove it is the CRM (up to 60 seconds), then open the
+rem browser signed in. Without that proof no sign-in code is handed out.
 for /l %%i in (1,1,60) do (
   timeout /t 1 /nobreak >nul
   node scripts\crm-check.mjs %URL% >nul 2>nul && goto :open

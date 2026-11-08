@@ -8,7 +8,7 @@ import type { IntakeAnalysis } from "./ai";
 import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
 import { IntakeAnalysisSchema } from "./schemas";
 import { bumpLastTouch, profilePath, slugFor } from "./rules.mjs";
-import { BUCKETS, DEFAULT_CADENCE } from "./db";
+import { BUCKETS, PICKABLE_BUCKETS, DEFAULT_CADENCE, STATUS, STRENGTHS } from "./db";
 import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
 import { inboxMessageFor, type Receipt } from "./receipts";
 
@@ -243,6 +243,11 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
 
   // --- person ---
   const cadenceRaw = String(formData.get("cadence_days") ?? "").trim();
+  // Only known values, as every other write path checks: an unknown status would sort last and leave Keep Warm.
+  const statusRaw = String(formData.get("status_key") ?? "");
+  const statusKey = Object.hasOwn(STATUS, statusRaw) ? statusRaw : "new";
+  const strengthRaw = str(formData, "relationship_strength");
+  const strength = strengthRaw && STRENGTHS.includes(strengthRaw) ? strengthRaw : null;
   db.prepare(
     `INSERT INTO people (slug, name, status_key, status_note, role_title, company_id, location, email, phone,
        linkedin, relationship_strength, tags, cadence_days, next_action,
@@ -251,7 +256,7 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
   ).run(
     slug,
     name,
-    String(formData.get("status_key") ?? "new"),
+    statusKey,
     str(formData, "status_note"),
     str(formData, "role_title"),
     companyId,
@@ -259,9 +264,9 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     str(formData, "email"),
     str(formData, "phone"),
     str(formData, "linkedin"),
-    str(formData, "relationship_strength"),
+    strength,
     str(formData, "tags"),
-    cadenceRaw ? Number(cadenceRaw) || null : DEFAULT_CADENCE[String(formData.get("status_key") ?? "new")] ?? null,
+    cadenceRaw ? Number(cadenceRaw) || null : DEFAULT_CADENCE[statusKey] ?? null,
     str(formData, "next_action"),
     str(formData, "relationship_intel"),
     str(formData, "business_context"),
@@ -314,7 +319,7 @@ function writeIntakeRecords(db: ReturnType<typeof getDb>, draftId: number, formD
     const due = str(formData, `action_due_${i}`);
     const bucket = String(formData.get(`action_bucket_${i}`) ?? "");
     db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`).run(
-      Object.hasOwn(BUCKETS, bucket) ? bucket : "this_week",
+      Object.hasOwn(PICKABLE_BUCKETS, bucket) ? bucket : "this_week",
       due,
       isIsoDate(due) ? due : parseDueDate(due),
       title,

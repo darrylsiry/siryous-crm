@@ -1,6 +1,6 @@
 import { getDb, STAGES, VOCAB } from "./db";
 import { keepWarmSql, statusRankSql } from "./vocab.mjs";
-import { COMPANY_SEARCH_COLUMNS, PEOPLE_SEARCH_COLUMNS, effectiveBucketSql, likeAnySql, likeNeedle } from "./rules.mjs";
+import { COMPANY_SEARCH_COLUMNS, PEOPLE_SEARCH_COLUMNS, daysOver, daysSinceTouchSql, effectiveBucketSql, likeAnySql, likeNeedle } from "./rules.mjs";
 import type {
   ActionItemJoined,
   Company,
@@ -13,14 +13,15 @@ import type {
 } from "./types";
 
 
-export function allPeople(): (PersonWithCompany & Versioned)[] {
+export function allPeople(): (PersonWithCompany & Versioned & { connected_on: string | null; logged: number })[] {
   return getDb()
     .prepare(
-      `SELECT p.*, c.name AS company_name, c.slug AS company_slug
+      `SELECT p.*, c.name AS company_name, c.slug AS company_slug,
+              EXISTS (SELECT 1 FROM interactions i WHERE i.person_id = p.id) AS logged
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
        ORDER BY ${statusRankSql(VOCAB, "p.status_key")}, p.name`
     )
-    .all() as (PersonWithCompany & Versioned)[];
+    .all() as (PersonWithCompany & Versioned & { connected_on: string | null; logged: number })[];
 }
 
 /** Row version carried by the profile edit forms for optimistic concurrency. */
@@ -196,6 +197,7 @@ export function dealQuietDays(o: { person_id: number | null; company_id: number 
 /** The words and colour for a deal's quiet days, the same on the Dashboard and the board. */
 export function dealQuietLabel(days: number | null): { text: string; tone: string } {
   if (days == null) return { text: "no contact logged", tone: "text-red-700" };
+  // (A deal with nobody linked shows "nobody linked" instead: see the card and the Dashboard.)
   const text = days === 0 ? "talked today" : `${days}d since contact`;
   return { text, tone: days > DEAL_COLD_DAYS ? "text-red-700" : days > DEAL_QUIET_DAYS ? "text-amber-700" : "text-stone-500" };
 }
@@ -227,21 +229,13 @@ export function followUps(): FollowUp[] {
       `SELECT p.id, p.slug, p.name, p.status_key, p.status_note, p.relationship_strength,
               p.tags, p.last_touch, p.last_touch_note, p.next_action, p.cadence_days,
               c.name AS company_name, c.slug AS company_slug,
-              CAST(julianday('now','localtime') - julianday(substr(p.last_touch, 1, 10)) AS INTEGER) AS days_since
+              ${daysSinceTouchSql("p")} AS days_since
        FROM people p LEFT JOIN companies c ON c.id = p.company_id
        WHERE ${keepWarmSql(VOCAB, "p.status_key")}`
     )
     .all() as (Omit<FollowUp, "days_over"> & { days_since: number | null })[];
   return rows
-    .map((r) => ({
-      ...r,
-      days_over:
-        r.cadence_days == null
-          ? null
-          : r.days_since == null
-            ? 9999 // never touched but has a cadence → surface it
-            : r.days_since - r.cadence_days,
-    }))
+    .map((r) => ({ ...r, days_over: daysOver(r.cadence_days, r.days_since) }))
     .sort((a, b) => (b.days_over ?? -9999) - (a.days_over ?? -9999));
 }
 

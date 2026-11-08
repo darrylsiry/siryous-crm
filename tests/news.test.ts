@@ -64,6 +64,17 @@ describe("newsCore", () => {
     assert.deepEqual(cleanItems({ items: [] }, batch, "2026-10-01", "2026-10-12"), []);
   });
 
+  test("a stored link keeps only the page: a query string could carry the batch out (SEC-029)", () => {
+    const out = cleanItems(
+      { items: [{ headline: "H", url: "https://evil.example/story?d=jane-doe,acme#top", source: "Reuters", published: "2026-10-10", about: ["p:jane"] }] },
+      [subj("p:jane")],
+      "2026-10-01",
+      "2026-10-12"
+    );
+    assert.equal(out[0].url, "https://evil.example/story");
+    assert.equal(hostOf(out[0].url), "evil.example", "the page shows this, not the model's \"Reuters\"");
+  });
+
   test("cleanItems drops URLs a browser couldn't open, and hostOf never throws", () => {
     const batch = [subj("p:jane")];
     const item = (url: string) => ({ headline: "H", url, published: "2026-10-10", about: ["p:jane"] });

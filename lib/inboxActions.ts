@@ -6,11 +6,12 @@ import { after } from "next/server";
 import { getDb } from "./db";
 import { discardDrafts, inboxPollRunning, loadInboxRow, markInboxRead, pollInbox, routeMessage, validateInboxAddress, type PollResult } from "./inbox";
 import { setSetting } from "./settings";
+import type { FormResult } from "./actions";
 
-export async function saveInboxSettings(formData: FormData) {
+export async function saveInboxSettings(_prev: FormResult, formData: FormData): Promise<FormResult> {
   const str = (k: string) => String(formData.get(k) ?? "").trim();
   const addr = validateInboxAddress(str("address"));
-  if (!addr.ok) redirect(`/inbox?error=${encodeURIComponent(`The address wasn't saved — ${addr.reason}`)}`);
+  if (!addr.ok) return { ok: false, message: `The address wasn't accepted: ${addr.reason}` };
   const minutes = Number(str("poll_minutes"));
   setSetting("inbox.address", addr.address || null);
   setSetting("inbox.enabled", formData.get("enabled") && addr.address ? "on" : null);

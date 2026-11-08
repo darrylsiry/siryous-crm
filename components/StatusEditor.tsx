@@ -2,6 +2,7 @@ import { STATUS } from "@/lib/db";
 import ClosingDetails from "@/components/ClosingDetails";
 import { updateStatus } from "@/lib/actions";
 import PendingButton from "@/components/PendingButton";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 export default function StatusEditor({
   entity,
@@ -10,6 +11,7 @@ export default function StatusEditor({
   statusNote,
   nextAction,
   updatedAt,
+  label = "✎ Update status / next step",
 }: {
   entity: "person" | "company";
   id: number;
@@ -18,13 +20,15 @@ export default function StatusEditor({
   nextAction: string | null;
   /** Row's updated_at at render time — the action refuses to overwrite a newer row. */
   updatedAt: string | null;
+  /** The link that opens it ("✎ Change" inside a profile's Next step box). */
+  label?: string;
 }) {
   return (
     <ClosingDetails className="group">
       <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-800 select-none list-none">
-        ✎ Update status / next step
+        {label}
       </summary>
-      <form
+      <KeepTypedForm
         action={updateStatus}
         className="mt-3 rounded-xl border border-stone-200 bg-white p-4 space-y-3"
       >
@@ -77,7 +81,7 @@ export default function StatusEditor({
           pendingLabel="Saving…"
           className={"rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"}
         />
-      </form>
+      </KeepTypedForm>
     </ClosingDetails>
   );
 }

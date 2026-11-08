@@ -78,6 +78,7 @@ export default function FollowUpsPage() {
                 {r.company_name ? (
                   <div className="truncate text-xs text-stone-500">{r.company_name}</div>
                 ) : null}
+                {r.status_note ? <div className="text-xs text-stone-600">{r.status_note}</div> : null}
               </div>
               <div className="flex flex-col items-end gap-1.5">
                 <DueChip daysOver={r.days_over} daysSince={r.days_since} cadence={r.cadence_days} note={r.last_touch_note} />

@@ -1,10 +1,11 @@
-import ClosingDetails from "@/components/ClosingDetails";
+import FloatingDetails from "@/components/FloatingDetails";
 import PendingButton from "@/components/PendingButton";
 import { PersonSelect } from "@/components/PeoplePicker";
 import { updateActionItem } from "@/lib/actions";
-import { BUCKETS } from "@/lib/db";
+import { BUCKETS, PICKABLE_BUCKETS } from "@/lib/db";
 import { todayLocal } from "@/lib/dates.mjs";
 import type { ActionItemJoined } from "@/lib/types";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 function plusDays(iso: string, n: number): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -29,13 +30,15 @@ export default function ActionEdit({ item, children }: { item: ActionItemJoined;
   const chip =
     "rounded-full border border-stone-300 bg-white px-2 py-0.5 text-xs font-medium text-stone-700 hover:border-indigo-400 hover:text-indigo-700";
   return (
-    <ClosingDetails className="relative inline-block">
-      <summary className="cursor-pointer list-none select-none hover:text-indigo-700" title="Edit or re-date">
-        {children}
-      </summary>
-      <form
+    <FloatingDetails
+      className="inline-block"
+      summary={children}
+      summaryClassName="cursor-pointer list-none select-none hover:text-indigo-700"
+      title="Edit or re-date"
+    >
+      <KeepTypedForm
         action={updateActionItem}
-        className="absolute right-0 z-20 mt-1 flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 rounded-lg border border-stone-200 bg-white p-3 text-left text-xs font-normal text-stone-700 shadow-lg"
+        className="flex flex-col gap-2 rounded-lg border border-stone-200 bg-white p-3 text-left text-xs font-normal text-stone-700 shadow-lg"
       >
         <input type="hidden" name="id" value={item.id} />
         <label className="block">
@@ -65,10 +68,10 @@ export default function ActionEdit({ item, children }: { item: ActionItemJoined;
             <span className="text-stone-500">Group</span>
             <select
               name="bucket"
-              defaultValue={item.bucket_raw ?? item.bucket}
+              defaultValue={Object.hasOwn(PICKABLE_BUCKETS, item.bucket_raw ?? item.bucket) ? (item.bucket_raw ?? item.bucket) : "this_week"}
               className="mt-0.5 w-full rounded border border-stone-300 px-1 py-1 focus:border-indigo-400"
             >
-              {Object.entries(BUCKETS).map(([k, b]) => (
+              {Object.entries(PICKABLE_BUCKETS).map(([k, b]) => (
                 <option key={k} value={k}>
                   {b.icon} {b.label}
                 </option>
@@ -91,7 +94,7 @@ export default function ActionEdit({ item, children }: { item: ActionItemJoined;
             </button>
           ))}
         </div>
-      </form>
-    </ClosingDetails>
+      </KeepTypedForm>
+    </FloatingDetails>
   );
 }

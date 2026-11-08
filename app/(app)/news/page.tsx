@@ -153,7 +153,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
                     className={
                       showDismissed
                         ? smallBtn
-                        : "rounded-md px-1.5 text-lg leading-none text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                        : "rounded-md px-1.5 text-lg leading-none text-stone-500 hover:bg-stone-100 hover:text-stone-700"
                     }
                   >
                     {showDismissed ? "Restore" : "×"}
@@ -161,7 +161,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
                 </form>
               </div>
               <div className="mt-0.5 text-xs text-stone-500">
-                {n.source ?? (hostOf(n.url) || "source")}
+                {hostOf(n.url) || "source"}
                 {n.published ? <> · {fmtDate(n.published)}</> : null}
               </div>
               {n.summary ? <p className="mt-2 text-sm leading-relaxed text-stone-700">{n.summary}</p> : null}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { allOutreach } from "@/lib/queries";
+import { shortDate } from "@/lib/dates.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default function OutreachPage() {
                 </span>
               </div>
               <div className="mt-0.5 text-xs text-stone-500">
-                {o.date ?? ""}
+                {o.date ? shortDate(o.date) || o.date : ""}
                 {o.person_name ? ` · ${o.person_name}` : ""}
               </div>
             </Link>

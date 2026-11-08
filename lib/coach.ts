@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { getDb, BUCKETS } from "./db";
+import { getDb, BUCKETS, PICKABLE_BUCKETS } from "./db";
 import { runModel, extractJsonWithRepair } from "./ai";
 import { runWithProgress } from "./progress";
 import { getCoachSettings } from "./settings";
@@ -94,7 +94,7 @@ function proposeCrmUpdates(sessionId: number, messageId: number | null, updates:
         "create",
         null,
         title,
-        Object.hasOwn(BUCKETS, String(a.bucket)) ? String(a.bucket) : "this_week",
+        Object.hasOwn(PICKABLE_BUCKETS, String(a.bucket)) ? String(a.bucket) : "this_week",
         a.due_label ?? null,
         slug
       );

@@ -44,6 +44,8 @@ import PendingButton from "@/components/PendingButton";
 import { PeopleOptions } from "@/components/PeoplePicker";
 import { todoDetail, todoTitle } from "@/components/ActionList";
 import { inboxStateLabel } from "@/lib/stateWords";
+import OpenOnHash from "@/components/OpenOnHash";
+import KeepTypedForm from "@/components/KeepTypedForm";
 
 export const dynamic = "force-dynamic";
 
@@ -81,8 +83,9 @@ function cleanTitle(title: string, person: string | null): string {
 
 function ActionLine({ a, today, late, ctx }: { a: ActionItemJoined; today: string; late?: number; ctx: ActionContext }) {
   const due = a.due_date;
+  // Never a negative "late": a date still ahead shows as the date below.
   const when =
-    late != null
+    late != null && late >= 0
       ? late === 0
         ? "due today"
         : `${late}d late`
@@ -180,7 +183,7 @@ function NewsLine({ n, dealRefs, today }: { n: NewsFeedItem; dealRefs: Set<strin
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-stone-500">
         {deal ? <span className="rounded bg-indigo-50 px-1.5 font-medium text-indigo-700">⚑ deal</span> : null}
         <span>
-          {n.source ?? (hostOf(n.url) || "source")}
+          {hostOf(n.url) || "source"}
           {n.published ? ` · ${shortDate(n.published, today)}` : ""}
         </span>
         {n.about.map((a) => (
@@ -228,11 +231,12 @@ export default async function Dashboard() {
     .filter((o) => STAGES[o.stage]?.open)
     .map((o) => {
       const quiet = dealQuietDays(o, today);
+      const nobody = !o.person_id && !o.company_id;
       const why = [
-        quiet == null ? "no contact logged" : quiet > DEAL_COLD_DAYS ? `${quiet}d quiet` : null,
+        nobody ? null : quiet == null ? "no contact logged" : quiet > DEAL_COLD_DAYS ? `${quiet}d quiet` : null,
         o.next_step ? null : "no next step",
       ].filter((w): w is string => !!w);
-      return { ...o, quiet, why };
+      return { ...o, quiet, why, nobody };
     })
     .sort(
       (a, b) =>
@@ -242,8 +246,8 @@ export default async function Dashboard() {
         a.priority - b.priority ||
         a.name.localeCompare(b.name)
     );
-  const attention = deals.filter((d) => d.why.length).sort((a, b) => (b.quiet ?? 9999) - (a.quiet ?? 9999));
-  const steady = deals.filter((d) => !d.why.length);
+  const attention = deals.filter((d) => d.why.length || d.nobody).sort((a, b) => (b.quiet ?? 9999) - (a.quiet ?? 9999));
+  const steady = deals.filter((d) => !d.why.length && !d.nobody);
 
   // ── Context for each to-do: company (the item's, else the person's), an open
   //    deal on the same person or company, and the last logged contact.
@@ -315,7 +319,7 @@ export default async function Dashboard() {
   const dealRow = (o: (typeof deals)[number], flagged: boolean) => {
     const kind = KINDS[o.kind];
     const s = STAGES[o.stage];
-    const quiet = dealQuietLabel(o.quiet);
+    const quiet = o.nobody ? { text: "nobody linked", tone: "text-red-700" } : dealQuietLabel(o.quiet);
     return (
       <div className={kind?.card ? `-mx-2 rounded-md border px-2 py-1.5 ${kind.card}` : ""}>
         <div className="flex items-baseline justify-between gap-3">
@@ -333,11 +337,21 @@ export default async function Dashboard() {
         </div>
         {flagged ? (
           <>
-            <p className="mt-0.5 text-xs font-medium text-red-700">Needs attention: {o.why.join(" · ")}</p>
+            <p className="mt-0.5 text-xs font-medium text-red-700">
+              Needs attention: {[...(o.nobody ? ["no person or company linked"] : []), ...o.why].join(" · ")}
+              {o.nobody ? (
+                <>
+                  {" — "}
+                  <Link href={opportunityHref(o)} className="underline">
+                    Link one →
+                  </Link>
+                </>
+              ) : null}
+            </p>
             {o.next_step ? <p className="mt-0.5 line-clamp-1 text-xs text-stone-600">→ {o.next_step}</p> : null}
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               {!o.next_step ? (
-                <form action={setDealNextStep} className="flex min-w-0 flex-1 items-center gap-1.5">
+                <KeepTypedForm action={setDealNextStep} clearOnSave className="flex min-w-0 flex-1 items-center gap-1.5">
                   <input type="hidden" name="id" value={o.id} />
                   <input
                     name="next_step"
@@ -351,7 +365,7 @@ export default async function Dashboard() {
                     pendingLabel="Saving…"
                     className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                   />
-                </form>
+                </KeepTypedForm>
               ) : null}
               <QuickLog personId={o.person_id} companyId={o.company_id} name={o.person_name ?? o.company_name ?? o.name} />
             </div>
@@ -367,6 +381,7 @@ export default async function Dashboard() {
 
   return (
     <PeopleOptions options={peopleOptions()}>
+      <OpenOnHash />
       <div className="space-y-6">
         {showSetup ? (
           <section className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">

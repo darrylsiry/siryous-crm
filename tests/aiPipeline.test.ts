@@ -6,8 +6,9 @@ import http from "node:http";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { getDb } from "../lib/db";
-import { buildIntakePrompt, buildLogPrompt, extractJson, extractJsonWithRepair, rosterBlock, runClaudeStream, runModel } from "../lib/ai";
+import { buildIntakePrompt, buildLogPrompt, extractJson, extractJsonWithRepair, rosterBlock, runClaudeStream, runModel, withinBudget } from "../lib/ai";
 import { careerProfile, weekSnapshot, mondayOf } from "../lib/coachai";
+import { discardDraft, insertIntakeDraft, processIntakeDraft } from "../lib/drafts";
 import { routeUsable, type AiStatus } from "../lib/aiStatus";
 import { LocalUnavailable, localQueueDepth, RunCancelled, runLocalStream } from "../lib/llm";
 import { setSetting } from "../lib/settings";
@@ -117,6 +118,24 @@ describe("a roster that fits the prompt", () => {
     const log = buildLogPrompt("From: zq@example.com\nThanks for the chat.", "paste");
     assert.ok(log.length < limitChars);
     assert.match(log, /zelda-quill/, "matched by email too");
+  });
+
+  test("thousands of open to-dos stay within their share, listing the input's people first (CR-050)", () => {
+    const insert = db.prepare(`INSERT INTO action_items (title, person_id) VALUES (?, (SELECT id FROM people WHERE slug=?))`);
+    db.transaction(() => {
+      for (let i = 0; i < 2000; i++) insert.run(`Follow up on item ${i}`, `imported-${i}`);
+    })();
+    setSetting("ai.num_ctx", "8192");
+    try {
+      const log = buildLogPrompt("Quick call with Busy Bee.", "paste");
+      assert.ok(log.length < (8192 - 1024) * 4, `${log.length} chars`);
+      assert.match(log, /\| Call back \| busy-bee/, "the person the input names keeps their to-do");
+      assert.match(log, /more open to-dos not listed/);
+    } finally {
+      setSetting("ai.num_ctx", null);
+      db.prepare(`DELETE FROM action_items WHERE title LIKE 'Follow up on item %'`).run();
+    }
+    assert.deepEqual(withinBudget([3, 1, 2], (n) => "x".repeat(n), (n) => -n, 5, (n) => `+${n}`), ["xxx", "+2"], "highest-ranked first, the rest counted");
   });
 
   test("open work comes before the long tail", () => {
@@ -268,6 +287,27 @@ describe("the local model's queue", () => {
     assert.equal(await first, "done");
     await assert.rejects(second, (err: Error) => err instanceof RunCancelled);
     assert.equal(calls, 1);
+    assert.equal(localQueueDepth(), 0);
+  });
+
+  test("discarding a draft mid-run stops the model and writes nothing back to the emptied row (CR-055)", async () => {
+    let closed = false;
+    let started!: () => void;
+    const streaming = new Promise<void>((r) => (started = r));
+    chat = (res) => {
+      res.write(JSON.stringify({ message: { content: "SENTINEL-THINKING" } }) + "\n");
+      res.on("close", () => (closed = true));
+      started();
+    };
+    const db = getDb();
+    const id = insertIntakeDraft(db, "SENTINEL-PASTE notes from a call");
+    const run = processIntakeDraft(id, false);
+    await streaming;
+    discardDraft(db, "intake", id);
+    await run;
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(closed, "the model request was aborted");
+    assert.doesNotMatch(JSON.stringify(db.prepare(`SELECT * FROM intake_drafts WHERE id=?`).get(id)), /SENTINEL/);
     assert.equal(localQueueDepth(), 0);
   });
 });

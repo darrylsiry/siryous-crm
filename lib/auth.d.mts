@@ -12,6 +12,8 @@ export function createSession(now?: number): string;
 export function sessionFor(candidate: unknown, now?: number): string | null;
 export function touchSession(id: string, now?: number): void;
 export function endOtherSessions(keepId: string | null): void;
+export const SESSION_MAX_DAYS: number;
+export function listSessions(now?: number): { id: string; created: number; expires: number }[];
 export function legacyCookie(candidate: unknown): boolean;
 export function cookieOptions(): { httpOnly: boolean; sameSite: "strict"; path: string; maxAge: number };
 export function healthProof(nonce: unknown): string | null;

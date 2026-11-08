@@ -16,6 +16,7 @@ import StaleNotice from "@/components/StaleNotice";
 import { profilePath, slugParam } from "@/lib/slug";
 import { opportunityHref } from "@/lib/queries";
 import { STAGES, STATUS } from "@/lib/db";
+import FlashBanner from "@/components/FlashBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,10 @@ export default async function CompanyPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ stale?: string }>;
+  searchParams: Promise<{ stale?: string; saved?: string; added?: string }>;
 }) {
   const slug = slugParam((await params).slug);
-  const { stale } = await searchParams;
+  const { stale, saved, added } = await searchParams;
   const c = companyBySlug(slug);
   if (!c) notFound();
   const people = peopleAtCompany(c.id);
@@ -46,6 +47,18 @@ export default async function CompanyPage({
     <PeopleOptions options={peopleOptions()}>
     <div className="space-y-6">
       {stale ? <StaleNotice href={profilePath("companies", slug)} kept={stale === "kept"} /> : null}
+        {saved ? (
+          <FlashBanner cleanHref={profilePath("companies", slug)} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+            ✓ Saved.
+          </FlashBanner>
+        ) : added === "deal" ? (
+          <FlashBanner cleanHref={profilePath("companies", slug)} className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
+            ✓ Deal added.{" "}
+            <Link href="/pipeline" className="font-medium underline">
+              See it on the Pipeline →
+            </Link>
+          </FlashBanner>
+        ) : null}
       <header>
         <Link href="/companies" className="text-xs text-stone-500 hover:text-indigo-600">
           ← Companies
@@ -58,13 +71,14 @@ export default async function CompanyPage({
           <p className="mt-1 text-sm text-stone-600">{c.industry}</p>
         ) : null}
         <ProfileActions company={c} />
-        {c.next_action ? (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-            <span className="font-semibold">Next step:</span> {c.next_action}
-            {c.last_touch ? <span className="ml-2 text-xs text-amber-800">last touch {shortDate(c.last_touch, today)}</span> : null}
-          </div>
-        ) : null}
-        <div className="mt-3">
+        {/* One place for the next step (and the status note with it): the box shows it, ✎ Change edits it. */}
+        <div className={c.next_action ? "mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900" : "mt-3"}>
+          {c.next_action ? (
+            <p>
+              <span className="font-semibold">Next step:</span> {c.next_action}
+              {c.last_touch ? <span className="ml-2 text-xs text-amber-800">last touch {shortDate(c.last_touch, today)}</span> : null}
+            </p>
+          ) : null}
           <StatusEditor
             entity="company"
             id={c.id}
@@ -72,6 +86,7 @@ export default async function CompanyPage({
             statusNote={c.status_note}
             nextAction={c.next_action}
             updatedAt={c.updated_at}
+            label={c.next_action ? "✎ Change" : "✎ Add a next step"}
           />
         </div>
       </header>

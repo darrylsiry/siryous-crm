@@ -1,5 +1,6 @@
 import "./helpers/tempdb";
 import { describe, test } from "node:test";
+import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { buildInboxBodiesPrompt, buildInboxHeadersPrompt, claudeArgs, connectorPreamble, gmailGuardSettings, TOOLS } from "../lib/ai";
 
@@ -87,30 +88,32 @@ describe("connectorPreamble", () => {
 
 describe("the Inbox's two Gmail runs", () => {
   test("the listing searches delivered, to and cc at once, so one match can't hide another", () => {
-    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01", []);
+    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01");
     assert.ok(p.includes("{deliveredto:me+crm@example.com to:me+crm@example.com cc:me+crm@example.com} after:2026/10/01"));
-    assert.doesNotMatch(p, /if it returns nothing/);
   });
 
-  test("the listing opens every thread, in the metadata view only", () => {
-    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01", ["abc123"]);
-    assert.match(p, /call get_thread with messageFormat "METADATA_ONLY", even if its thread id appears/);
+  test("the listing opens every thread, in the metadata view only, and asks for no answer the CRM would trust", () => {
+    const p = buildInboxHeadersPrompt("me+crm@example.com", "2026/10/01");
+    assert.match(p, /call get_thread with messageFormat "METADATA_ONLY"/);
     assert.match(p, /view "THREAD_VIEW_METADATA_ONLY"/);
-    assert.doesNotMatch(p, /body|PLAIN_TEXT|get_message/);
+    assert.doesNotMatch(p, /body|PLAIN_TEXT|get_message|JSON/);
   });
 
   test("the reading step names its ids and only get_message", () => {
     const p = buildInboxBodiesPrompt(["m1", "m2"]);
-    assert.match(p, /call get_message once for each of these message ids.*: m1, m2/s);
+    assert.match(p, /Call get_message once for each of these Gmail message ids.*: m1, m2/s);
     assert.doesNotMatch(p, /search_threads|get_thread/);
   });
 
-  test("the guard is installed as a hook on every MCP call, with only well-formed ids", () => {
-    const hooks = JSON.parse(gmailGuardSettings({ step: "bodies", ids: ["abc123", "x; rm -rf ~", "def_456"] })).hooks.PreToolUse;
-    assert.equal(hooks[0].matcher, "mcp__.*");
-    const command: string = hooks[0].hooks[0].command;
-    assert.match(command, /gmail-guard\.mjs' 'bodies' 'abc123,def_456'$/);
-    assert.ok(claudeArgs("haiku", TOOLS.gmailHeaders, { step: "headers" }).includes("--settings"));
+  test("the guard runs before and after every MCP call, with only well-formed ids, and blocks if it can't start (SEC-028)", () => {
+    const hooks = JSON.parse(gmailGuardSettings({ step: "bodies", runDir: "/tmp/run", ids: ["abc123", "x; rm -rf ~", "def_456"] })).hooks;
+    for (const event of ["PreToolUse", "PostToolUse"]) assert.equal(hooks[event][0].matcher, "mcp__.*");
+    const command: string = hooks.PreToolUse[0].hooks[0].command;
+    assert.match(command, /gmail-guard\.mjs' 'bodies' '\/tmp\/run' 'abc123,def_456' \|\| exit 2$/);
+    // A guard that can't be found must block, not allow (a hook only blocks by exiting 2).
+    const broken = command.replace(/'[^']*gmail-guard\.mjs'/, "'/nonexistent/gmail-guard.mjs'");
+    assert.equal(spawnSync("/bin/sh", ["-c", broken], { input: "{}" }).status, 2);
+    assert.ok(claudeArgs("haiku", TOOLS.gmailHeaders, { step: "headers", runDir: "/tmp/run" }).includes("--settings"));
     assert.ok(!claudeArgs("haiku", TOOLS.gmailRead).includes("--settings"), "other Gmail runs are unchanged");
   });
 });

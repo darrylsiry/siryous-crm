@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { getDb, BUCKETS } from "./db";
+import { getDb, BUCKETS, PICKABLE_BUCKETS } from "./db";
 import { COMPANY_TARGET } from "./logHint";
 import { discardDraft, draftFromInbox, insertIntakeDraft, insertLogDraft, processIntakeDraft, processLogDraft } from "./drafts";
-import { isIsoDate, parseDueDate } from "./dates.mjs";
+import { isIsoDate, parseDueDate, todayLocal } from "./dates.mjs";
 import { bumpLastTouch, markActionDone, profilePath } from "./rules.mjs";
 import { inboxMessageFor, type Receipt } from "./receipts";
 
@@ -14,14 +14,22 @@ export async function analyzeLog(formData: FormData) {
   const notes = String(formData.get("raw_text") ?? "").trim();
   const source = String(formData.get("source") ?? "paste");
   if (notes.length < 10) return;
-  // A form that knows the meeting (Prep's "Log this meeting") sends it as a header line.
+  // A form that knows the meeting (Prep's "Log this meeting") sends it as a
+  // header line, with the date and channel the owner picked: those go to the
+  // AI and onto the draft, so the review starts from them, not from today.
+  const date = String(formData.get("date") ?? "").trim();
+  const meetingDate = isIsoDate(date) && date <= todayLocal() ? date : null;
+  const meetingChannel = String(formData.get("channel") ?? "").trim().slice(0, 60) || null;
   const context = String(formData.get("context") ?? "").trim();
-  const raw = context ? `${context}\n\n${notes}` : notes;
+  const header = context ? `${context}${meetingDate ? ` Date: ${meetingDate}.` : ""}${meetingChannel ? ` Channel: ${meetingChannel}.` : ""}` : "";
+  const raw = header ? `${header}\n\n${notes}` : notes;
   const draftId = insertLogDraft(getDb(), {
     raw,
     source,
     hintPersonId: Number(formData.get("hint_person_id")) || null,
     hintCompanyId: Number(formData.get("hint_company_id")) || null,
+    meetingDate,
+    meetingChannel,
   });
   after(() => processLogDraft(draftId));
   redirect(`/log/${draftId}`);
@@ -208,7 +216,7 @@ function writeLog(db: ReturnType<typeof getDb>, draftId: number, formData: FormD
         const due = isIsoDate(dueRaw) ? dueRaw : null;
         db.prepare(
           `INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id, source) VALUES (?,?,?,?,?,?,?)`
-        ).run("this_week" in BUCKETS ? "this_week" : Object.keys(BUCKETS)[0], due, due, next, personId, null, "next step");
+        ).run("this_week" in PICKABLE_BUCKETS ? "this_week" : Object.keys(PICKABLE_BUCKETS)[0], due, due, next, personId, null, "next step");
         receipt.added++;
       }
     }
@@ -239,7 +247,7 @@ function writeLog(db: ReturnType<typeof getDb>, draftId: number, formData: FormD
     const dueDate = isIsoDate(due) ? due : parseDueDate(due);
     const bucket = String(formData.get(`action_bucket_${i}`) ?? "");
     db.prepare(`INSERT INTO action_items (bucket, due_label, due_date, title, person_id, company_id) VALUES (?,?,?,?,?,?)`).run(
-      Object.hasOwn(BUCKETS, bucket) ? bucket : "this_week",
+      Object.hasOwn(PICKABLE_BUCKETS, bucket) ? bucket : "this_week",
       due,
       dueDate,
       title,

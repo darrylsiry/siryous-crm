@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
 import { getDb, VOCAB } from "./db";
-import { fenced, rosterBlock } from "./ai";
+import { actionsBudget, fenced, rosterBlock, withinBudget } from "./ai";
 import { followUps } from "./queries";
 import { effectiveBucketSql } from "./rules.mjs";
 import { loadOwner } from "./owner.mjs";
@@ -164,7 +164,14 @@ export function weekSnapshot(weekStart: string, kind: CoachKind = "weekly"): str
     ),
     ``,
     `### Open action items (${openActions.length}) — ids are stable, use them to mark completions`,
-    ...openActions.map((a) => `- [#${a.id}] [${a.bucket}] ${a.title}${a.person ? ` (${a.person})` : ""}${a.due_label ? ` — due ${a.due_label}` : ""} (created ${a.created_at.slice(0, 10)})`),
+    // Held to a share of the context window: the overdue and dated ones first.
+    ...withinBudget(
+      openActions,
+      (a) => `- [#${a.id}] [${a.bucket}] ${a.title}${a.person ? ` (${a.person})` : ""}${a.due_label ? ` — due ${a.due_label}` : ""} (created ${a.created_at.slice(0, 10)})`,
+      (a) => (a.bucket === "overdue" ? 0 : a.due_label ? 1 : 2),
+      actionsBudget(),
+      (n) => `- …and ${n} more open to-dos (the overdue and dated ones are listed)`
+    ),
     ``,
     `### Keep-warm cadences overdue (${overdueAll.length})`,
     ...overdueTouches.map((p) =>

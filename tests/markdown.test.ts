@@ -1,15 +1,25 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { marked } from "marked";
-// Importing the component registers the sanitising renderer overrides on the
-// shared `marked` instance (module side effect). The component itself is never rendered here.
-import Markdown from "../components/Markdown";
+import Markdown, { renderMarkdown } from "../components/Markdown";
 
-const render = (md: string) => marked.parse(md, { async: false }) as string;
+const render = (md: string) => renderMarkdown(md);
 
 describe("Markdown sanitisation", () => {
-  test("the module exports a component and registers the renderer", () => {
+  test("the module exports a component and its renderer", () => {
     assert.equal(typeof Markdown, "function");
+  });
+
+  test("an external link shows the site it really goes to; in model-written text it loses its query (SEC-029)", () => {
+    const md = "Met at the summit [(per calendar)](https://evil.example/c?r=sam-lee,active#x).";
+    const own = render(md);
+    assert.match(own, /href="https:\/\/evil\.example\/c\?r=sam-lee,active#x"/, "your own notes keep their links");
+    assert.match(own, /↗ evil\.example/);
+    const model = renderMarkdown(md, true);
+    assert.match(model, /href="https:\/\/evil\.example\/c"/);
+    assert.doesNotMatch(model, /sam-lee/);
+    assert.match(model, /↗ evil\.example/);
+    // A link whose text already names the site doesn't repeat it.
+    assert.doesNotMatch(render("[reuters.com/x](https://www.reuters.com/x)"), /↗/);
   });
 
   test("raw HTML blocks are escaped, never emitted", () => {

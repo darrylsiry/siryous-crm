@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { openDatabase } from "./schema.mjs";
-import { loadVocab } from "./vocab.mjs";
+import { loadVocab, COMPUTED_BUCKETS } from "./vocab.mjs";
 import { shared } from "./serverState";
 
 /** Override with CRM_DB_PATH; otherwise data/crm.db under the project root. */
@@ -30,6 +30,8 @@ export const STATUS: Record<string, { emoji: string; label: string; color: strin
   VOCAB.status;
 
 export const BUCKETS: Record<string, { label: string; icon: string; order: number }> = VOCAB.buckets;
+/** The groups a to-do can be filed under: all but the computed "Overdue" (lib/vocab.mjs). */
+export const PICKABLE_BUCKETS: typeof BUCKETS = Object.fromEntries(Object.entries(BUCKETS).filter(([k]) => !COMPUTED_BUCKETS.includes(k)));
 
 export const STRENGTHS: readonly string[] = VOCAB.strengths;
 

@@ -198,13 +198,13 @@ export default async function CoachSessionPage({ params }: { params: Promise<{ i
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-600">
                 Session closed {session.closed_at ? shortDate(localDateOf(session.closed_at)) : ""}
               </p>
-              <Markdown>{session.summary_md}</Markdown>
+              <Markdown modelWritten>{session.summary_md}</Markdown>
               <ProposalReview sessionId={session.id} group="close" proposals={closeProposals} people={people} />
             </article>
           ) : null}
 
           <article className="rounded-xl border border-stone-200 bg-white p-8">
-            <Markdown>{session.advice_md ?? "*No advice recorded.*"}</Markdown>
+            <Markdown modelWritten>{session.advice_md ?? "*No advice recorded.*"}</Markdown>
             <p className="mt-6 border-t border-stone-100 pt-3 text-xs text-stone-500">
               Written {localStamp(session.created_at)} from your CRM{coach.contextDir ? " and your notes folder" : ""}.
             </p>
@@ -244,7 +244,7 @@ export default async function CoachSessionPage({ params }: { params: Promise<{ i
                       <p className="mb-1 text-[0.65rem] font-semibold uppercase tracking-wide text-stone-500">
                         {m.role === "coach" ? "◎ Coach" : "You"} · {localStamp(m.created_at)}
                       </p>
-                      <Markdown>{m.content_md}</Markdown>
+                      <Markdown modelWritten>{m.content_md}</Markdown>
                       {m.role === "coach" ? <ProposalReview sessionId={session.id} group={String(m.id)} proposals={forMessage(m.id)} people={people} /> : null}
                     </li>
                   )
