@@ -235,7 +235,7 @@ export default async function LogReviewPage({
           <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Summary</h2>
             <div className="mt-1">
-              <Markdown modelWritten>{a.summary_md}</Markdown>
+              <Markdown>{a.summary_md}</Markdown>
             </div>
           </section>
 

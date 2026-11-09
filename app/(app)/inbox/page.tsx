@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDb } from "@/lib/db";
 import { getAiStatus } from "@/lib/aiStatus";
-import { getInboxSettings, inboxPollRunning, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE, type InboxRow } from "@/lib/inbox";
+import { getInboxSettings, inboxPollRunning, inboxReading, parseIds, parsePeople, UNKNOWN_SENDER_ROUTE, type InboxRow } from "@/lib/inbox";
 import { localQueueDepth } from "@/lib/llm";
 import { readProgress } from "@/lib/progress";
 import { cleanSubject, INBOX_AWAY_POLL_MINUTES } from "@/lib/inboxRoute";
@@ -112,6 +112,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
       (r.log_draft_id && ["analyzing", "pending"].includes(statusOf("log_drafts", r.log_draft_id))) ||
       parseIds(r.intake_draft_ids).some((id) => ["analyzing", "pending"].includes(statusOf("intake_drafts", id)))
   );
+  const reading = rows.some((r) => inboxReading(r.id));
   let lastResult: { at: string; ok: boolean; text: string } | null = null;
   try {
     lastResult = JSON.parse(getSetting("inbox.last_result") ?? "null");
@@ -162,9 +163,10 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
             className={input}
           />
           <span className="mt-1 block text-xs text-stone-500">
-            Only email sent from your own addresses is acted on — anything else at the CRM address is listed as
-            ignored. List every address you forward or copy from, so mail from it is accepted and never mistaken
-            for a contact.
+            Mail you send from this Gmail account is read by itself. Mail from an address listed here, or from your
+            main address if it&rsquo;s a different one, waits in the queue for you to click <b>Read this email</b>,
+            because anyone can put your address on an email. Anything else at the CRM address is listed as ignored.
+            List every address you forward or copy from, so mail from it isn&rsquo;t ignored or mistaken for a contact.
             {owner.ownerEmail ? (
               <>
                 {" "}
@@ -188,7 +190,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
           nothing is saved until you confirm.
         </p>
       </header>
-      {drafting || running ? <AutoRefresh seconds={10} /> : null}
+      {drafting || running || reading ? <AutoRefresh seconds={10} /> : null}
 
       {saved ? (
         <FlashBanner cleanHref="/inbox" className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
@@ -270,7 +272,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     {r.unread ? <span className="h-2 w-2 shrink-0 self-center rounded-full bg-red-600" title="Unread" /> : null}
                     <Link href={`/inbox/${r.id}`} className={`${r.unread ? "font-semibold text-stone-900" : "font-medium text-stone-800"} hover:text-indigo-700 hover:underline`} title="Open the original email">
-                      {cleanSubject(r.subject ?? "") || "(no subject)"}
+                      {r.status === "held" ? "Not read yet" : cleanSubject(r.subject ?? "") || "(no subject)"}
                     </Link>
                     <span className="text-xs text-stone-500">
                       {shortDate(r.date ?? r.created_at)} · {r.sender}
@@ -307,7 +309,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                           ? "Ignored — not sent from one of your addresses (add it under “Your other email addresses”, then forward it again)"
                           : "Ignored"}
                       </span>
-                    ) : (
+                    ) : r.status === "held" ? null : (
                       <span className="text-stone-500">Waiting to be routed</span>
                     )}
                   </div>
@@ -315,6 +317,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                     <InboxRedo
                       id={r.id}
                       status={r.status}
+                      error={r.error}
                       hasText={!!r.body.trim()}
                       drafts={[
                         ...(r.log_draft_id ? [statusOf("log_drafts", r.log_draft_id)] : []),
@@ -380,7 +383,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         </p>
         <p className="text-xs text-stone-500">
           The mailbox is checked every {s.pollMinutes} minutes while you use the CRM ({Math.max(s.pollMinutes, INBOX_AWAY_POLL_MINUTES) / 60} hours
-          otherwise), and drafting needs this Mac to be on and awake.
+          otherwise), and drafting needs this Mac to be on and awake. Send it from your Gmail account: from another
+          address, it waits for you to click <b>Read this email</b>.
         </p>
       </section>
 

@@ -3,7 +3,7 @@
  * Drafting, Ready to review, Failed, Saved or Discarded, never "analyzing",
  * "[ready]" or "see why" on one page and something else on the next.
  */
-export type StateWord = "Drafting" | "Ready to review" | "Failed" | "Saved" | "Discarded" | "Not routed";
+export type StateWord = "Drafting" | "Ready to review" | "Failed" | "Saved" | "Discarded" | "Not routed" | "Not read yet";
 
 /** A stored draft, brief or coach-session status as the word the owner sees. */
 export function stateWord(status: string | null | undefined): StateWord {
@@ -44,6 +44,6 @@ export function stateTone(word: StateWord): string {
 }
 
 /** An open Inbox item's state (lib/inbox.ts openInboxItems) as its word. */
-export function inboxStateLabel(state: "ready" | "error" | "working" | "unrouted"): StateWord {
-  return state === "unrouted" ? "Not routed" : stateWord(state);
+export function inboxStateLabel(state: "ready" | "error" | "working" | "unrouted" | "held"): StateWord {
+  return state === "unrouted" ? "Not routed" : state === "held" ? "Not read yet" : stateWord(state);
 }

@@ -266,17 +266,21 @@ the top and Settings at the bottom. In rough order of how often you'll use it:
   draft is in the model's queue and updates by itself, and an email's
   **More** menu re-routes anything it guessed wrong (replacing that email's
   unsaved drafts rather than adding more; a saved Log entry stays, and isn't
-  offered again) or ignores it (discarding its unsaved drafts). Only
-  email sent from your own addresses (the one in `config/owner.json`, plus any
-  you list under **Your other email addresses**) is read or acted on: anyone
-  can write to a plus-address. Each check first lists the new messages by
-  sender, recipients and date only (no subject or text), then reads just your
-  own, by message id; a guard on the Gmail connector blocks every other kind of
-  call. The sender, recipients, labels and text the CRM goes by are the ones
-  Gmail itself returned to those calls, recorded as they happen, never Claude's
-  account of them, so an email can't talk the AI into misreporting who sent
-  it. So anyone else's message, a reply-all in a thread you copied the CRM
-  on included, isn't read by any AI: it is listed as ignored, headers only.
+  offered again) or ignores it (discarding its unsaved drafts). Only mail you
+  send from the Gmail account itself is read without asking, because Gmail
+  files it as Sent and nobody else can do that. Mail from your other addresses
+  (the one in `config/owner.json` if it's a different one, plus any you list
+  under **Your other email addresses**) waits in the queue, unread, until you
+  click **Read this email**: anyone can put your address on an email. If you
+  don't, it drops off the list after 30 days and stays in Gmail. Each check
+  first lists the new messages by sender, recipients and date only (no subject
+  or text), then reads just the ones it may, by message id; a guard on the
+  Gmail connector blocks every other kind of call. The sender, recipients,
+  labels and text the CRM goes by are the ones Gmail itself returned to those
+  calls, recorded as they happen, never Claude's account of them, so an email
+  can't talk the AI into misreporting who sent it. So mail you didn't send and
+  didn't choose to read, a forged From or a reply-all in a thread you copied
+  the CRM on included, isn't read by any AI: it is kept as headers only.
   A note you write at the top of an email is followed as your instruction
   ("log this on Sam") only when Gmail filed the email as sent from your own
   account; from your other addresses it is read as context. To set it
@@ -422,9 +426,9 @@ This matters, so here it is plainly:
     been on for that meeting).
   - Inbox: each mailbox check is two Claude runs. The first lists the mail
     delivered to your CRM address by sender, recipients, date and Gmail label,
-    never a subject or any text. The second reads only the messages that are
-    from your own addresses. The routing and the drafting then happen on this
-    Mac.
+    never a subject or any text. The second reads only the messages Gmail
+    filed as sent from your account. **Read this email** is one more run, for
+    that message alone. The routing and the drafting then happen on this Mac.
   - News Feed (only once you turn it on, then daily, or when you click "Check
     now"): for each person, their name, role, employer and location;
     for each company, its name, industry, headquarters, website and the names
@@ -467,11 +471,17 @@ kept in the database's section history.
 
 Text that came from an email, a transcript or the web is shown as text: links
 open only when you click them, and images are never loaded by themselves.
-A link to another site shows where it goes (↗ example.com). Links in a Prep
-briefing, a Coach session, an outreach draft or a news item, and every link in
-a Word export, also lose anything after a `?`. That limits what a link the AI
-wrote can carry in its address but doesn't rule it out, so look before you
-click one you didn't write.
+A link to another site in a briefing, draft, note, log entry or to-do shows
+where it goes (↗ example.com) and doesn't go there directly: it first opens a
+page in the CRM with the whole address, and nothing reaches that site until you
+click **Open** there. That's because an AI could be steered into hiding your data
+in a link's address. Saved text can't be told apart from what an AI wrote, so
+links you typed yourself stop at that page too. A Word export prints a link's
+address as plain text, without anything after a `?`. Two kinds of link still go
+straight there: a news headline, which needs its full path to reach the article
+and loses only what's after a `?` (the AI writing it never sees your notes or
+deals), and a contact's LinkedIn or a company's website, which show the
+address in full.
 
 ## Where your data lives, and backups
 

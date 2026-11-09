@@ -33,15 +33,17 @@ import { shared } from "./serverState";
  * aren't), or both. Nothing is written to the roster until the owner
  * confirms the drafts, exactly as with a paste.
  *
- * Only email whose From is one of the owner's addresses (owner.json's, the
- * CRM address, inbox.extra_owner_emails) is read or routed. Step 1 lists the
- * new messages as headers only (scripts/gmail-guard.mjs blocks any view that
- * returns a subject or text); step 2 reads the owner's own messages by id.
- * Anyone else's message, a reply-all in a thread the owner copied included,
- * is stored as ignored, route 'unknown sender', headers only, and never read
- * by a model. Mail Gmail filed as Sent from the owner's account is marked
- * verified; a note at the top of other mail is read as context, not as the
- * owner's instructions (buildLogPrompt). Ignored mail is purged after
+ * Only mail Gmail itself filed as Sent from this account is read without
+ * asking: a From line can be forged, and that label can't. Step 1 lists the new
+ * messages as headers only (scripts/gmail-guard.mjs blocks any view that returns
+ * a subject or text); step 2 reads those by id, and they are marked verified.
+ * Mail whose From is one of the owner's addresses (owner.json's, the CRM address,
+ * inbox.extra_owner_emails) without that label is held: headers only, read by no
+ * model, until the owner clicks "Read this email" (readHeldMessage). It stays
+ * unverified, so a note at its top is read as context, not as the owner's
+ * instructions (buildLogPrompt). Anyone else's message, a reply-all in a thread
+ * the owner copied included, is stored as ignored, route 'unknown sender',
+ * headers only, and never read by a model. Ignored and held mail is purged after
  * IGNORED_KEEP_DAYS.
  *
  * Settings (key/value, edited on /inbox): inbox.address, inbox.enabled,
@@ -106,12 +108,12 @@ export function inboxOwnerEmails(s: InboxSettings = getInboxSettings()): string[
 // Polling
 // ---------------------------------------------------------------------------
 
-/** Ignored mail (headers only) is deleted after this many days. */
+/** Ignored and held mail (headers only) is deleted after this many days. */
 const IGNORED_KEEP_DAYS = 30;
 
-/** Delete ignored mail older than IGNORED_KEEP_DAYS: it was never wanted. */
+/** Delete ignored and held mail older than IGNORED_KEEP_DAYS: unwanted, or never chosen, and the email itself stays in Gmail. */
 export function purgeIgnoredMail(db: Database.Database = getDb()): number {
-  return db.prepare(`DELETE FROM inbox_messages WHERE status='ignored' AND created_at < datetime('now', ?)`).run(`-${IGNORED_KEEP_DAYS} days`).changes;
+  return db.prepare(`DELETE FROM inbox_messages WHERE status IN ('ignored','held') AND created_at < datetime('now', ?)`).run(`-${IGNORED_KEEP_DAYS} days`).changes;
 }
 
 /** After a capped check that stored new mail, the next one runs this soon (the loop ticks every minute). */
@@ -119,7 +121,7 @@ const FOLLOW_UP_MS = 2 * 60_000;
 /** Ids sent as "already recorded" in the fetch prompt, at most. */
 const MAX_SEEN_IDS = 500;
 
-const state = shared("inbox", () => ({ polling: null as Promise<PollResult> | null, loopTimer: null as NodeJS.Timeout | null }));
+const state = shared("inbox", () => ({ polling: null as Promise<PollResult> | null, loopTimer: null as NodeJS.Timeout | null, reading: new Set<number>() }));
 
 export interface PollResult {
   fetched: number;
@@ -127,6 +129,8 @@ export interface PollResult {
   skipped: number;
   /** Not sent from one of the owner's addresses — stored, not routed. */
   ignored: number;
+  /** From one of the owner's addresses but not filed as Sent — stored unread, waiting for the owner. */
+  held: number;
   error: string | null;
   /** The check stored new mail and returned as many messages as it may: more may be waiting, and a follow-up check fetches them. */
   capped?: boolean;
@@ -158,7 +162,7 @@ function gmailDate(d: Date): string {
 async function pollInboxInner(): Promise<PollResult> {
   const db = getDb();
   const s = getInboxSettings();
-  const result: PollResult = { fetched: 0, routed: 0, skipped: 0, ignored: 0, error: null };
+  const result: PollResult = { fetched: 0, routed: 0, skipped: 0, ignored: 0, held: 0, error: null };
   if (!s.address) {
     result.error = "No CRM address is set.";
     return result;
@@ -191,12 +195,17 @@ async function pollInboxInner(): Promise<PollResult> {
     const owners = inboxOwnerEmails(s);
     const mine: GmailRecordParsed[] = [];
     for (const m of messages) {
-      if (sentByOwner({ from: m.sender }, owners)) {
+      if (!sentByOwner({ from: m.sender }, owners)) {
+        // Anyone else's message: its headers are kept (so it isn't listed again); its text was never read.
+        storeHeadersOnly(db, m, "ignored");
+        result.ignored++;
+      } else if (m.labels.includes("SENT")) {
+        // Gmail filed it as sent from this account: the label is Gmail's, not the sender's or the model's.
         mine.push(m);
       } else {
-        // Anyone else's message: its headers are kept (so it isn't listed again); its text was never read.
-        storeIgnored(db, m);
-        result.ignored++;
+        // Its From says it's the owner's, which anyone can write: it waits for the owner to choose.
+        storeHeadersOnly(db, m, "held");
+        result.held++;
       }
     }
     // Step 2: read the owner's own messages, by id and nothing else.
@@ -209,16 +218,11 @@ async function pollInboxInner(): Promise<PollResult> {
         if (!m || m.body === undefined) continue;
         // Both answers come from Gmail; one that names a different sender is kept out.
         if (m.sender.trim().toLowerCase() !== h.sender.trim().toLowerCase()) {
-          storeIgnored(db, h);
+          storeHeadersOnly(db, h, "ignored");
           result.ignored++;
           continue;
         }
-        const stored = storeMessage(
-          db,
-          { id: h.id, thread_id: h.threadId, date: day(h.date), subject: m.subject ?? "", from: named(h.sender, h), to: h.to.map((a) => named(a, h)), cc: h.cc.map((a) => named(a, h)), body: m.body },
-          // Gmail filed it as sent from the owner's own account: the label is Gmail's, not the model's.
-          h.labels.includes("SENT")
-        );
+        const stored = storeMessage(db, { id: h.id, thread_id: h.threadId, date: day(h.date), subject: m.subject ?? "", from: named(h.sender, h), to: h.to.map((a) => named(a, h)), cc: h.cc.map((a) => named(a, h)), body: m.body });
         if (!stored) {
           result.skipped++;
           continue;
@@ -229,7 +233,7 @@ async function pollInboxInner(): Promise<PollResult> {
     }
     // More waiting than one check stores, or the search itself came back full.
     const full = fresh.length > INBOX_MAX_PER_POLL || listed.searchedThreads >= INBOX_SEARCH_THREADS;
-    const storedNew = result.routed + result.ignored;
+    const storedNew = result.routed + result.ignored + result.held;
     result.capped = full && storedNew > 0;
     if (result.capped) {
       // Oldest first and full: there may be more waiting. Keep the look-back
@@ -321,12 +325,12 @@ function named(address: string, m: GmailRecordParsed): string {
   return clean ? `${clean} <${address}>` : address;
 }
 
-/** Store a message nobody may read: its headers, so it isn't listed again, and no subject or text. */
-function storeIgnored(db: Database.Database, m: GmailRecordParsed): void {
+/** Store a message nothing has read: its headers, so it isn't listed again, and no subject or text. */
+function storeHeadersOnly(db: Database.Database, m: GmailRecordParsed, status: "ignored" | "held"): void {
   db.prepare(
     `INSERT OR IGNORE INTO inbox_messages (gmail_id, thread_id, subject, sender, recipients, date, body, status, route)
-     VALUES (?,?,'',?,?,?,'','ignored',?)`
-  ).run(m.id, m.threadId, named(m.sender, m), JSON.stringify({ to: m.to, cc: m.cc }), day(m.date), UNKNOWN_SENDER_ROUTE);
+     VALUES (?,?,'',?,?,?,'',?,?)`
+  ).run(m.id, m.threadId, named(m.sender, m), JSON.stringify({ to: m.to, cc: m.cc }), day(m.date), status, status === "ignored" ? UNKNOWN_SENDER_ROUTE : null);
 }
 
 /**
@@ -345,22 +349,60 @@ function lookBackPast(messages: { date: string | null }[], lastPollAt: string | 
 }
 
 /**
- * Insert the message if it is new; null when it was seen before or is empty.
- * `verified`: Gmail filed it as Sent from the owner's own account.
+ * Insert a message Gmail filed as Sent from the owner's own account (so,
+ * verified) if it is new; null when it was seen before or is empty.
  */
 function storeMessage(
   db: Database.Database,
-  m: { id: string; thread_id: string | null; date: string | null; subject: string; from: string; to: string[]; cc: string[]; body: string },
-  verified: boolean
+  m: { id: string; thread_id: string | null; date: string | null; subject: string; from: string; to: string[]; cc: string[]; body: string }
 ): number | null {
   if (!m.body.trim() && !m.subject.trim()) return null;
   const r = db
     .prepare(
       `INSERT OR IGNORE INTO inbox_messages (gmail_id, thread_id, subject, sender, recipients, date, body, status, verified)
-       VALUES (?,?,?,?,?,?,?,'new',?)`
+       VALUES (?,?,?,?,?,?,?,'new',1)`
     )
-    .run(m.id, m.thread_id, m.subject, m.from, JSON.stringify({ to: m.to, cc: m.cc }), m.date, m.body, verified ? 1 : 0);
+    .run(m.id, m.thread_id, m.subject, m.from, JSON.stringify({ to: m.to, cc: m.cc }), m.date, m.body);
   return r.changes ? Number(r.lastInsertRowid) : null;
+}
+
+/** "Read this email" is running for this message. */
+export function inboxReading(id: number): boolean {
+  return state.reading.has(id);
+}
+
+/**
+ * "Read this email": the owner's go-ahead for one held message. One more Gmail
+ * run, limited by the guard to its id, then it is routed like any other, except
+ * that it stays unverified: choosing to read it doesn't prove who sent it. It
+ * stays held, with the reason, when it can't be read; if the owner ignored it
+ * meanwhile, that stands.
+ */
+export async function readHeldMessage(id: number): Promise<void> {
+  const db = getDb();
+  const row = loadInboxRow(db, id);
+  if (!row || row.status !== "held" || state.reading.has(id)) return;
+  state.reading.add(id);
+  const fail = (reason: string) => db.prepare(`UPDATE inbox_messages SET error=? WHERE id=? AND status='held'`).run(reason, id);
+  try {
+    if (!claudeBin()) throw new Error("The Claude tool isn't installed, so the mailbox can't be read (see “If you use Claude” in the README).");
+    const read = await gmailRun(buildInboxBodiesPrompt([row.gmail_id]), TOOLS.gmailMessage, "bodies", [row.gmail_id]);
+    const m = read.records.get(row.gmail_id);
+    if (!m || m.body === undefined) return void fail("Gmail didn't return it this time. Try again.");
+    // Both answers come from Gmail; one that names a different sender is kept out.
+    const listed = senderAddress(row.sender ?? "");
+    if (!listed || senderAddress(m.sender) !== listed) {
+      db.prepare(`UPDATE inbox_messages SET status='ignored', route=?, error=NULL WHERE id=? AND status='held'`).run(UNKNOWN_SENDER_ROUTE, id);
+      return;
+    }
+    if (!m.body.trim() && !(m.subject ?? "").trim()) return void fail("It has no subject or text to read.");
+    const stored = db.prepare(`UPDATE inbox_messages SET subject=?, body=?, status='new', verified=0, error=NULL WHERE id=? AND status='held'`).run(m.subject ?? "", m.body, id);
+    if (stored.changes) routeMessage(db, id);
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  } finally {
+    state.reading.delete(id);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -455,7 +497,8 @@ export function parsePeople(json: string | null): Participant[] {
  */
 export function routeMessage(db: Database.Database, id: number, force: "log" | "intake" | null = null, who: string | null = null): void {
   const row = loadInboxRow(db, id);
-  if (!row) return;
+  // Held mail has no text yet, and reading it is the owner's choice (readHeldMessage).
+  if (!row || row.status === "held") return;
   const email = emailOf(row);
   const owners = inboxOwnerEmails();
 
@@ -582,8 +625,8 @@ export interface OpenInboxItem {
   subject: string | null;
   sender: string | null;
   date: string;
-  /** ready = a draft awaits review; working = the model is still on it; error = a draft or the routing failed; unrouted = not routed yet. */
-  state: "ready" | "working" | "error" | "unrouted";
+  /** ready = a draft awaits review; working = the model is still on it; error = a draft or the routing failed; unrouted = not routed yet; held = waiting for the owner to choose to read it. */
+  state: "ready" | "working" | "error" | "unrouted" | "held";
   /** Where a click should go: the first ready draft's review page, else the email. */
   href: string;
 }
@@ -621,6 +664,10 @@ export function openInboxItems(limit = 100): OpenInboxItem[] {
   for (const r of rows) {
     if (out.length >= limit) break;
     const base = { id: r.id, subject: r.subject, sender: r.sender, date: r.date ?? r.created_at.slice(0, 10) };
+    if (r.status === "held") {
+      out.push({ ...base, state: "held", href: `/inbox/${r.id}` });
+      continue;
+    }
     if (r.status === "error") {
       out.push({ ...base, state: "error", href: `/inbox/${r.id}` });
       continue;

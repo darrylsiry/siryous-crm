@@ -13,7 +13,7 @@ import {
   TextRun,
   WidthType,
 } from "docx";
-import { linkHost, safeHref, withoutQuery } from "./safeHref";
+import { safeHref, withoutQuery } from "./safeHref";
 
 /**
  * Convert a Markdown prep brief into an editable Word document. Covers what
@@ -49,22 +49,25 @@ function inlineRuns(
         out.push(new TextRun({ text: (t as Tokens.Codespan).text, font: "Courier New", ...style }));
         break;
       case "link": {
-        // Only web, mail and phone links become hyperlinks (lib/safeHref.ts);
-        // a file:, javascript: or site-relative link is just its text. The
-        // export is of a brief a model wrote, so a web link loses its query
-        // string and says which site it opens (as the page does).
+        // Only mail and phone links stay clickable (lib/safeHref.ts); a file:,
+        // javascript: or site-relative link is just its text. The export is of
+        // a brief a model wrote, and a Word document has no page to stop at
+        // before leaving, so a web link becomes its text and then its address,
+        // without a query, as plain text: all of it on show, and nothing to click.
         const link = t as Tokens.Link;
         const href = safeHref(link.href);
-        if (href && /^(https?:|mailto:|tel:)/i.test(href)) {
-          const to = /^https?:/i.test(href) ? withoutQuery(href) : href;
-          const host = /^https?:/i.test(href) ? linkHost(to) : "";
+        if (href && /^https?:/i.test(href)) {
+          const to = withoutQuery(href);
+          const isAddress = !link.text || /^https?:\/\//i.test(link.text.trim());
+          if (isAddress) out.push(new TextRun({ text: to, ...style }));
+          else out.push(...inlineRuns(link.tokens, style), new TextRun({ text: ` (${to})`, ...style }));
+        } else if (href && /^(mailto:|tel:)/i.test(href)) {
           out.push(
             new ExternalHyperlink({
-              link: to,
-              children: [new TextRun({ text: link.text || to, style: "Hyperlink", ...style })],
+              link: href,
+              children: [new TextRun({ text: link.text || href, style: "Hyperlink", ...style })],
             })
           );
-          if (host && !(link.text || "").toLowerCase().includes(host.toLowerCase())) out.push(new TextRun({ text: ` (${host})`, ...style }));
         } else {
           out.push(...inlineRuns(link.tokens, style));
         }

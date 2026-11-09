@@ -267,7 +267,7 @@ export default async function Dashboard() {
 
   // ── Signals: inbox drafts to review, and news — deal-related first.
   const inbox = openInboxItems();
-  const toReview = inbox.filter((m) => m.state === "ready" || m.state === "error");
+  const toReview = inbox.filter((m) => m.state === "ready" || m.state === "error" || m.state === "held");
   const drafting = inbox.filter((m) => m.state === "working");
   const dealRefs = new Set<string>();
   for (const d of deals) {
@@ -616,10 +616,10 @@ export default async function Dashboard() {
                   {inbox.slice(0, 6).map((m) => (
                     <li key={m.id} className="flex items-baseline justify-between gap-2 py-2 text-sm">
                       <Link href={m.href} className="min-w-0 truncate text-stone-800 hover:text-indigo-700">
-                        {cleanSubject(m.subject ?? "") || "(no subject)"}
+                        {m.state === "held" ? m.sender : cleanSubject(m.subject ?? "") || "(no subject)"}
                       </Link>
                       <span
-                        className={`shrink-0 text-xs ${m.state === "ready" ? "font-medium text-green-700" : m.state === "error" ? "text-red-700" : "text-stone-500"}`}
+                        className={`shrink-0 text-xs ${m.state === "ready" ? "font-medium text-green-700" : m.state === "error" ? "text-red-700" : m.state === "held" ? "text-amber-700" : "text-stone-500"}`}
                       >
                         {inboxStateLabel(m.state)}
                       </span>

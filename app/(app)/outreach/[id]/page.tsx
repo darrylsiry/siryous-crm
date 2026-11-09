@@ -50,7 +50,7 @@ export default async function OutreachDetail({ params }: { params: Promise<{ id:
         </div>
       </header>
       <div className="rounded-xl border border-stone-200 bg-white p-6">
-        <Markdown modelWritten>{o.body ?? ""}</Markdown>
+        <Markdown>{o.body ?? ""}</Markdown>
       </div>
       <p className="text-xs text-stone-500">
         The CRM doesn&apos;t send anything: copy the text into your email, then mark it sent here.

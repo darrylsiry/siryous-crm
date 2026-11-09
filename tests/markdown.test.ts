@@ -9,17 +9,35 @@ describe("Markdown sanitisation", () => {
     assert.equal(typeof Markdown, "function");
   });
 
-  test("an external link shows the site it really goes to; in model-written text it loses its query (SEC-029)", () => {
-    const md = "Met at the summit [(per calendar)](https://evil.example/c?r=sam-lee,active#x).";
-    const own = render(md);
-    assert.match(own, /href="https:\/\/evil\.example\/c\?r=sam-lee,active#x"/, "your own notes keep their links");
-    assert.match(own, /↗ evil\.example/);
-    const model = renderMarkdown(md, true);
-    assert.match(model, /href="https:\/\/evil\.example\/c"/);
-    assert.doesNotMatch(model, /sam-lee/);
-    assert.match(model, /↗ evil\.example/);
-    // A link whose text already names the site doesn't repeat it.
+  // The address a link opens, read back out of the page it goes to first.
+  const opens = (html: string) => {
+    const m = html.match(/href="\/open-link\?to=([^"]*)"/);
+    return m ? decodeURIComponent(m[1].replace(/&amp;/g, "&")) : null;
+  };
+
+  test("a link to another site stops at the CRM's own page, so no address leaves on one click (SEC-029)", () => {
+    for (const to of ["https://evil.example/c?r=sam-lee,active#x", "https://evil.example/sam-lee/active/", "https://sam-lee-active.evil.example/"]) {
+      const html = render(`Met at the summit [(per calendar)](${to}).`);
+      assert.equal(opens(html), to, "the whole address reaches the page, to be shown there");
+      assert.doesNotMatch(html, /href="https?:/, "and nothing in the page links to it directly");
+      assert.match(html, /↗ .*evil\.example/);
+    }
+  });
+
+  test("the site beside a link can't be hidden by text that merely contains it (SEC-029)", () => {
+    assert.match(render("[reuters.com](https://rs.com/)"), /↗ rs\.com/);
+    assert.match(render("[see reuters.com today](https://rs.com/)"), /↗ rs\.com/);
+    assert.match(render("[reuters.com@rs.com](https://rs.com/)"), /↗ rs\.com/);
+    assert.match(render("[rеuters.com](https://xn--ruters-3ve.com/)"), /↗ xn--/, "letters that only look like another site's");
+    // Text that really is the site's own address doesn't repeat it.
     assert.doesNotMatch(render("[reuters.com/x](https://www.reuters.com/x)"), /↗/);
+    assert.doesNotMatch(render("https://www.reuters.com/x"), /↗/);
+  });
+
+  test("a link's title can't claim to be somewhere else", () => {
+    const html = render(`[x](https://evil.example/ "Official Reuters page")`);
+    assert.doesNotMatch(html, /Reuters/);
+    assert.match(html, /title="evil\.example"/);
   });
 
   test("raw HTML blocks are escaped, never emitted", () => {
@@ -49,15 +67,19 @@ describe("Markdown sanitisation", () => {
     assert.doesNotMatch(render("[x]( JavaScript:alert(1))"), /<a /);
   });
 
-  test("https links are kept and open in a new tab with rel=noopener", () => {
-    const html = render("[Site](https://example.com/path?q=1 \"Title\")");
-    assert.match(html, /<a href="https:\/\/example\.com\/path\?q=1" title="Title" target="_blank" rel="noopener noreferrer">Site<\/a>/);
+  test("https links open in a new tab with rel=noopener", () => {
+    const html = render("[Site](https://example.com/path?q=1)");
+    assert.match(html, /<a href="\/open-link\?to=https%3A%2F%2Fexample\.com%2Fpath%3Fq%3D1" title="example\.com" target="_blank" rel="noopener noreferrer">Site<\/a>/);
   });
 
   test("attribute values inside a kept link are escaped", () => {
     const html = render('[x](https://example.com/?a=1&b="2")');
-    assert.match(html, /href="https:\/\/example\.com\/\?a=1&amp;b=&quot;2&quot;"/);
+    assert.equal(opens(html), 'https://example.com/?a=1&b="2"');
     assert.doesNotMatch(html, /href="[^"]*"[^>]*"2"/);
+  });
+
+  test("an address with no usable site isn't a link", () => {
+    assert.doesNotMatch(render("[x](https://)"), /<a /);
   });
 
   test("a protocol-relative link is another site, so it is refused", () => {
@@ -76,7 +98,8 @@ describe("Markdown sanitisation", () => {
   test("images are never loaded: an http(s) image becomes a link, anything else its alt text", () => {
     const img = render("![logo](https://example.com/p.png?d=secret)");
     assert.doesNotMatch(img, /<img/);
-    assert.match(img, /<a href="https:\/\/example\.com\/p\.png\?d=secret" target="_blank" rel="noopener noreferrer">🖼 logo<\/a>/);
+    assert.equal(opens(img), "https://example.com/p.png?d=secret");
+    assert.match(img, />🖼 logo<\/a>/);
     const bad = render("![alt text](javascript:alert(1))");
     assert.doesNotMatch(bad, /<img/);
     assert.match(bad, /alt text/);

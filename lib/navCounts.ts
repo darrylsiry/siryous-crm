@@ -73,13 +73,16 @@ export function navCounts(): NavCounts {
     }
   };
 
-  // Inbox: emails with a draft ready to review or failed, opened or not. Their
-  // drafts are counted here only, so one email doesn't light Log and Intake too.
+  // Inbox: emails with a draft ready to review or failed, or waiting to be read,
+  // opened or not. Their drafts are counted here only, so one email doesn't light
+  // Log and Intake too.
   safe(() => {
     const items = openInboxItems();
     const failed = items.filter((m) => m.state === "error").length;
     const ready = items.filter((m) => m.state === "ready").length;
-    put("/inbox", ready + failed, "alert", failed ? `${ready} to review, ${failed} failed` : "Emails with a draft to review", failed > 0);
+    const held = items.filter((m) => m.state === "held").length;
+    const title = failed || held ? `${ready} to review${held ? `, ${held} not read yet` : ""}${failed ? `, ${failed} failed` : ""}` : "Emails with a draft to review";
+    put("/inbox", ready + failed + held, "alert", title, failed > 0);
   });
 
   const FROM_EMAIL_LOG = `id IN (SELECT log_draft_id FROM inbox_messages WHERE log_draft_id IS NOT NULL)`;

@@ -142,7 +142,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
             ) : null}
           </div>
           <article className="rounded-xl border border-stone-200 bg-white p-8 print:border-0 print:p-0">
-            <Markdown modelWritten>{brief.content_md ?? "*Still generating…*"}</Markdown>
+            <Markdown>{brief.content_md ?? "*Still generating…*"}</Markdown>
             <p className="mt-6 border-t border-stone-100 pt-3 text-xs text-stone-500 print:hidden">
               Prepared {localStamp(brief.created_at)}
               {brief.focus ? ` · focus: ${brief.focus}` : ""} — verify anything attributed to Gmail or the web before relying on it.

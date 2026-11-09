@@ -128,11 +128,13 @@ describe("Inbox: ignored mail keeps no text and is purged (SEC-003, SEC-015)", (
     const db = getDb();
     const add = db.prepare(`INSERT INTO inbox_messages (gmail_id, body, status, created_at) VALUES (?, '', ?, datetime('now', ?))`);
     add.run("old-ignored", "ignored", "-31 days");
+    add.run("old-held", "held", "-45 days");
+    add.run("new-held", "held", "-2 days");
     add.run("new-ignored", "ignored", "-2 days");
     add.run("old-routed", "routed", "-90 days");
-    assert.equal(purgeIgnoredMail(db), 1);
+    assert.equal(purgeIgnoredMail(db), 2);
     const left = (db.prepare(`SELECT gmail_id FROM inbox_messages ORDER BY gmail_id`).all() as { gmail_id: string }[]).map((r) => r.gmail_id);
-    assert.deepEqual(left, ["new-ignored", "old-routed"]);
+    assert.deepEqual(left, ["new-held", "new-ignored", "old-routed"]);
   });
 });
 
@@ -306,7 +308,7 @@ describe("Settings refuse addresses and folders that would leak data (SEC-013, S
   });
 });
 
-describe("The Word export only links web, mail and phone addresses (SEC-019)", () => {
+describe("The Word export only links mail and phone addresses (SEC-019, SEC-029)", () => {
   test("javascript:, file: and protocol-relative links become text; images are never embedded", async () => {
     const buf = await markdownToDocx(
       "[ok](https://example.com/a) [mail](mailto:a@b.co) [js](javascript:alert(1)) [file](file:///etc/passwd) [pr](//evil.example/x) ![tracker](https://tracker.example/p.png)"
@@ -314,21 +316,29 @@ describe("The Word export only links web, mail and phone addresses (SEC-019)", (
     const zip = await JSZip.loadAsync(buf);
     const rels = await zip.file("word/_rels/document.xml.rels")!.async("string");
     const doc = await zip.file("word/document.xml")!.async("string");
-    assert.match(rels, /Target="https:\/\/example\.com\/a"/);
+    assert.ok(doc.includes("https://example.com/a"), "a web link's address is printed");
+    assert.ok(!rels.includes("example.com/a"), "and isn't clickable");
     assert.match(rels, /Target="mailto:a@b\.co"/);
     for (const bad of ["javascript:", "file:", "evil.example", "tracker.example"]) assert.ok(!rels.includes(bad) && !doc.includes(bad), bad);
     assert.match(doc, />tracker</, "the image keeps its description");
     assert.ok(!Object.keys(zip.files).some((f) => f.startsWith("word/media/")));
   });
 
-  test("a web link loses its query string and names the site it opens (SEC-029)", async () => {
-    const buf = await markdownToDocx("Met at the summit [(per calendar)](https://evil.example/c?r=sam-lee,active#x).");
-    const zip = await JSZip.loadAsync(buf);
-    const rels = await zip.file("word/_rels/document.xml.rels")!.async("string");
-    const doc = await zip.file("word/document.xml")!.async("string");
-    assert.match(rels, /Target="https:\/\/evil\.example\/c"/);
-    assert.ok(!rels.includes("sam-lee") && !doc.includes("sam-lee"));
-    assert.match(doc, /\(evil\.example\)/);
+  test("a web link prints its text and address without a query, and can't be clicked (SEC-029)", async () => {
+    const parts = async (md: string) => {
+      const zip = await JSZip.loadAsync(await markdownToDocx(md));
+      return { rels: await zip.file("word/_rels/document.xml.rels")!.async("string"), doc: await zip.file("word/document.xml")!.async("string") };
+    };
+    const named = await parts("Met at the summit [(per calendar)](https://evil.example/c?r=sam-lee,active#x).");
+    assert.ok(!named.rels.includes("evil.example"), "no hyperlink");
+    assert.ok(!named.rels.includes("sam-lee") && !named.doc.includes("sam-lee"));
+    assert.ok(named.doc.includes("(per calendar)"));
+    assert.ok(named.doc.includes("(https://evil.example/c)"));
+    // A bare address written into the text is one address, not two, and loses its query too.
+    const bare = await parts("See https://evil.example/c?r=sam-lee today.");
+    assert.ok(!bare.rels.includes("evil.example"));
+    assert.ok(!bare.doc.includes("sam-lee"));
+    assert.equal(bare.doc.split("https://evil.example/c").length - 1, 1);
   });
 });
 

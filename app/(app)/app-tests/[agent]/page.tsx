@@ -26,7 +26,7 @@ export default async function AgentReportPage({ params }: { params: Promise<{ ag
         </p>
       </header>
       <article className="min-w-0 overflow-x-auto rounded-xl border border-stone-200 bg-white px-6 py-5">
-        <Markdown modelWritten>{report.text}</Markdown>
+        <Markdown>{report.text}</Markdown>
       </article>
     </div>
   );

@@ -44,6 +44,16 @@ describe("navCounts", () => {
     assert.equal(navCounts()["/inbox"]?.dot, undefined); // nothing failed: no red dot
   });
 
+  test("an email waiting to be read counts, and the badge says so (SEC-031)", () => {
+    const db = getDb();
+    const id = db.prepare(`INSERT INTO inbox_messages (gmail_id, body, status) VALUES ('waiting', '', 'held')`).run().lastInsertRowid;
+    const c = navCounts()["/inbox"];
+    assert.equal(c?.n, 3);
+    assert.match(c?.title ?? "", /2 to review, 1 not read yet/);
+    assert.equal(c?.dot, undefined, "nothing failed");
+    db.prepare(`DELETE FROM inbox_messages WHERE id=?`).run(id);
+  });
+
   test("draft queues leave email drafts to the Inbox; actions count overdue only; pipeline counts slipping deals", () => {
     const c = navCounts();
     assert.equal(c["/intake"], undefined); // its one ready draft came from an email

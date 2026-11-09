@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { getDb } from "./db";
-import { discardDrafts, inboxPollRunning, loadInboxRow, markInboxRead, pollInbox, routeMessage, validateInboxAddress, type PollResult } from "./inbox";
+import { discardDrafts, inboxPollRunning, loadInboxRow, markInboxRead, pollInbox, readHeldMessage, routeMessage, validateInboxAddress, type PollResult } from "./inbox";
 import { setSetting } from "./settings";
 import type { FormResult } from "./actions";
 
@@ -43,7 +43,7 @@ function pollMessage(r: PollResult): string {
       ? "Checked — nothing new at the CRM address."
       : `Checked — ${r.routed} new email${r.routed === 1 ? "" : "s"} routed${r.skipped ? ` (${r.skipped} already seen)` : ""}${
           r.ignored ? `; ${r.ignored} from an address that isn't yours, ignored` : ""
-        }.${r.dropped ? ` ${r.dropped} more couldn't be read and were left out.` : ""}${
+        }${r.held ? `; ${r.held} waiting for you to read, below` : ""}.${r.dropped ? ` ${r.dropped} more couldn't be read and were left out.` : ""}${
           r.capped ? " That's as many as one check takes: the rest come in on a follow-up check in a few minutes." : ""
         }`;
 }
@@ -51,6 +51,22 @@ function pollMessage(r: PollResult): string {
 /** The queue, or the message's own page when the form said so (back="message"). */
 function backTo(formData: FormData, id: number): string {
   return formData.get("back") === "message" && id ? `/inbox/${id}` : "/inbox";
+}
+
+/**
+ * "Read this email": the owner's go-ahead to read one held message. It starts
+ * here and carries on in the background, so the page it returns to already
+ * shows it being read. readHeldMessage records its own failures.
+ */
+export async function readInboxMessage(formData: FormData) {
+  const id = Number(formData.get("id"));
+  if (id) {
+    markInboxRead(id);
+    void readHeldMessage(id);
+  }
+  revalidatePath("/inbox");
+  // No banner: it would outlast the reading. The email's own line says it's being read, then shows its draft.
+  redirect(backTo(formData, id));
 }
 
 /** Re-route one message by hand (a wrong guess, or an error after a retry). */

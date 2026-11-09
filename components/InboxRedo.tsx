@@ -1,5 +1,7 @@
-import { ignoreInboxMessage, rerouteInboxMessage } from "@/lib/inboxActions";
+import { ignoreInboxMessage, readInboxMessage, rerouteInboxMessage } from "@/lib/inboxActions";
+import { inboxReading } from "@/lib/inbox";
 import ConfirmButton from "@/components/ConfirmButton";
+import PendingButton from "@/components/PendingButton";
 
 const btn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50";
 
@@ -7,7 +9,8 @@ const btn = "rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs fon
  * An email's "More ▾" menu: route it again as Log or Intake, or ignore it,
  * with what each does said in the menu. Not offered once every draft from the
  * email is saved, and no "Redo as Log" once its Log draft is saved (either
- * would log it twice); replacing a ready draft asks first.
+ * would log it twice); replacing a ready draft asks first. For held mail,
+ * nothing has read it yet, so the choices are to read it or ignore it.
  */
 export default function InboxRedo({
   id,
@@ -16,6 +19,7 @@ export default function InboxRedo({
   back,
   hasText = true,
   logSaved = false,
+  error,
 }: {
   id: number;
   status: string;
@@ -27,7 +31,33 @@ export default function InboxRedo({
   hasText?: boolean;
   /** Its Log draft is saved: the entries are in the CRM, so it can't be logged again. */
   logSaved?: boolean;
+  /** Held mail: why reading it failed last time. */
+  error?: string | null;
 }) {
+  if (status === "held") {
+    if (inboxReading(id)) return <p className="text-xs font-medium text-indigo-700">Reading it now… this page updates by itself.</p>;
+    return (
+      <div className="space-y-2">
+        {error ? <p className="text-xs text-red-700">Couldn&apos;t read it: {error}</p> : null}
+        <p className="text-xs text-stone-600">
+          The AI hasn&apos;t read this. It says it&apos;s from one of your addresses, but anyone can write that on an email:
+          only mail sent from your Gmail account can be proved to be yours. If you sent it or expected it, read it.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <form action={readInboxMessage}>
+            <input type="hidden" name="id" value={id} />
+            {back ? <input type="hidden" name="back" value={back} /> : null}
+            <PendingButton label="Read this email" pendingLabel="Starting…" pendingNote="" className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60" />
+          </form>
+          <form action={ignoreInboxMessage}>
+            <input type="hidden" name="id" value={id} />
+            {back ? <input type="hidden" name="back" value={back} /> : null}
+            <button className={btn}>Ignore</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
   const saved = drafts.length > 0 && drafts.every((d) => d === "confirmed");
   if (saved) return null;
   if (!hasText) {

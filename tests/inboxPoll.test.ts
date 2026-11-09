@@ -3,7 +3,7 @@ import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { getInboxSettings, INBOX_MAX_PER_POLL, openInboxItems, pollInbox, routeMessage } from "../lib/inbox";
+import { getInboxSettings, INBOX_MAX_PER_POLL, inboxReading, openInboxItems, pollInbox, readHeldMessage, routeMessage } from "../lib/inbox";
 import { inboxCheckDue } from "../lib/inboxRoute";
 import { getDb } from "../lib/db";
 import { getSetting, noteAppActivity, setSetting } from "../lib/settings";
@@ -252,24 +252,118 @@ describe("pollInbox", () => {
       assert.equal(row("own-2")?.body, "");
     });
 
-    test("owner mail Gmail didn't label SENT is logged as data only", async () => {
-      listing([meta("own-3", me, { labels: ["INBOX"] }), meta("own-4", me, { labels: ["SENT"] })]);
-      reading([
-        { id: "own-3", sender: me },
-        { id: "own-4", sender: me },
-      ]);
-      await pollInbox();
-      const content = (id: string) =>
-        (getDb().prepare(`SELECT fetched_text FROM log_drafts WHERE id=?`).get(row(id)!.log_draft_id) as { fetched_text: string }).fetched_text;
-      assert.match(content("own-3"), /\(unverified\)/);
-      assert.match(content("own-4"), /\(verified\)/);
-    });
-
     test("a message the reading step didn't return isn't stored, so the next check lists it again", async () => {
       listing([meta("own-5", me, { labels: ["SENT"] })]);
       reading([]);
       await pollInbox();
       assert.equal(row("own-5"), undefined);
+    });
+  });
+
+  describe("a From line can be forged, so only mail Gmail filed as Sent is read without asking (SEC-031)", () => {
+    const other = "me@firm.example";
+    type Held = { id: number; status: string; route: string | null; subject: string; body: string; sender: string; verified: number | null; log_draft_id: number | null; error: string | null };
+    const row = (id: string) => getDb().prepare(`SELECT id, status, route, subject, body, sender, verified, log_draft_id, error FROM inbox_messages WHERE gmail_id=?`).get(id) as Held;
+    const logDrafts = () => (getDb().prepare(`SELECT COUNT(*) n FROM log_drafts`).get() as { n: number }).n;
+    const content = (draftId: number | null) => (getDb().prepare(`SELECT fetched_text FROM log_drafts WHERE id=?`).get(draftId) as { fetched_text: string }).fetched_text;
+    const hold = async (id: string) => {
+      listing([meta(id, other, { name: "Me Myself" })]);
+      await pollInbox();
+      return row(id);
+    };
+    beforeEach(() => setSetting("inbox.extra_owner_emails", other));
+    after(() => setSetting("inbox.extra_owner_emails", null));
+
+    test("an owner address without the SENT label is stored without its text, and no reading run starts", async () => {
+      listing([meta("held-a", other), meta("held-b", "me+crm@example.com", { labels: ["INBOX"] })]);
+      const drafts = logDrafts();
+      const r = await pollInbox();
+      assert.equal(r.error, null);
+      assert.deepEqual([r.routed, r.held, r.ignored], [0, 2, 0]);
+      assert.ok(!fs.existsSync(file("args-bodies.txt")), "get_message is never called for it");
+      assert.deepEqual({ ...row("held-a"), id: 0 }, { id: 0, status: "held", route: null, subject: "", body: "", sender: other, verified: null, log_draft_id: null, error: null });
+      assert.equal(logDrafts(), drafts, "and nothing is drafted");
+    });
+
+    test("the label decides, not the address: the same address filed as Sent is read and verified", async () => {
+      listing([meta("sent-a", other, { labels: ["SENT"] })]);
+      reading([{ id: "sent-a", sender: other }]);
+      await pollInbox();
+      assert.equal(row("sent-a").status, "routed");
+      assert.equal(row("sent-a").verified, 1);
+      assert.match(content(row("sent-a").log_draft_id), /\(verified\)/);
+    });
+
+    test("held mail is on the owner's list, counts as stored for a capped check, and isn't listed again", async () => {
+      const held = await hold("held-c");
+      assert.deepEqual(openInboxItems().map((i) => [i.id, i.state, i.href]), [[held.id, "held", `/inbox/${held.id}`]]);
+      const again = await pollInbox();
+      assert.deepEqual([again.held, again.skipped], [0, 1]);
+    });
+
+    test("Read this email reads that message alone and routes it, still unverified", async () => {
+      const held = await hold("held-d");
+      reading([{ id: "held-d", sender: other, body: "Log this on Sam." }]);
+      await readHeldMessage(held.id);
+      const args = argsOf("bodies");
+      assert.equal(flag(args, "--allowedTools"), `${GMAIL}get_message`);
+      assert.match(flag(args, "--settings"), /'bodies' '[^']*' 'held-d' \|\| exit 2/);
+      const now = row("held-d");
+      assert.deepEqual([now.status, now.subject, now.body, now.verified], ["routed", "Catch-up", "Log this on Sam.", 0]);
+      assert.match(content(now.log_draft_id), /\(unverified\)/, "a note at its top is context, not an instruction");
+      assert.equal(inboxReading(held.id), false);
+    });
+
+    test("a reading that names a different sender is kept out, and its text isn't kept", async () => {
+      const held = await hold("held-e");
+      reading([{ id: "held-e", sender: "x@evil.example" }]);
+      await readHeldMessage(held.id);
+      const now = row("held-e");
+      assert.deepEqual([now.status, now.route, now.subject, now.body], ["ignored", "unknown sender", "", ""]);
+    });
+
+    test("a reading that fails leaves it held, with the reason, and can be tried again", async () => {
+      const held = await hold("held-f");
+      reading([]);
+      await readHeldMessage(held.id);
+      assert.equal(row("held-f").status, "held");
+      assert.match(row("held-f").error ?? "", /couldn't see Gmail's answers|never reached Gmail/);
+      assert.equal(inboxReading(held.id), false);
+      reading([{ id: "held-f", sender: other }]);
+      await readHeldMessage(held.id);
+      assert.equal(row("held-f").status, "routed");
+      assert.equal(row("held-f").error, null);
+    });
+
+    test("ignoring it while it's being read stands, and a second click doesn't start a second run", async () => {
+      const held = await hold("held-g");
+      reading([{ id: "held-g", sender: other, body: "secret" }]);
+      fs.rmSync(file("args-bodies.txt"), { force: true });
+      const first = readHeldMessage(held.id);
+      assert.equal(inboxReading(held.id), true, "marked before the first await, so the page it returns to shows it");
+      const second = readHeldMessage(held.id);
+      getDb().prepare(`UPDATE inbox_messages SET status='ignored', body='' WHERE id=?`).run(held.id);
+      await Promise.all([first, second]);
+      assert.deepEqual([row("held-g").status, row("held-g").body, row("held-g").log_draft_id], ["ignored", "", null]);
+    });
+
+    test("nothing else can route it: there is no text, and reading it is the owner's choice", async () => {
+      const held = await hold("held-h");
+      const drafts = logDrafts();
+      routeMessage(getDb(), held.id, "log");
+      routeMessage(getDb(), held.id, "intake");
+      routeMessage(getDb(), held.id);
+      assert.equal(row("held-h").status, "held");
+      assert.equal(logDrafts(), drafts);
+    });
+
+    test("only held mail can be read this way", async () => {
+      const db = getDb();
+      const id = Number(db.prepare(`INSERT INTO inbox_messages (gmail_id, sender, body, status, route) VALUES ('stranger-1', 'pat@x.example', '', 'ignored', 'unknown sender')`).run().lastInsertRowid);
+      fs.rmSync(file("args-bodies.txt"), { force: true });
+      await readHeldMessage(id);
+      assert.ok(!fs.existsSync(file("args-bodies.txt")));
+      assert.equal(row("stranger-1").status, "ignored");
     });
   });
 
