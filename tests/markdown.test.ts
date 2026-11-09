@@ -28,7 +28,9 @@ describe("Markdown sanitisation", () => {
     assert.match(render("[reuters.com](https://rs.com/)"), /↗ rs\.com/);
     assert.match(render("[see reuters.com today](https://rs.com/)"), /↗ rs\.com/);
     assert.match(render("[reuters.com@rs.com](https://rs.com/)"), /↗ rs\.com/);
-    assert.match(render("[rеuters.com](https://xn--ruters-3ve.com/)"), /↗ xn--/, "letters that only look like another site's");
+    // A Cyrillic "е" in both the text and the address: the site note shows the real (xn--) name. Written as the
+    // look-alike itself, not a hand-made xn-- name, which older Node versions reject as invalid.
+    assert.match(render("[rеuters.com](https://rеuters.com/)"), /↗ xn--ruters-3of\.com/, "letters that only look like another site's");
     // Text that really is the site's own address doesn't repeat it.
     assert.doesNotMatch(render("[reuters.com/x](https://www.reuters.com/x)"), /↗/);
     assert.doesNotMatch(render("https://www.reuters.com/x"), /↗/);
